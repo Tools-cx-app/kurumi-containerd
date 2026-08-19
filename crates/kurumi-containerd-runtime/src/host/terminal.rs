@@ -33,12 +33,21 @@ pub(crate) struct Console {
 
 impl Console {
     pub(crate) fn open() -> Result<Self> {
-        let winsize = terminal_size(std::io::stdin().as_fd()).ok();
+        Self::open_from(std::io::stdin().as_fd())
+    }
+
+    fn open_from(source: BorrowedFd<'_>) -> Result<Self> {
+        let winsize = terminal_size(source).ok();
+        let settings = terminal_settings(source).ok();
         let PtyPair { master, slave } = if effective_uid() == 0 {
             open_console_pty_unprivileged(winsize.as_ref())?
         } else {
             open_console_pty(winsize.as_ref())?
         };
+        if let Some(settings) = &settings {
+            set_terminal_settings(slave.as_fd(), settings)
+                .context("failed to copy terminal settings to PTY")?;
+        }
         // Keep the broker-owned UID on the host PTY, but pin the expected tty mode.
         let _ = set_file_mode(slave.as_fd(), PTY_MODE);
         Ok(Self {
@@ -407,5 +416,23 @@ mod tests {
         send_fd(&sender, &console.master).unwrap();
         let transferred = receive_fd(&receiver).unwrap();
         assert!(is_terminal(transferred.as_fd()).unwrap());
+    }
+
+    #[test]
+    fn copies_source_terminal_settings() {
+        let source = open_pty(None).unwrap();
+        let mut settings = terminal_settings(source.slave.as_fd()).unwrap();
+        make_raw(&mut settings);
+        set_terminal_settings(source.slave.as_fd(), &settings).unwrap();
+
+        let console = Console::open_from(source.slave.as_fd()).unwrap();
+        let slave = console.open_slave().unwrap();
+        write(&console.master, b"x").unwrap();
+
+        assert!(
+            poll_terminal(slave.as_fd(), source.master.as_fd(), false)
+                .unwrap()
+                .0
+        );
     }
 }
