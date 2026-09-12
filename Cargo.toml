@@ -35,7 +35,7 @@ uuid = { version = "1.17", features = ["v4", "serde"] }
 which = "8.0.5"
 xz2 = "0.1"
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
-zstd = { version = "0.13", default-features = false }
+zstd = { version = "0.14", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "warn"
