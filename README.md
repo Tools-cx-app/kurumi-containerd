@@ -26,6 +26,7 @@ resources when compiled for and executed on Android.
 - Container entry and command execution without an external `nsenter`
 - Persistent, PID-reuse-resistant runtime state
 - Seccomp filtering and read-only kernel views
+- Optional user-namespace support for nested Docker, Podman, Flatpak, and Bubblewrap workloads
 - Optional Android host integration without an Android app
 
 ## Requirements

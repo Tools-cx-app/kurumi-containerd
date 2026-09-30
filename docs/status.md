@@ -17,6 +17,7 @@ but operators should evaluate it on disposable systems before relying on it.
 - Init-aware graceful shutdown and internal reboot generations
 - PTY consoles and interactive sessions using descriptor passing
 - Seccomp, read-only sys/proc controls, and bind masks
+- Optional pristine proc/sysfs mounts for nested user-namespace sandboxes
 - Optional Android storage/device/socket integration in the runtime
 
 ## Current limitations

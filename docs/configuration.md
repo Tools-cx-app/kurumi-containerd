@@ -93,6 +93,15 @@ v1. Memory must be at least 4 MiB. CPU quota and period must be configured
 together; quota must be at least 1000. The PID limit must be between 1 and
 4194304.
 
+Set `allow_user_namespaces = true` for workloads that create unprivileged
+user namespaces, such as Docker with userns-remap, Podman, Flatpak, or
+Bubblewrap. In this mode the runtime keeps the normal `/proc` and `/sys`
+hardening, and also exposes fresh filesystem instances at
+`/run/kurumi-containerd/proc` and `/run/kurumi-containerd/sys` so nested
+runtime mounts can pass the kernel visibility checks. The proc instance is
+writable and the sysfs instance is read-only, so enabling this option weakens
+container isolation. Enable it only for trusted workloads.
+
 ## Environment and mounts
 
 ```toml

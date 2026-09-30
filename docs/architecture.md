@@ -61,7 +61,7 @@ src/
 The main modules are:
 
 - `runtime/lifecycle.rs`: start, monitor, boot generations, shutdown, and cleanup
-- `runtime/boot.rs`: namespace-internal mounts, pivot, environment, and init execution
+- `runtime/boot.rs`: namespace-internal mounts, pivot, nested sandbox mounts, environment, and init execution
 - `runtime/supervisor.rs`: wait/retry, signal policy, and child supervision helpers
 - `runtime/state.rs`: public state types, secure persistence, metrics, and recovery
 - `runtime/execute.rs`: namespace entry, command execution, and interactive login
@@ -74,6 +74,22 @@ The main modules are:
 - `host/network.rs`: veth, bridges, NAT, forwarding, and rollback
 - `host/cgroup.rs`: cgroup v1/v2 resource limits and hierarchy detection
 - `host/android.rs`: Android host integration on Android targets
+
+## Nested user namespaces
+
+When `container.security.allow_user_namespaces` is enabled, `runtime/boot.rs`
+mounts `/run` before the regular container filesystem setup and creates two
+additional filesystem instances after `pivot_root`:
+
+- `/run/kurumi-containerd/proc`: writable procfs with `nosuid,nodev,noexec`
+- `/run/kurumi-containerd/sys`: read-only sysfs with `ro,nosuid,nodev,noexec`
+
+The normal `/proc` and `/sys` mounts continue to receive the configured
+hardening and masks. The additional instances exist to satisfy the kernel's
+visibility requirement when Docker, Podman, or another nested sandbox mounts
+procfs/sysfs from an unprivileged user namespace. This option is explicitly
+not a hostile-workload boundary because the pristine proc view can expose
+host kernel sysctls.
 
 ## State and trust
 

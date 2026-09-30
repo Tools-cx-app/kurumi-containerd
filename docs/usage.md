@@ -64,6 +64,23 @@ container console to the current terminal. In a foreground console,
 Stop selects a shutdown protocol from the detected init family and escalates
 after `runtime.stop_timeout_seconds`.
 
+## Nested sandboxing
+
+Set the following option when the container must run a workload that creates
+unprivileged user namespaces:
+
+```toml
+[container.security]
+allow_user_namespaces = true
+```
+
+This is useful for Docker userns-remap, Podman, Flatpak, and Bubblewrap. The
+runtime keeps its regular `/proc` and `/sys` mounts and additionally provides
+fresh mounts at `/run/kurumi-containerd/proc` and `/run/kurumi-containerd/sys`.
+The first is writable and the second is read-only. Because the extra proc
+view can expose host kernel sysctls, this option reduces isolation and should
+be limited to trusted containers.
+
 ## Enter and run
 
 ```bash

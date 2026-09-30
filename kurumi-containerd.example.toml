@@ -41,6 +41,9 @@ selinux_permissive = false
 
 [container.security]
 read_only_sys = true
+# Enable for Docker userns-remap, Podman, Flatpak, or Bubblewrap workloads.
+# This exposes pristine proc/sysfs views under /run/kurumi-containerd and
+# weakens isolation; leave disabled unless the container needs nested sandboxing.
 allow_user_namespaces = false
 
 [container.environment]

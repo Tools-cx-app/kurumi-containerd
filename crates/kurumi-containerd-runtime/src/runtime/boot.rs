@@ -111,6 +111,18 @@ impl Runtime {
         chdir("/").context("failed to enter new root")?;
 
         mount(
+            Some(Path::new("tmpfs")),
+            Path::new("/run"),
+            Some("tmpfs"),
+            MountFlags::NOSUID | MountFlags::NODEV,
+            Some("mode=755"),
+        )
+        .context("failed to mount /run")?;
+        if self.config.container.security.allow_user_namespaces {
+            mount_pristine_proc_sysfs()?;
+        }
+
+        mount(
             Some(Path::new("proc")),
             Path::new("/proc"),
             Some("proc"),
@@ -157,14 +169,6 @@ impl Runtime {
                 .context("failed to mount legacy systemd cgroup hierarchy")?;
             }
         }
-        mount(
-            Some(Path::new("tmpfs")),
-            Path::new("/run"),
-            Some("tmpfs"),
-            MountFlags::NOSUID | MountFlags::NODEV,
-            Some("mode=755"),
-        )
-        .context("failed to mount /run")?;
         mount(
             Some(Path::new("tmpfs")),
             Path::new("/tmp"),
@@ -328,6 +332,28 @@ impl Runtime {
         .context("failed to mount volatile overlay")?;
         Ok(merged)
     }
+}
+
+fn mount_pristine_proc_sysfs() -> Result<()> {
+    fs::create_dir_all("/run/kurumi-containerd/proc")?;
+    fs::create_dir_all("/run/kurumi-containerd/sys")?;
+    mount(
+        Some(Path::new("proc")),
+        Path::new("/run/kurumi-containerd/proc"),
+        Some("proc"),
+        MountFlags::NOSUID | MountFlags::NODEV | MountFlags::NOEXEC,
+        None,
+    )
+    .context("failed to mount pristine proc")?;
+    mount(
+        Some(Path::new("sysfs")),
+        Path::new("/run/kurumi-containerd/sys"),
+        Some("sysfs"),
+        MountFlags::RDONLY | MountFlags::NOSUID | MountFlags::NODEV | MountFlags::NOEXEC,
+        None,
+    )
+    .context("failed to mount pristine sysfs")?;
+    Ok(())
 }
 
 fn strip_root(path: &Path) -> &Path {
