@@ -1,0 +1,210 @@
+name: Linux packages
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: Validate package version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read Cargo version
+        id: version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "kurumi-containerd") | .version')
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == tag && "${GITHUB_REF_NAME#v}" != "$version" ]]; then
+            echo "tag version ${GITHUB_REF_NAME#v} does not match Cargo version $version" >&2
+            exit 1
+          fi
+
+  package:
+    name: Package (${{ matrix.target }})
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+          - riscv64gc-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation toolchain
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+          runner: none
+
+      - name: Install RPM tooling
+        run: sudo apt-get update && sudo apt-get install --yes rpm
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: package-${{ matrix.target }}
+
+      - name: Build
+        run: cargo build -p kurumi-containerd --release --locked --target "${{ matrix.target }}"
+
+      - name: Build packages
+        env:
+          BINARY: target/${{ matrix.target }}/release/kurumi-containerd
+          OUTPUT_DIR: dist
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            x86_64-unknown-linux-gnu|x86_64-unknown-linux-musl) deb_arch=amd64; rpm_arch=x86_64 ;;
+            aarch64-unknown-linux-gnu|aarch64-unknown-linux-musl) deb_arch=arm64; rpm_arch=aarch64 ;;
+            armv7-unknown-linux-gnueabihf) deb_arch=armhf; rpm_arch=armv7hl ;;
+            riscv64gc-unknown-linux-gnu) deb_arch=riscv64; rpm_arch=riscv64 ;;
+            *) echo "unsupported target: $TARGET" >&2; exit 1 ;;
+          esac
+          test -f "$BINARY"
+          mkdir -p "$OUTPUT_DIR"
+          workdir=$(mktemp -d)
+          trap 'rm -rf "$workdir"' EXIT
+          name="kurumi-containerd-${VERSION}-linux-${TARGET}"
+          payload="$workdir/payload"
+          mkdir -p "$payload/usr/bin" "$payload/etc/kurumi-containerd" \
+            "$payload/usr/share/licenses/kurumi-containerd" "$payload/usr/lib/systemd/system"
+          install -m 0755 "$BINARY" "$payload/usr/bin/kurumi-containerd"
+          install -m 0644 kurumi-containerd.example.toml "$payload/etc/kurumi-containerd/kurumi-containerd.example.toml"
+          install -m 0644 LICENSE "$payload/usr/share/licenses/kurumi-containerd/LICENSE"
+          install -m 0644 systemd/kurumi-containerd.service "$payload/usr/lib/systemd/system/kurumi-containerd.service"
+
+          archive_root="$workdir/$name"
+          cp -a "$payload" "$archive_root"
+          tar -C "$workdir" -czf "$OUTPUT_DIR/$name.tar.gz" "$name"
+          tar_contents=$(tar -tzf "$OUTPUT_DIR/$name.tar.gz")
+          for path in "$name/usr/bin/kurumi-containerd" \
+            "$name/etc/kurumi-containerd/kurumi-containerd.example.toml" \
+            "$name/usr/share/licenses/kurumi-containerd/LICENSE" \
+            "$name/usr/lib/systemd/system/kurumi-containerd.service"; do
+            grep -qx "$path" <<<"$tar_contents"
+          done
+
+          deb_root="$workdir/deb"
+          mkdir -p "$deb_root/DEBIAN"
+          cp -a "$payload/." "$deb_root/"
+          cat > "$deb_root/DEBIAN/control" <<EOF
+          Package: kurumi-containerd
+          Version: $VERSION
+          Section: admin
+          Priority: optional
+          Architecture: $deb_arch
+          Maintainer: Kurumi Containerd contributors
+          Description: Privileged Linux container runtime
+          EOF
+          dpkg-deb --build --root-owner-group "$deb_root" "$OUTPUT_DIR/$name.deb" >/dev/null
+          test "$(dpkg-deb --field "$OUTPUT_DIR/$name.deb" Version)" = "$VERSION"
+          test "$(dpkg-deb --field "$OUTPUT_DIR/$name.deb" Architecture)" = "$deb_arch"
+          deb_contents=$(dpkg-deb --contents "$OUTPUT_DIR/$name.deb")
+          for path in usr/bin/kurumi-containerd etc/kurumi-containerd/kurumi-containerd.example.toml \
+            usr/share/licenses/kurumi-containerd/LICENSE usr/lib/systemd/system/kurumi-containerd.service; do
+            grep -q " $path$" <<<"$deb_contents"
+          done
+
+          rpm_top="$workdir/rpm"
+          mkdir -p "$rpm_top/BUILD" "$rpm_top/BUILDROOT" "$rpm_top/RPMS" "$rpm_top/SOURCES" "$rpm_top/SPECS" "$rpm_top/SRPMS"
+          cp -a "$payload" "$rpm_top/SOURCES/payload"
+          cat > "$rpm_top/SPECS/kurumi-containerd.spec" <<EOF
+          Name: kurumi-containerd
+          Version: $VERSION
+          Release: 1
+          Summary: Privileged Linux container runtime
+          License: GPL-3.0-or-later
+          BuildArch: $rpm_arch
+
+          %description
+          Privileged Linux container runtime.
+
+          %prep
+          %build
+          %install
+          rm -rf %{buildroot}
+          mkdir -p %{buildroot}
+          cp -a %{_sourcedir}/payload/. %{buildroot}/
+
+          %files
+          /usr/bin/kurumi-containerd
+          %config(noreplace) /etc/kurumi-containerd/kurumi-containerd.example.toml
+          /usr/share/licenses/kurumi-containerd/LICENSE
+          /usr/lib/systemd/system/kurumi-containerd.service
+          EOF
+          rpmbuild --define "_topdir $rpm_top" --define "_build_id_links none" -bb "$rpm_top/SPECS/kurumi-containerd.spec" >/dev/null
+          rpm_file=$(find "$rpm_top/RPMS" -type f -name '*.rpm' -print -quit)
+          test -n "$rpm_file"
+          cp "$rpm_file" "$OUTPUT_DIR/$name.rpm"
+          test "$(rpm -qp --qf '%{VERSION}\n' "$OUTPUT_DIR/$name.rpm")" = "$VERSION"
+          test "$(rpm -qp --qf '%{ARCH}\n' "$OUTPUT_DIR/$name.rpm")" = "$rpm_arch"
+          rpm_contents=$(rpm -qpl "$OUTPUT_DIR/$name.rpm")
+          for path in /usr/bin/kurumi-containerd /etc/kurumi-containerd/kurumi-containerd.example.toml \
+            /usr/share/licenses/kurumi-containerd/LICENSE /usr/lib/systemd/system/kurumi-containerd.service; do
+            grep -qx "$path" <<<"$rpm_contents"
+          done
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: kurumi-containerd-${{ needs.validate.outputs.version }}-linux-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    if: github.ref_type == 'tag'
+    needs: [validate, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v7
+        with:
+          path: dist
+          pattern: kurumi-containerd-${{ needs.validate.outputs.version }}-linux-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum *.deb *.rpm *.tar.gz > SHA256SUMS
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          generate_release_notes: true
+          fail_on_unmatched_files: true

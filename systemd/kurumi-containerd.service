@@ -1,0 +1,11 @@
+[Unit]
+Description=Kurumi Containerd
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/kurumi-containerd --config /etc/kurumi-containerd/kurumi-containerd.toml start
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
