@@ -52,6 +52,23 @@ cargo build --release
 
 The binary is written to `target/release/kurumi-containerd`.
 
+## Releases
+
+Push a version tag matching `[workspace.package].version` in `Cargo.toml`
+(for example, `git tag v0.2.1 && git push origin v0.2.1`) to automatically
+build and publish a GitHub Release. Tags with a prerelease suffix are marked
+as prereleases. Publication waits for all ten build targets to succeed.
+
+- GNU Linux (x86_64, aarch64, armv7, riscv64): `.deb`, `.rpm`, and `.tar.xz`.
+- musl Linux (x86_64, aarch64) and Android (all four CI ABIs): `.tar.xz`.
+- `SHA256SUMS` contains checksums for all release packages.
+
+Archives contain the executable, license, READMEs and example configuration.
+Debian/RPM packages install the executable into `/usr/bin` and documentation
+and the example configuration into `/usr/share/doc/kurumi-containerd`.
+GNU packages require the libc version used by the build toolchain or newer;
+use the musl archives when a portable Linux binary is needed.
+
 ## Quick Start
 
 Create a configuration from the example and update the rootfs path:

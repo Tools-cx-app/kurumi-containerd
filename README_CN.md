@@ -49,6 +49,21 @@ cargo build --release
 
 生成的二进制位于 `target/release/kurumi-containerd`。
 
+## 自动发布
+
+推送与 `Cargo.toml` 中 `[workspace.package].version` 一致的版本标签
+（例如 `git tag v0.2.1 && git push origin v0.2.1`）后，自动构建并创建 GitHub Release。
+带预发布后缀的版本标记为 prerelease，全部 10 个目标构建成功后才发布。
+
+- GNU Linux（x86_64、aarch64、armv7、riscv64）：`.deb`、`.rpm`、`.tar.xz`。
+- musl Linux（x86_64、aarch64）和 Android（CI 中的四种 ABI）：`.tar.xz`。
+- `SHA256SUMS` 包含所有发布包的校验和。
+
+压缩包包含可执行文件、许可证、README 和示例配置。
+Debian/RPM 包将程序安装到 `/usr/bin`，文档和示例配置安装到
+`/usr/share/doc/kurumi-containerd`。GNU 包要求系统 libc 不低于构建工具链使用的版本；
+需要便携 Linux 程序时可使用 musl 压缩包。
+
 ## 快速开始
 
 ```bash

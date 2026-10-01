@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: Validate release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate tag against Cargo version
+        id: version
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import tomllib
+
+          with open("Cargo.toml", "rb") as source:
+              version = tomllib.load(source)["workspace"]["package"]["version"]
+          if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version):
+              raise SystemExit(f"Unsupported release version: {version}")
+          if os.environ["GITHUB_REF_NAME"] != f"v{version}":
+              raise SystemExit(f"Release tag must match Cargo version: v{version}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={version}\n")
+          PY
+      - name: Validate packaging scripts
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes rpm shellcheck
+          shellcheck .github/scripts/package-release.sh
+          python3 .github/scripts/test-package-release.py
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            target: x86_64-unknown-linux-gnu
+          - platform: linux
+            target: aarch64-unknown-linux-gnu
+          - platform: linux
+            target: armv7-unknown-linux-gnueabihf
+          - platform: linux
+            target: riscv64gc-unknown-linux-gnu
+          - platform: linux
+            target: x86_64-unknown-linux-musl
+          - platform: linux
+            target: aarch64-unknown-linux-musl
+          - platform: android
+            target: aarch64-linux-android
+            abi: arm64-v8a
+          - platform: android
+            target: armv7-linux-androideabi
+            abi: armeabi-v7a
+          - platform: android
+            target: x86_64-linux-android
+            abi: x86_64
+          - platform: android
+            target: i686-linux-android
+            abi: x86
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install Linux cross-compilation toolchain
+        if: matrix.platform == 'linux'
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+          runner: none
+      - name: Install cargo-ndk
+        if: matrix.platform == 'android'
+        uses: taiki-e/install-action@v2.87.13
+        with:
+          tool: cargo-ndk
+      - name: Install native package tools
+        if: matrix.platform == 'linux' && contains(matrix.target, '-gnu')
+        run: sudo apt-get update && sudo apt-get install --yes rpm
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - name: Build Linux
+        if: matrix.platform == 'linux'
+        run: cargo build --workspace --release --locked --target "${{ matrix.target }}"
+      - name: Build Android
+        if: matrix.platform == 'android'
+        run: cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --release --locked
+      - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
+          PLATFORM: ${{ matrix.platform }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: bash .github/scripts/package-release.sh
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          sha256sum -- *.deb *.rpm *.tar.xz > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.xz
+            dist/SHA256SUMS
+          generate_release_notes: true
+          prerelease: ${{ contains(needs.validate.outputs.version, '-') }}
+          fail_on_unmatched_files: true
