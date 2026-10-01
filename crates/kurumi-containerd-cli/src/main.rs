@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use kurumi_containerd_config::Config;
 use kurumi_containerd_helper::process::{
-    ForkResult, NamespaceFlags, WaitStatus, fork, unshare, waitpid,
+    ForkResult, NamespaceFlags, WaitStatus, fork, is_interrupted, unshare, waitpid,
 };
 use kurumi_containerd_runtime::{ContainerInfo, ContainerState, Runtime};
 use tracing::level_filters::LevelFilter;
@@ -129,8 +129,18 @@ fn main() -> Result<()> {
             let state = runtime.restart(foreground)?;
             log_started(&state);
         }
-        Commands::Enter { user } => runtime.enter(&user)?,
-        Commands::Run { command } => runtime.run(&command)?,
+        Commands::Enter { user } => {
+            let status = runtime.enter(&user)?;
+            if status != 0 {
+                std::process::exit(status);
+            }
+        }
+        Commands::Run { command } => {
+            let status = runtime.run(&command)?;
+            if status != 0 {
+                std::process::exit(status);
+            }
+        }
         Commands::Info => log_info(&runtime.info()?),
         Commands::Pid => tracing::info!(pid = runtime.pid()?, "container PID"),
         Commands::Show => log_containers(&runtime.list()?),
@@ -220,9 +230,13 @@ fn probe_namespace(flag: NamespaceFlags) -> bool {
             let code = i32::from(unshare(flag).is_err());
             std::process::exit(code);
         }
-        Ok(ForkResult::Parent { child }) => {
-            matches!(waitpid(child, false), Ok(WaitStatus::Exited(_, 0)))
-        }
+        Ok(ForkResult::Parent { child }) => loop {
+            match waitpid(child, false) {
+                Ok(status) => break matches!(status, WaitStatus::Exited(_, 0)),
+                Err(error) if is_interrupted(&error) => {}
+                Err(_) => break false,
+            }
+        },
     }
 }
 

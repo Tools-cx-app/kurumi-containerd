@@ -234,6 +234,12 @@ pub fn is_terminal(fd: BorrowedFd<'_>) -> io::Result<bool> {
     }
 }
 
+pub fn set_nonblocking(fd: BorrowedFd<'_>) -> io::Result<()> {
+    // SAFETY: fd remains live and fcntl receives valid command arguments.
+    let flags = cvt(unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) })?;
+    cvt(unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) }).map(drop)
+}
+
 pub struct TerminalSettings(libc::termios);
 
 impl Clone for TerminalSettings {
@@ -313,7 +319,7 @@ fn cmsg_space(count: usize) -> usize {
 mod tests {
     use std::os::fd::{AsFd, AsRawFd};
 
-    use super::{receive_fds, send_fds, socket_pair};
+    use super::{receive_fds, send_fds, set_nonblocking, socket_pair};
 
     #[test]
     fn transfers_descriptors_with_close_on_exec() {
@@ -327,5 +333,15 @@ mod tests {
         let flags = unsafe { libc::fcntl(descriptors[0].as_raw_fd(), libc::F_GETFD) };
         assert_ne!(flags, -1);
         assert_ne!(flags & libc::FD_CLOEXEC, 0);
+    }
+
+    #[test]
+    fn enables_nonblocking_io() {
+        let (sender, _) = socket_pair().unwrap();
+        set_nonblocking(sender.as_fd()).unwrap();
+
+        // SAFETY: sender owns a live descriptor.
+        let flags = unsafe { libc::fcntl(sender.as_raw_fd(), libc::F_GETFL) };
+        assert_ne!(flags & libc::O_NONBLOCK, 0);
     }
 }

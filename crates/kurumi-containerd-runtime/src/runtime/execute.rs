@@ -26,7 +26,7 @@ impl Runtime {
     ///
     /// Returns an error when the user is invalid, the container is stopped, or
     /// an interactive login shell cannot be executed.
-    pub fn enter(&self, user: &str) -> Result<()> {
+    pub fn enter(&self, user: &str) -> Result<i32> {
         ensure!(valid_login_name(user), "invalid login user name");
         self.execute(&[], Some(user))
     }
@@ -36,15 +36,15 @@ impl Runtime {
     /// # Errors
     ///
     /// Returns an error when the container is stopped, namespaces cannot be
-    /// joined, or the command exits unsuccessfully.
-    pub fn run(&self, command: &[String]) -> Result<()> {
+    /// joined, or the command status cannot be collected.
+    pub fn run(&self, command: &[String]) -> Result<i32> {
         ensure!(!command.is_empty(), "no command specified");
         self.execute(command, None)
     }
 
-    #[allow(unsafe_code)]
     #[allow(clippy::too_many_lines)]
-    fn execute(&self, command: &[String], login_user: Option<&str>) -> Result<()> {
+    #[allow(unsafe_code)]
+    fn execute(&self, command: &[String], login_user: Option<&str>) -> Result<i32> {
         Self::ensure_root()?;
         let lock = self.lock()?;
         let state = self.require_state()?;
@@ -189,13 +189,10 @@ impl Runtime {
     }
 }
 
-fn command_status(status: WaitStatus) -> Result<()> {
+fn command_status(status: WaitStatus) -> Result<i32> {
     match status {
-        WaitStatus::Exited(_, 0) => Ok(()),
-        WaitStatus::Exited(_, code) => bail!("command exited with status {code}"),
-        WaitStatus::Signaled(_, signal, _) => {
-            bail!("command terminated by {}", signal.name())
-        }
+        WaitStatus::Exited(_, code) => Ok(code),
+        WaitStatus::Signaled(_, signal, _) => Ok(128 + signal.raw()),
         status => bail!("unexpected command status: {status:?}"),
     }
 }
@@ -346,5 +343,14 @@ mod tests {
         assert!(!valid_login_name(""));
         assert!(!valid_login_name("../../root"));
         assert!(!valid_login_name("user:name"));
+    }
+
+    #[test]
+    fn preserves_command_exit_status() {
+        assert_eq!(command_status(WaitStatus::Exited(123, 7)).unwrap(), 7);
+        assert_eq!(
+            command_status(WaitStatus::Signaled(123, Signal::Interrupt.into(), false)).unwrap(),
+            130
+        );
     }
 }

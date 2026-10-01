@@ -10,6 +10,7 @@ kurumi-containerd-config = { path = "../kurumi-containerd-config" }
 fs2.workspace = true
 flate2.workspace = true
 kurumi-containerd-helper.workspace = true
+libc.workspace = true
 mio.workspace = true
 procfs.workspace = true
 serde.workspace = true

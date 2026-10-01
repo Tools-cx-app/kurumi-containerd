@@ -359,6 +359,7 @@ dependencies = [
  "fs2",
  "kurumi-containerd-config",
  "kurumi-containerd-helper",
+ "libc",
  "mio",
  "procfs",
  "serde",

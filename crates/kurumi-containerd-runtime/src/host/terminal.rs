@@ -4,6 +4,8 @@ use std::{
     sync::atomic::{AtomicI32, Ordering},
 };
 
+use super::process::ProcessHandle;
+use crate::container::init::{self, InitSystem};
 use anyhow::{Context, Result, bail};
 use kurumi_containerd_helper::{
     fs::set_file_mode,
@@ -14,14 +16,10 @@ use kurumi_containerd_helper::{
     signal::{Signal, SignalActionFlags, SignalHandler, SignalNumber, set_signal_handler},
     terminal::{
         PtyPair, TerminalSettings, WindowSize, is_terminal, make_raw, open_pty, pty_number,
-        receive_fds, send_fds, set_controlling_terminal, set_terminal_settings, set_terminal_size,
-        socket_pair, terminal_settings, terminal_size,
+        receive_fds, send_fds, set_controlling_terminal, set_nonblocking, set_terminal_settings,
+        set_terminal_size, socket_pair, terminal_settings, terminal_size,
     },
 };
-use mio::{Events, Interest, Poll, Token, unix::SourceFd};
-
-use super::process::ProcessHandle;
-use crate::container::init::{self, InitSystem};
 
 static FORWARDED_SIGNAL: AtomicI32 = AtomicI32::new(0);
 const PTY_MODE: u32 = 0o620;
@@ -199,6 +197,8 @@ pub(crate) fn proxy(
     let mut child_status = None;
     let mut quiet_polls_after_exit = 0_u8;
     let mut buffer = [0_u8; 16 * 1024];
+    let mut pending_input = Vec::new();
+    set_nonblocking(master.as_fd()).context("failed to set PTY nonblocking")?;
     loop {
         if let Some((target, _)) = shutdown_target {
             let signal = FORWARDED_SIGNAL.swap(0, Ordering::Relaxed);
@@ -208,9 +208,13 @@ pub(crate) fn proxy(
                     .context("failed to forward foreground signal")?;
             }
         }
-        let mut read_output = false;
         sync_terminal_size(stdin.as_fd(), master.as_fd())?;
-        let (output_ready, read_input) = poll_terminal(master.as_fd(), stdin.as_fd(), stdin_open)?;
+        let (output_ready, read_input, write_ready) = poll_terminal(
+            master.as_fd(),
+            stdin.as_fd(),
+            stdin_open,
+            !pending_input.is_empty(),
+        )?;
 
         if output_ready {
             match read(master, &mut buffer) {
@@ -227,7 +231,6 @@ pub(crate) fn proxy(
                     }
                 }
                 Ok(length) => {
-                    read_output = true;
                     stdout.write_all(&buffer[..length])?;
                     stdout.flush()?;
                 }
@@ -246,14 +249,23 @@ pub(crate) fn proxy(
                         init::request_shutdown(target, system)
                             .context("failed to request foreground shutdown")?;
                         if length > 2 {
-                            write_all(master, &input[2..])?;
+                            pending_input.extend_from_slice(&input[2..]);
                         }
                     } else {
-                        write_all(master, input)?;
+                        pending_input.extend_from_slice(input);
                     }
                 }
                 Err(error) if is_interrupted(&error) || is_would_block(&error) => {}
                 Err(error) => return Err(error).context("failed to read terminal input"),
+            }
+        }
+        if write_ready && !pending_input.is_empty() {
+            match write(master, &pending_input) {
+                Ok(length) => {
+                    pending_input.drain(..length);
+                }
+                Err(error) if is_interrupted(&error) || is_would_block(&error) => {}
+                Err(error) => return Err(error).context("failed to write PTY input"),
             }
         }
         if child_status.is_none() {
@@ -263,7 +275,7 @@ pub(crate) fn proxy(
             }
         }
         if let Some(status) = child_status {
-            if read_output {
+            if output_ready {
                 quiet_polls_after_exit = 0;
             } else {
                 quiet_polls_after_exit += 1;
@@ -276,47 +288,43 @@ pub(crate) fn proxy(
     }
 }
 
+#[allow(unsafe_code)]
 fn poll_terminal(
     master: BorrowedFd<'_>,
     stdin: BorrowedFd<'_>,
     stdin_open: bool,
-) -> Result<(bool, bool)> {
-    let mut poll = Poll::new().context("failed to create terminal poller")?;
-    let master_fd = master.as_raw_fd();
-    poll.registry()
-        .register(&mut SourceFd(&master_fd), Token(0), Interest::READABLE)
-        .context("failed to register terminal output")?;
-    let stdin_fd = stdin.as_raw_fd();
-    if stdin_open {
-        poll.registry()
-            .register(&mut SourceFd(&stdin_fd), Token(1), Interest::READABLE)
-            .context("failed to register terminal input")?;
+    write_pending: bool,
+) -> Result<(bool, bool, bool)> {
+    let mut descriptors = [
+        libc::pollfd {
+            fd: master.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        },
+        libc::pollfd {
+            fd: stdin.as_raw_fd(),
+            events: if stdin_open { libc::POLLIN } else { 0 },
+            revents: 0,
+        },
+    ];
+    if write_pending {
+        descriptors[0].events |= libc::POLLOUT;
     }
-    let mut events = Events::with_capacity(2);
-    if let Err(error) = poll.poll(&mut events, Some(std::time::Duration::from_millis(100)))
-        && !is_interrupted(&error)
-    {
-        return Err(error).context("failed to poll terminal proxy");
-    }
-    Ok(events
-        .iter()
-        .fold((false, false), |ready, event| match event.token() {
-            Token(0) => (true, ready.1),
-            Token(1) => (ready.0, true),
-            _ => ready,
-        }))
-}
-
-fn write_all(fd: &OwnedFd, mut bytes: &[u8]) -> Result<()> {
-    while !bytes.is_empty() {
-        match write(fd, bytes) {
-            Ok(0) => bail!("PTY stopped accepting input"),
-            Ok(length) => bytes = &bytes[length..],
-            Err(error) if is_interrupted(&error) => {}
-            Err(error) => return Err(error).context("failed to write PTY input"),
+    loop {
+        // SAFETY: descriptors points to two initialized pollfd values.
+        let result = unsafe { libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, 100) };
+        if result >= 0 {
+            return Ok((
+                descriptors[0].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0,
+                descriptors[1].revents & libc::POLLIN != 0,
+                descriptors[0].revents & libc::POLLOUT != 0,
+            ));
+        }
+        let error = std::io::Error::last_os_error();
+        if !is_interrupted(&error) {
+            return Err(error).context("failed to poll terminal proxy");
         }
     }
-    Ok(())
 }
 
 struct RawTerminal {
@@ -430,7 +438,7 @@ mod tests {
         write(&console.master, b"x").unwrap();
 
         assert!(
-            poll_terminal(slave.as_fd(), source.master.as_fd(), false)
+            poll_terminal(slave.as_fd(), source.master.as_fd(), false, false)
                 .unwrap()
                 .0
         );
