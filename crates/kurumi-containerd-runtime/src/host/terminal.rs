@@ -6,7 +6,10 @@ use std::{
 
 use super::process::ProcessHandle;
 use crate::container::init::{self, InitSystem};
-use anyhow::{Context, Result, bail};
+use crate::{
+    Result,
+    error::{ErrorContext as _, bail},
+};
 use kurumi_containerd_helper::{
     fs::set_file_mode,
     process::{

@@ -7,7 +7,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use anyhow::{Result, bail};
+use crate::{Result, RuntimeError, error::bail};
 use kurumi_containerd_config::Config;
 use kurumi_containerd_helper::{
     fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW, OPEN_NONBLOCK},
@@ -33,11 +33,14 @@ impl Init {
         let relative = self
             .path
             .strip_prefix("/")
-            .map_err(|_| anyhow::anyhow!("container.init must be an absolute path"))?;
+            .map_err(|_| RuntimeError::Message("container.init must be an absolute path".into()))?;
         let init = resolve_inside_rootfs(rootfs, relative)?;
         let metadata = init
             .symlink_metadata()
-            .map_err(|error| anyhow::anyhow!("init does not exist: {}: {error}", init.display()))?;
+            .map_err(|error| RuntimeError::Context {
+                context: format!("init does not exist: {}", init.display()),
+                source: Box::new(error),
+            })?;
         if !metadata.is_file() {
             bail!("init is not a regular file: {}", init.display());
         }

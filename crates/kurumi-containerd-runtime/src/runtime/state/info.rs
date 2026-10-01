@@ -3,7 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result};
+use crate::{Result, error::ErrorContext as _};
 use procfs::process::all_processes;
 use serde::Serialize;
 use uuid::Uuid;

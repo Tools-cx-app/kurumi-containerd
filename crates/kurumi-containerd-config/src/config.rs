@@ -6,11 +6,84 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use anyhow::{Context, Result, bail, ensure};
 use fs2::FileExt;
 use uuid::Uuid;
 
 use crate::{Config, NetworkMode, Protocol};
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("{0}")]
+    Invalid(String),
+    #[error("{context}: {source}")]
+    Io {
+        context: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{context}: {source}")]
+    TomlParse {
+        context: String,
+        #[source]
+        source: toml::de::Error,
+    },
+    #[error("failed to serialize persistent TOML config: {0}")]
+    TomlSerialize(#[from] toml::ser::Error),
+    #[error(transparent)]
+    PlainIo(#[from] std::io::Error),
+    #[error("{context}: {source}")]
+    Context {
+        context: String,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+}
+
+pub type Result<T> = std::result::Result<T, ConfigError>;
+
+trait ErrorContext<T> {
+    fn context(self, context: &'static str) -> Result<T>;
+    fn with_context(self, context: impl FnOnce() -> String) -> Result<T>;
+}
+
+impl<T, E: Into<ConfigError>> ErrorContext<T> for std::result::Result<T, E> {
+    fn context(self, context: &'static str) -> Result<T> {
+        self.with_context(|| context.to_owned())
+    }
+
+    fn with_context(self, context: impl FnOnce() -> String) -> Result<T> {
+        self.map_err(|source| match source.into() {
+            ConfigError::PlainIo(source) => ConfigError::Io {
+                context: context(),
+                source,
+            },
+            source => ConfigError::Context {
+                context: context(),
+                source: Box::new(source),
+            },
+        })
+    }
+}
+
+impl<T> ErrorContext<T> for Option<T> {
+    fn context(self, context: &'static str) -> Result<T> {
+        self.ok_or_else(|| ConfigError::Invalid(context.to_owned()))
+    }
+
+    fn with_context(self, context: impl FnOnce() -> String) -> Result<T> {
+        self.ok_or_else(|| ConfigError::Invalid(context()))
+    }
+}
+
+macro_rules! bail {
+    ($($arg:tt)*) => { return Err(ConfigError::Invalid(format!($($arg)*))) };
+}
+
+macro_rules! ensure {
+    ($condition:expr, $($arg:tt)*) => {
+        if !$condition { bail!($($arg)*); }
+    };
+}
 
 impl Config {
     /// Loads, resolves, and validates a TOML configuration.
@@ -37,8 +110,11 @@ impl Config {
     fn load_with(path: &Path, installing: bool) -> Result<Self> {
         let source = fs::read_to_string(path)
             .with_context(|| format!("failed to read config {}", path.display()))?;
-        let mut config: Self = toml::from_str(&source)
-            .with_context(|| format!("failed to parse TOML config {}", path.display()))?;
+        let mut config: Self =
+            toml::from_str(&source).map_err(|source| ConfigError::TomlParse {
+                context: format!("failed to parse TOML config {}", path.display()),
+                source,
+            })?;
         config.resolve_paths(path, installing)?;
         config.validate_inner(!installing)?;
         Ok(config)
@@ -78,8 +154,11 @@ impl Config {
         if config.container.uuid.is_none() {
             let source = fs::read_to_string(&persistent_path)
                 .with_context(|| format!("failed to read config {}", path.display()))?;
-            let mut document: toml::Value = toml::from_str(&source)
-                .with_context(|| format!("failed to parse TOML config {}", path.display()))?;
+            let mut document: toml::Value =
+                toml::from_str(&source).map_err(|source| ConfigError::TomlParse {
+                    context: format!("failed to parse TOML config {}", path.display()),
+                    source,
+                })?;
             let container = document
                 .get_mut("container")
                 .and_then(toml::Value::as_table_mut)
@@ -88,8 +167,7 @@ impl Config {
                 "uuid".to_owned(),
                 toml::Value::String(Uuid::new_v4().to_string()),
             );
-            let encoded = toml::to_string_pretty(&document)
-                .context("failed to serialize persistent TOML config")?;
+            let encoded = toml::to_string_pretty(&document)?;
             let temporary = persistent_path.with_extension(format!("{}.tmp", Uuid::new_v4()));
             let metadata = fs::metadata(&persistent_path)?;
             let result = (|| {
@@ -112,7 +190,7 @@ impl Config {
                         .context("config path has no parent")?,
                 )?
                 .sync_all()?;
-                Ok::<(), anyhow::Error>(())
+                Ok::<(), ConfigError>(())
             })();
             if result.is_err() {
                 fs::remove_file(&temporary).ok();

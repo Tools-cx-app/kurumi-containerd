@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use crate::{Result, error::ErrorContext as _};
 use kurumi_containerd_config::SecurityConfig;
 #[cfg(any(
     target_arch = "x86_64",

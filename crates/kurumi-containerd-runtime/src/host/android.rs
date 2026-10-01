@@ -5,7 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, ensure};
+use crate::{
+    Result,
+    error::{ErrorContext as _, ensure},
+};
 use fs2::FileExt;
 use kurumi_containerd_config::AndroidConfig;
 use kurumi_containerd_helper::fs::{MountFlags, OPEN_CLOEXEC, OPEN_NOFOLLOW, mount};

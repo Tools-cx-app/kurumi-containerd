@@ -1,17 +1,19 @@
 //! Core container lifecycle and host-integration primitives for `KurumiContainerd`.
 
 mod container;
+mod error;
 mod host;
 mod runtime;
 
 use std::path::PathBuf;
 
-#[cfg(target_os = "android")]
-use anyhow::Context;
-use anyhow::Result;
 use kurumi_containerd_config::Config;
 
+#[cfg(target_os = "android")]
+use crate::error::ErrorContext as _;
+pub use crate::error::RuntimeError;
 use crate::{container::init::Init, host::rootfs::Rootfs};
+pub type Result<T> = std::result::Result<T, RuntimeError>;
 pub use crate::{
     container::init::InitSystem,
     runtime::state::{ContainerInfo, ContainerState},
@@ -64,7 +66,7 @@ pub(crate) fn runtime_workdir() -> Result<PathBuf> {
         let tmp = std::env::var_os("TMPDIR")
             .map(PathBuf::from)
             .context("TMPDIR is not set")?;
-        anyhow::ensure!(tmp.is_absolute(), "TMPDIR must be an absolute path");
+        error::ensure!(tmp.is_absolute(), "TMPDIR must be an absolute path");
         Ok(tmp.join("kurumi-containerd"))
     }
     #[cfg(target_os = "linux")]

@@ -5,7 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, bail};
+use crate::{
+    Result,
+    error::{ErrorContext as _, bail},
+};
 use kurumi_containerd_config::Config;
 use kurumi_containerd_helper::fs::{LoopController, LoopDevice, MountFlags, mount, unmount};
 

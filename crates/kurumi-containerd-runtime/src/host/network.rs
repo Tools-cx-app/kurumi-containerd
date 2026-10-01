@@ -9,7 +9,10 @@ use std::{
     process::Command,
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use crate::{
+    Result, RuntimeError,
+    error::{ErrorContext as _, bail, ensure},
+};
 use fs2::FileExt;
 use kurumi_containerd_config::{Config, NetworkMode, Protocol};
 use kurumi_containerd_helper::{
@@ -169,7 +172,7 @@ impl Network {
                     ))?;
                 }
             }
-            Ok::<(), anyhow::Error>(())
+            Ok::<(), RuntimeError>(())
         })();
         if let Err(error) = setup {
             network.cleanup_resources_locked();

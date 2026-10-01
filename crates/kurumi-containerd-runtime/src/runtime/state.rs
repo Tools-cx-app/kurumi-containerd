@@ -6,7 +6,10 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use crate::{
+    Result, RuntimeError,
+    error::{ErrorContext as _, bail, ensure},
+};
 use fs2::FileExt;
 #[cfg(test)]
 use kurumi_containerd_helper::process::parent_pid as current_parent_pid;
@@ -348,7 +351,7 @@ fn write_state_atomic(path: &Path, state: &ContainerState) -> Result<()> {
         file.sync_all()?;
         fs::rename(&temporary, path)?;
         File::open(path.parent().context("state path has no parent")?)?.sync_all()?;
-        Ok::<(), anyhow::Error>(())
+        Ok::<(), RuntimeError>(())
     })();
     if result.is_err() {
         fs::remove_file(temporary).ok();

@@ -8,7 +8,10 @@ use std::{
     process::Command,
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use crate::{
+    Result,
+    error::{ErrorContext as _, bail, ensure},
+};
 use kurumi_containerd_helper::{
     fs::{
         LoopController, LoopDevice, MountFlags, mount, rename_exchange, sync_filesystem, unmount,

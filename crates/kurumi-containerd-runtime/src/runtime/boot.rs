@@ -5,7 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use crate::{
+    Result,
+    error::{ErrorContext as _, bail, ensure},
+};
 use kurumi_containerd_helper::{
     fs::{MountFlags, mount, unmount},
     process::{NamespaceFlags, chdir, close_fds_except, execve, pivot_root, set_hostname, unshare},

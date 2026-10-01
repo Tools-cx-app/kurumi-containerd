@@ -1,6 +1,6 @@
 use std::{fs::File, io, os::fd::AsFd};
 
-use anyhow::{Context, Result};
+use crate::{Result, error::ErrorContext as _};
 use kurumi_containerd_helper::{
     process::{WaitStatus, dup_stdio, is_interrupted, read, waitpid},
     signal::{Signal, SignalActionFlags, SignalHandler, set_signal_handler},

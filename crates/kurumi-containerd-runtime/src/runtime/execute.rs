@@ -1,6 +1,9 @@
 use std::{collections::BTreeMap, ffi::CString, fs, os::fd::AsFd, path::Path};
 
-use anyhow::{Context, Result, bail, ensure};
+use crate::{
+    Result,
+    error::{ErrorContext as _, bail, ensure},
+};
 use kurumi_containerd_config::{AndroidConfig, NetworkMode};
 use kurumi_containerd_helper::{
     process::{
@@ -174,7 +177,7 @@ impl Runtime {
                         let args = resolved
                             .iter()
                             .map(|arg| CString::new(arg.as_str()))
-                            .collect::<Result<Vec<_>, _>>()
+                            .collect::<std::result::Result<Vec<_>, _>>()
                             .unwrap_or_else(|error| exec_failure(&error.to_string()));
                         let env = command_environment(
                             &self.config.container.environment,
@@ -299,7 +302,7 @@ fn exec_failure(message: &str) -> ! {
     std::process::exit(126)
 }
 
-fn result_or_exit<T, E: std::fmt::Display>(result: Result<T, E>) -> T {
+fn result_or_exit<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -> T {
     result.unwrap_or_else(|error| exec_failure(&error.to_string()))
 }
 

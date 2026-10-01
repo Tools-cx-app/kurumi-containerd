@@ -332,11 +332,11 @@ dependencies = [
 name = "kurumi-containerd-config"
 version = "0.2.1"
 dependencies = [
- "anyhow",
  "fs2",
  "libc",
  "serde",
  "tempfile",
+ "thiserror",
  "toml",
  "uuid",
 ]
@@ -354,7 +354,6 @@ dependencies = [
 name = "kurumi-containerd-runtime"
 version = "0.2.1"
 dependencies = [
- "anyhow",
  "flate2",
  "fs2",
  "kurumi-containerd-config",
@@ -366,6 +365,7 @@ dependencies = [
  "serde_json",
  "tar",
  "tempfile",
+ "thiserror",
  "toml",
  "tracing",
  "uuid",
@@ -695,6 +695,26 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
 ]
 
 [[package]]

@@ -5,7 +5,10 @@ use std::{
     path::{Component, Path},
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use crate::{
+    Result,
+    error::{ErrorContext as _, bail, ensure},
+};
 use flate2::read::GzDecoder;
 use kurumi_containerd_helper::{
     fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW},

@@ -6,7 +6,10 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use crate::{
+    Result, RuntimeError,
+    error::{ErrorContext as _, bail, ensure},
+};
 use kurumi_containerd_config::NetworkMode;
 use kurumi_containerd_helper::{
     fs::{MountFlags, mount},
@@ -273,7 +276,7 @@ impl Runtime {
             }
 
             let state = match (|| {
-                Ok::<_, anyhow::Error>(ContainerState {
+                Ok::<_, RuntimeError>(ContainerState {
                     name: self.config.container.name.clone(),
                     init_pid,
                     monitor_pid,

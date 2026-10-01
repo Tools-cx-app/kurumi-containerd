@@ -3,7 +3,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, ensure};
+use crate::{
+    Result,
+    error::{ErrorContext as _, ensure},
+};
 use kurumi_containerd_config::ResourceConfig;
 use kurumi_containerd_helper::fs::{MountFlags, TMPFS_MAGIC, filesystem_type, mount, unmount};
 

@@ -3,7 +3,7 @@
 mod config;
 mod model;
 
-pub use config::parse_environment;
+pub use config::{ConfigError, Result, parse_environment};
 pub use model::{
     AndroidConfig, BindMount, Config, ContainerConfig, NetworkConfig, NetworkMode, PortForward,
     Protocol, ResourceConfig, RuntimeConfig, SecurityConfig,
@@ -32,6 +32,32 @@ mod tests {
         let config = Config::load(&dir.path().join("container.toml")).unwrap();
         assert_eq!(config.container.hostname, "test-1");
         assert_eq!(config.container.rootfs, Some(dir.path().join("rootfs")));
+    }
+
+    #[test]
+    fn malformed_toml_keeps_parse_source() {
+        use std::error::Error as _;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("broken.toml");
+        fs::write(&path, "[container\n").unwrap();
+        let error = Config::load(&path).unwrap_err();
+        assert!(matches!(&error, ConfigError::TomlParse { .. }));
+        assert!(error.to_string().contains("failed to parse TOML config"));
+        assert!(error.source().is_some());
+    }
+
+    #[test]
+    fn invalid_name_keeps_validation_message() {
+        let (_dir, mut config) = test_config();
+        config.container.name = "bad/name".to_owned();
+        let error = config.validate().unwrap_err();
+        assert!(matches!(&error, ConfigError::Invalid(_)));
+        assert!(
+            error
+                .to_string()
+                .contains("container name may contain only")
+        );
     }
 
     #[test]
