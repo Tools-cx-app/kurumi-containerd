@@ -97,7 +97,7 @@ fn open_console_pty_unprivileged(winsize: Option<&WindowSize>) -> Result<PtyPair
             {
                 Ok(()) => 0,
                 Err(error) => {
-                    tracing::error!("PTY broker failed: {error:#}");
+                    tracing::error!(error = %format_args!("{error:#}"), "PTY broker failed");
                     1
                 }
             };

@@ -118,28 +118,28 @@ impl Runtime {
                     false,
                     false,
                 )
-                .unwrap_or_else(|error| exec_failure(&error.to_string()));
+                .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                 cgroup
                     .attach(current_pid())
-                    .unwrap_or_else(|error| exec_failure(&error.to_string()));
+                    .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                 let console = terminal_sender.map(|sender| {
                     let console = terminal::Console::open()
-                        .unwrap_or_else(|error| exec_failure(&error.to_string()));
+                        .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                     let slave = console
                         .open_slave()
-                        .unwrap_or_else(|error| exec_failure(&error.to_string()));
+                        .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                     terminal::configure_child(&slave)
-                        .unwrap_or_else(|error| exec_failure(&error.to_string()));
+                        .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                     terminal::ignore_hangup()
-                        .unwrap_or_else(|error| exec_failure(&error.to_string()));
+                        .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                     terminal::send_fd(&sender, &console.master)
-                        .unwrap_or_else(|error| exec_failure(&error.to_string()));
+                        .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                     drop(sender);
                     drop(console.master);
                     slave
                 });
                 security::install_seccomp(&self.config.container.security)
-                    .unwrap_or_else(|error| exec_failure(&error.to_string()));
+                    .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                 // A child created after setns(CLONE_NEWPID) enters the target PID namespace.
                 match unsafe { fork() }.unwrap_or_else(|error| {
                     exec_failure(&format!("failed to enter PID namespace: {error}"))
@@ -298,12 +298,12 @@ fn terminate_session_and_reap(child: i32) {
 }
 
 fn exec_failure(message: &str) -> ! {
-    tracing::error!("exec failed: {message}");
+    tracing::error!(error = message, "exec failed");
     std::process::exit(126)
 }
 
 fn result_or_exit<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -> T {
-    result.unwrap_or_else(|error| exec_failure(&error.to_string()))
+    result.unwrap_or_else(|error| exec_failure(&format!("{error:#}")))
 }
 
 fn resolve_container_command(command: &str) -> Option<String> {

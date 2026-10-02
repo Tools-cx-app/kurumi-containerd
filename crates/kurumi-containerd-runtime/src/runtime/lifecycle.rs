@@ -92,10 +92,14 @@ impl Runtime {
                 drop(lock);
                 drop(reader);
                 let foreground = foreground_override || self.config.container.foreground;
-                let result = self.monitor(writer, foreground);
+                let mut startup = Some(writer);
+                let result = self.monitor(&mut startup, foreground);
                 if let Err(error) = result {
                     self.remove_state().ok();
-                    tracing::error!("monitor failed: {error:#}");
+                    let message = format!("{error:#}");
+                    if !report_startup_error(startup.as_mut(), &message) {
+                        tracing::error!(container = %self.config.container.name, error = %message, "monitor failed");
+                    }
                     std::process::exit(1);
                 }
                 std::process::exit(0);
@@ -105,8 +109,7 @@ impl Runtime {
 
     #[allow(unsafe_code)]
     #[allow(clippy::too_many_lines)]
-    fn monitor(&self, startup: OwnedFd, foreground: bool) -> Result<()> {
-        let mut startup = Some(startup);
+    fn monitor(&self, startup: &mut Option<OwnedFd>, foreground: bool) -> Result<()> {
         if !foreground {
             setsid().context("failed to detach monitor session")?;
         }
@@ -152,25 +155,26 @@ impl Runtime {
                 pipe().context("failed to create result pipe")?;
 
             // SAFETY: the single-threaded monitor forks a generation worker which only unshares and forks init.
-            let intermediate =
-                match unsafe { fork() }.context("failed to fork generation worker")? {
-                    ForkResult::Parent { child } => child,
-                    ForkResult::Child => {
-                        drop(startup.take());
-                        drop(generation_lock.take());
-                        drop(pid_reader);
-                        drop(result_reader);
-                        let mut flags = NamespaceFlags::PID;
-                        if self.config.container.network != NetworkMode::Host {
-                            flags |= NamespaceFlags::NETWORK;
-                        }
-                        unshare(flags).unwrap_or_else(|error| {
-                            tracing::error!("failed to create PID/network namespace: {error}");
+            let intermediate = match unsafe { fork() }
+                .context("failed to fork generation worker")?
+            {
+                ForkResult::Parent { child } => child,
+                ForkResult::Child => {
+                    drop(startup.take());
+                    drop(generation_lock.take());
+                    drop(pid_reader);
+                    drop(result_reader);
+                    let mut flags = NamespaceFlags::PID;
+                    if self.config.container.network != NetworkMode::Host {
+                        flags |= NamespaceFlags::NETWORK;
+                    }
+                    unshare(flags).unwrap_or_else(|error| {
+                            tracing::error!(container = %self.config.container.name, %error, "failed to create PID/network namespace");
                             std::process::exit(125);
                         });
-                        // SAFETY: the generation worker is single-threaded and the child immediately boots.
-                        match unsafe { fork() }.unwrap_or_else(|error| {
-                            tracing::error!("failed to fork init: {error}");
+                    // SAFETY: the generation worker is single-threaded and the child immediately boots.
+                    match unsafe { fork() }.unwrap_or_else(|error| {
+                            tracing::error!(container = %self.config.container.name, %error, "failed to fork init");
                             std::process::exit(125);
                         }) {
                             ForkResult::Parent { child } => {
@@ -208,15 +212,16 @@ impl Runtime {
                                 )
                                 .unwrap_or_else(|error| {
                                     let message = format!("{error:#}");
-                                    let _ = write(&boot_writer, message.as_bytes());
-                                    tracing::error!("container boot failed: {error:#}");
+                                    if write(&boot_writer, message.as_bytes()).is_err() {
+                                        tracing::error!(container = %self.config.container.name, error = %message, "container boot failed");
+                                    }
                                     std::process::exit(127);
                                 });
                                 unreachable!();
                             }
                         }
-                    }
-                };
+                }
+            };
 
             drop(pid_writer);
             drop(result_writer);
@@ -271,9 +276,6 @@ impl Runtime {
                 let _ = init_process.send_signal(Signal::Kill);
                 let _ = waitpid(intermediate, false);
                 network.cleanup();
-                if first_boot && let Some(startup) = &mut startup {
-                    let _ = write(startup, boot_status.as_bytes());
-                }
                 bail!("{boot_status}");
             }
 
@@ -309,7 +311,7 @@ impl Runtime {
             }
             drop(generation_lock.take());
             if first_boot {
-                if let Some(startup) = &mut startup {
+                if let Some(startup) = startup.as_mut() {
                     write(startup, &serde_json::to_vec(&state)?)
                         .context("failed to report container PID")?;
                 }
@@ -420,5 +422,30 @@ impl Runtime {
     pub fn restart(&self, foreground: bool) -> Result<ContainerState> {
         self.stop()?;
         self.start(foreground)
+    }
+}
+
+fn report_startup_error(startup: Option<&mut OwnedFd>, message: &str) -> bool {
+    startup.is_some_and(|pipe| write(pipe, message.as_bytes()).is_ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_errors_reach_parent_or_require_fallback_logging() {
+        let (reader, mut writer) = pipe().unwrap();
+        assert!(report_startup_error(
+            Some(&mut writer),
+            "boot failed: mount denied"
+        ));
+        drop(writer);
+        let mut received = String::new();
+        File::from(reader).read_to_string(&mut received).unwrap();
+        assert_eq!(received, "boot failed: mount denied");
+        assert!(!report_startup_error(None, "reboot failed"));
+        let mut read_only: OwnedFd = File::open("/dev/null").unwrap().into();
+        assert!(!report_startup_error(Some(&mut read_only), "boot failed"));
     }
 }

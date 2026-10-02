@@ -8,7 +8,7 @@ require an exact, case-sensitive name before the command.
 ## Invocation
 
 ```text
-kurumi-containerd [--name NAME] COMMAND
+kurumi-containerd [--name NAME] [--verbose] COMMAND
 ```
 
 The process reads `$HOME/.kurumi-containerd/config.json`, containing a nonempty
@@ -20,6 +20,29 @@ configuration. The examples below use `sudo -H`: create the JSON under root's HO
 
 Most operations require root because they create namespaces, mounts, devices,
 cgroups, and network interfaces.
+
+## Output and diagnostics
+
+Command results and success confirmations go to stdout as plain text, without
+timestamps or log levels. `pid` prints only the init PID and a newline, so it
+can be captured directly:
+
+```bash
+pid=$(sudo -H kurumi-containerd pid)
+sudo -H kurumi-containerd --verbose info 2>diagnostics.log
+```
+
+Diagnostic logs go to stderr. The default level is INFO; `--verbose` (or `-v`)
+also enables DEBUG. Colors are enabled only when stderr is a terminal and
+`NO_COLOR` is unset. Failed operations include their error cause chain and exit
+with a nonzero status; `run` and `enter` preserve the command's exit status.
+Closing a pipe reading CLI command results does not produce a panic.
+
+Foreground start/restart reports completion after the container exits, while
+background start/restart confirms startup with the init PID. Detached monitors
+redirect their standard streams to `/dev/null` after startup; stderr redirection
+is not a persistent background-container log facility. The TUI captures both
+result and diagnostic streams for noninteractive actions.
 
 ## Terminal manager
 

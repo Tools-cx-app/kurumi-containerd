@@ -45,8 +45,9 @@ impl Network {
         state_dir: &Path,
     ) -> Result<Self> {
         tracing::debug!(
+            container = %config.container.name,
             network_mode = ?config.container.network,
-            init_pid,
+            pid = init_pid,
             "setting up host network"
         );
         let mut network = Self::empty(state_dir);
@@ -199,6 +200,7 @@ impl Network {
     /// Returns errors when interface or route configuration fails.
     pub fn setup_child(config: &Config, peer_name: &str) -> Result<()> {
         tracing::debug!(
+            container = %config.container.name,
             network_mode = ?config.container.network,
             peer_name,
             "setting up container network"
@@ -240,7 +242,7 @@ impl Network {
         if config.container.network != NetworkMode::Dhcp {
             return Ok(());
         }
-        tracing::debug!("setting up DHCP");
+        tracing::debug!(container = %config.container.name, "setting up DHCP");
         if command_exists("udhcpc") {
             return run("udhcpc", &["-n", "-q", "-i", "eth0"])
                 .context("DHCP configuration failed with udhcpc");

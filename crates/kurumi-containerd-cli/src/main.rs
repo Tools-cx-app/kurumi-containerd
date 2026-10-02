@@ -3,13 +3,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod output;
+
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use kurumi_containerd_config::{Config, ConfigPointer};
 use kurumi_containerd_helper::process::{
     ForkResult, NamespaceFlags, WaitStatus, fork, is_interrupted, unshare, waitpid,
 };
-use kurumi_containerd_runtime::{ContainerInfo, ContainerState, Runtime};
+use kurumi_containerd_runtime::Runtime;
 use tracing::level_filters::LevelFilter;
 
 #[derive(Debug, Parser)]
@@ -18,7 +20,7 @@ struct Cli {
     /// Select a configuration entry by its JSON management name.
     #[arg(long)]
     name: Option<String>,
-    /// Logger verbose
+    /// Include debug diagnostics on stderr.
     #[arg(short, long, default_value = "false")]
     verbose: bool,
     #[command(subcommand)]
@@ -78,7 +80,7 @@ enum Commands {
     Tui,
 }
 
-fn main() -> Result<()> {
+fn main() -> std::process::ExitCode {
     let cli: Cli = Cli::parse();
     tracing_subscriber::fmt()
         .with_max_level(if cli.verbose {
@@ -87,14 +89,33 @@ fn main() -> Result<()> {
             LevelFilter::INFO
         })
         .with_target(false)
+        .with_writer(io::stderr)
         .with_ansi(io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none())
         .init();
+    match run(cli) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error)
+            if error
+                .downcast_ref::<output::OutputError>()
+                .is_some_and(output::OutputError::is_broken_pipe) =>
+        {
+            std::process::ExitCode::SUCCESS
+        }
+        Err(error) => {
+            tracing::error!(error = %format_args!("{error:#}"), "command failed");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(cli: Cli) -> Result<()> {
     if matches!(cli.command, Commands::Check) {
         return check();
     }
     if matches!(cli.command, Commands::Tui) {
         return kurumi_containerd_tui::run(&std::env::current_exe()?);
     }
+    tracing::debug!(name = cli.name.as_deref(), "loading configuration registry");
     let pointers = ConfigPointer::load_home()?;
     let config_path = &ConfigPointer::select(&pointers, cli.name.as_deref())?.file;
     if let Commands::Install {
@@ -112,24 +133,46 @@ fn main() -> Result<()> {
             .context("rootfs target is not configured")?
             .clone();
         Runtime::new(config)?.install(archive, *size, *force)?;
-        tracing::info!(archive = %archive.display(), rootfs = %target.display(), "rootfs installed");
+        output::write(|out| {
+            writeln!(
+                out,
+                "Rootfs installed: {} -> {}",
+                archive.display(),
+                target.display()
+            )
+        })?;
         return Ok(());
     }
     let config = Config::load_persistent(config_path)?;
     let container_name = config.container.name.clone();
+    let configured_foreground = config.container.foreground;
     let runtime = Runtime::new(config)?;
     match cli.command {
         Commands::Start { foreground } => {
             let state = runtime.start(foreground)?;
-            log_started(&state);
+            output::write(|out| {
+                output::started(
+                    out,
+                    &state.name,
+                    state.init_pid,
+                    foreground || configured_foreground,
+                )
+            })?;
         }
         Commands::Stop => {
             runtime.stop()?;
-            tracing::info!(container = container_name, "container stopped");
+            output::write(|out| writeln!(out, "Container {container_name} stopped"))?;
         }
         Commands::Restart { foreground } => {
             let state = runtime.restart(foreground)?;
-            log_started(&state);
+            output::write(|out| {
+                output::started(
+                    out,
+                    &state.name,
+                    state.init_pid,
+                    foreground || configured_foreground,
+                )
+            })?;
         }
         Commands::Enter { user } => {
             let status = runtime.enter(&user)?;
@@ -143,12 +186,21 @@ fn main() -> Result<()> {
                 std::process::exit(status);
             }
         }
-        Commands::Info => log_info(&runtime.info()?),
-        Commands::Pid => tracing::info!(pid = runtime.pid()?, "container PID"),
-        Commands::Show => log_containers(&runtime.list()?),
+        Commands::Info => {
+            let info = runtime.info()?;
+            output::write(|out| output::info(out, &info))?;
+        }
+        Commands::Pid => {
+            let pid = runtime.pid()?;
+            output::write(|out| output::pid(out, pid))?;
+        }
+        Commands::Show => {
+            let states = runtime.list()?;
+            output::write(|out| output::containers(out, &states))?;
+        }
         Commands::Scan => {
             let states = runtime.scan()?;
-            log_recovered(&states);
+            output::write(|out| output::recovered(out, &states))?;
         }
         Commands::Check => unreachable!("check is handled before loading configuration"),
         Commands::Tui => unreachable!("tui is handled before selecting a configuration"),
@@ -182,7 +234,7 @@ fn parse_size(value: &str) -> Result<u64, String> {
 }
 
 fn check() -> Result<()> {
-    tracing::info!(host = std::env::consts::OS, "checking host capabilities");
+    output::write(|out| writeln!(out, "Host: {}", std::env::consts::OS))?;
     let namespaces = [
         probe_namespace(NamespaceFlags::MOUNT),
         probe_namespace(NamespaceFlags::PID),
@@ -191,34 +243,34 @@ fn check() -> Result<()> {
         probe_namespace(NamespaceFlags::NETWORK),
     ];
     let namespaces_available = namespaces.into_iter().all(|available| available);
-    log_check(
+    print_check(
         "Namespaces",
         namespaces_available,
         "mount, pid, uts, ipc, network",
-    );
-    log_check(
+    )?;
+    print_check(
         "OverlayFS",
         std::fs::read_to_string("/proc/filesystems")?.contains("overlay"),
         "kernel filesystem",
-    );
+    )?;
     let mountinfo = procfs::process::Process::myself()?.mountinfo()?;
-    log_check(
+    print_check(
         "Cgroup v2",
         Path::new("/sys/fs/cgroup/cgroup.controllers").exists(),
         "unified hierarchy",
-    );
-    log_check(
+    )?;
+    print_check(
         "Cgroup v1",
         mountinfo.0.iter().any(|mount| mount.fs_type == "cgroup"),
         "legacy hierarchy",
-    );
-    log_check(
+    )?;
+    print_check(
         "Pidfd",
         kurumi_containerd_runtime::pidfd_available(),
         "process handles",
-    );
-    log_command("ip");
-    log_command("iptables");
+    )?;
+    print_command("ip")?;
+    print_command("iptables")?;
     if !namespaces_available {
         bail!("one or more required namespaces are unavailable");
     }
@@ -243,55 +295,15 @@ fn probe_namespace(flag: NamespaceFlags) -> bool {
     }
 }
 
-fn log_started(state: &ContainerState) {
-    tracing::info!(
-        container = state.name,
-        pid = state.init_pid,
-        "container started"
-    );
+fn print_check(capability: &str, available: bool, detail: &str) -> Result<()> {
+    output::write(|out| output::check(out, capability, available, detail))?;
+    Ok(())
 }
 
-fn log_info(info: &ContainerInfo) {
-    for line in info.display_lines() {
-        tracing::info!("{line}");
-    }
-}
-
-fn log_containers(states: &[ContainerState]) {
-    for state in states {
-        tracing::info!(
-            container = state.name,
-            pid = state.init_pid,
-            rootfs = %state.rootfs.display(),
-            "running container"
-        );
-    }
-    tracing::info!(count = states.len(), "containers listed");
-}
-
-fn log_recovered(states: &[ContainerState]) {
-    if states.is_empty() {
-        tracing::info!("no containers required recovery");
-        return;
-    }
-    for state in states {
-        tracing::info!(
-            container = state.name,
-            pid = state.init_pid,
-            "container recovered"
-        );
-    }
-    tracing::info!(count = states.len(), "container recovery completed");
-}
-
-fn log_check(capability: &str, available: bool, detail: &str) {
-    tracing::info!(capability, available, detail, "host capability");
-}
-
-fn log_command(command: &str) {
+fn print_command(command: &str) -> Result<()> {
     match which::which(command) {
-        Ok(path) => log_check(command, true, &path.display().to_string()),
-        Err(_) => log_check(command, false, "not found in PATH"),
+        Ok(path) => print_check(command, true, &path.display().to_string()),
+        Err(_) => print_check(command, false, "not found in PATH"),
     }
 }
 
