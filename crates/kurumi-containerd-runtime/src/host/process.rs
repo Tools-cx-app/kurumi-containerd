@@ -84,6 +84,14 @@ pub(crate) fn parent_pid(pid: i32) -> Result<i32> {
     Ok(procfs::process::Process::new(pid)?.stat()?.ppid)
 }
 
+pub(crate) fn host_boot_id() -> Result<String> {
+    Ok(procfs::sys::kernel::random::boot_id()?)
+}
+
+pub(crate) fn process_start_time(pid: i32) -> Result<u64> {
+    Ok(procfs::process::Process::new(pid)?.stat()?.starttime)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,6 +102,18 @@ mod tests {
         let process = ProcessHandle::open(pid).unwrap();
         process.send_signal(SignalNumber::NONE).unwrap();
         assert_eq!(process.pid().as_raw(), pid);
+        assert_eq!(
+            host_boot_id().unwrap(),
+            procfs::sys::kernel::random::boot_id().unwrap()
+        );
+        assert_eq!(
+            process_start_time(pid).unwrap(),
+            procfs::process::Process::new(pid)
+                .unwrap()
+                .stat()
+                .unwrap()
+                .starttime
+        );
         assert!(!process.wait_for_exit(Duration::ZERO).unwrap());
     }
 }

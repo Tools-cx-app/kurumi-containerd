@@ -22,12 +22,10 @@ use kurumi_containerd_helper::{
 use procfs::process::Process;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    runtime::state::{host_boot_id, process_start_time},
-    runtime_workdir,
-};
+use super::process::{host_boot_id, process_start_time};
 
 pub struct Network {
+    state_dir: PathBuf,
     host_link: Option<String>,
     peer_link: Option<String>,
     rules: Vec<Vec<String>>,
@@ -36,13 +34,18 @@ pub struct Network {
 
 impl Network {
     #[allow(clippy::too_many_lines)]
-    pub fn setup_host(config: &Config, init_pid: i32, host_netns: &File) -> Result<Self> {
+    pub fn setup_host(
+        config: &Config,
+        init_pid: i32,
+        host_netns: &File,
+        state_dir: &Path,
+    ) -> Result<Self> {
         tracing::debug!(
             network_mode = ?config.container.network,
             init_pid,
             "setting up host network"
         );
-        let mut network = Self::empty();
+        let mut network = Self::empty(state_dir);
         if config.container.network == NetworkMode::Host {
             return Ok(network);
         }
@@ -52,7 +55,7 @@ impl Network {
             return Ok(network);
         }
 
-        let _lock = network_lock()?;
+        let _lock = network_lock(state_dir)?;
         let host_link = format!("dsv{init_pid}");
         let peer_link = format!("dsp{init_pid}");
         network.host_link = Some(host_link.clone());
@@ -87,7 +90,7 @@ impl Network {
             )?;
 
             if config.container.network == NetworkMode::Nat {
-                acquire_nat_lease()?;
+                acquire_nat_lease(state_dir)?;
                 network.nat_lease = true;
                 fs::write("/proc/sys/net/ipv4/ip_forward", "1")?;
                 let subnet = format!(
@@ -268,8 +271,9 @@ impl Network {
         self.cleanup_resources();
     }
 
-    fn empty() -> Self {
+    fn empty(state_dir: &Path) -> Self {
         Self {
+            state_dir: state_dir.to_path_buf(),
             host_link: None,
             peer_link: None,
             rules: Vec::new(),
@@ -286,7 +290,7 @@ impl Network {
     }
 
     fn cleanup_resources(&mut self) {
-        let _lock = network_lock().ok();
+        let _lock = network_lock(&self.state_dir).ok();
         self.cleanup_resources_locked();
     }
 
@@ -304,7 +308,7 @@ impl Network {
         }
         self.peer_link = None;
         if self.nat_lease {
-            let _ = release_nat_lease();
+            let _ = release_nat_lease(&self.state_dir);
             self.nat_lease = false;
         }
     }
@@ -316,8 +320,8 @@ impl Drop for Network {
     }
 }
 
-fn network_lock() -> Result<File> {
-    let state_dir = network_state_dir()?;
+fn network_lock(state_dir: &Path) -> Result<File> {
+    let state_dir = network_state_dir(state_dir)?;
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -330,13 +334,12 @@ fn network_lock() -> Result<File> {
     Ok(file)
 }
 
-fn network_state_dir() -> Result<PathBuf> {
-    let path = runtime_workdir()?;
+fn network_state_dir(path: &Path) -> Result<&Path> {
     if !path.exists() {
-        fs::create_dir_all(&path)?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+        fs::create_dir_all(path)?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     }
-    let metadata = fs::symlink_metadata(&path)?;
+    let metadata = fs::symlink_metadata(path)?;
     ensure!(metadata.is_dir(), "network state path is not a directory");
     ensure!(
         !metadata.file_type().is_symlink(),
@@ -387,8 +390,8 @@ impl NatLeaseOwner {
     }
 }
 
-fn acquire_nat_lease() -> Result<()> {
-    let path = network_state_dir()?.join("network-state.json");
+fn acquire_nat_lease(state_dir: &Path) -> Result<()> {
+    let path = network_state_dir(state_dir)?.join("network-state.json");
     let mut lease = read_nat_lease(&path);
     let owner = NatLeaseOwner::current()?;
     lease
@@ -403,8 +406,8 @@ fn acquire_nat_lease() -> Result<()> {
     write_nat_lease(&path, &lease)
 }
 
-fn release_nat_lease() -> Result<()> {
-    let path = network_state_dir()?.join("network-state.json");
+fn release_nat_lease(state_dir: &Path) -> Result<()> {
+    let path = network_state_dir(state_dir)?.join("network-state.json");
     let mut lease = read_nat_lease(&path);
     let owner = NatLeaseOwner::current()?;
     lease
@@ -556,6 +559,28 @@ mod tests {
     use std::os::unix::fs::symlink;
 
     use super::*;
+
+    #[test]
+    fn network_state_uses_supplied_directory_for_cleanup() {
+        let directory = tempfile::tempdir().unwrap();
+        if kurumi_containerd_helper::process::effective_uid() == 0 {
+            drop(Network::empty(directory.path()));
+            assert!(directory.path().join("network.lock").is_file());
+        } else {
+            let error = network_state_dir(directory.path()).unwrap_err();
+            assert!(error.to_string().contains("must be owned by root"));
+        }
+    }
+
+    #[test]
+    fn network_state_rejects_untrusted_directories() {
+        let directory = tempfile::tempdir().unwrap();
+        let link = directory.path().join("link");
+        symlink(directory.path(), &link).unwrap();
+        assert!(network_state_dir(&link).is_err());
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(network_state_dir(directory.path()).is_err());
+    }
 
     #[test]
     fn replaces_dangling_resolv_conf_symlink() {

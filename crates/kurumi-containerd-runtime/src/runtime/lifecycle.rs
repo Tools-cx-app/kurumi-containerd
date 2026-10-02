@@ -33,12 +33,13 @@ use crate::{
     host::{
         cgroup::Cgroup,
         network::Network,
-        process::{ProcessHandle, parent_pid as process_parent, require_handle},
+        process::{
+            ProcessHandle, host_boot_id, parent_pid as process_parent, process_start_time,
+            require_handle,
+        },
         terminal,
     },
-    runtime::state::{
-        host_boot_id, namespace_inode, process_start_time, validate_process_identity,
-    },
+    runtime::state::{namespace_inode, validate_process_identity},
 };
 
 impl Runtime {
@@ -240,14 +241,15 @@ impl Runtime {
                 bail!("reported init PID is no longer a child of the generation worker");
             }
 
-            let network = match Network::setup_host(&self.config, init_pid, &host_netns) {
-                Ok(network) => network,
-                Err(error) => {
-                    let _ = init_process.send_signal(Signal::Kill);
-                    let _ = waitpid(intermediate, false);
-                    return Err(error);
-                }
-            };
+            let network =
+                match Network::setup_host(&self.config, init_pid, &host_netns, &self.workdir) {
+                    Ok(network) => network,
+                    Err(error) => {
+                        let _ = init_process.send_signal(Signal::Kill);
+                        let _ = waitpid(intermediate, false);
+                        return Err(error);
+                    }
+                };
             if let Err(error) = cgroup.attach(init_pid) {
                 let _ = init_process.send_signal(Signal::Kill);
                 let _ = waitpid(intermediate, false);
@@ -322,7 +324,9 @@ impl Runtime {
                 terminal::proxy(
                     &console.master,
                     intermediate,
-                    Some((&init_process, init_system)),
+                    Some((&init_process, &|| {
+                        init::request_shutdown(&init_process, init_system)
+                    })),
                 )
                 .context("foreground console proxy failed")
             } else {

@@ -5,7 +5,6 @@ use std::{
 };
 
 use super::process::ProcessHandle;
-use crate::container::init::{self, InitSystem};
 use crate::{
     Result,
     error::{ErrorContext as _, bail},
@@ -209,7 +208,7 @@ pub(crate) fn drain(master: &OwnedFd, child: i32) -> Result<WaitStatus> {
 pub(crate) fn proxy(
     master: &OwnedFd,
     child: i32,
-    shutdown_target: Option<(&ProcessHandle, InitSystem)>,
+    shutdown_target: Option<(&ProcessHandle, &dyn Fn() -> Result<()>)>,
 ) -> Result<WaitStatus> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
@@ -266,18 +265,10 @@ pub(crate) fn proxy(
             match read(&stdin, &mut buffer) {
                 Ok(0) => stdin_open = false,
                 Ok(length) => {
-                    let input = &buffer[..length];
-                    if let Some((target, system)) = shutdown_target
-                        && input.starts_with(&[0x1b, 0x11])
-                    {
-                        init::request_shutdown(target, system)
-                            .context("failed to request foreground shutdown")?;
-                        if length > 2 {
-                            pending_input.extend_from_slice(&input[2..]);
-                        }
-                    } else {
-                        pending_input.extend_from_slice(input);
-                    }
+                    pending_input.extend_from_slice(proxy_input(
+                        &buffer[..length],
+                        shutdown_target.map(|(_, shutdown)| shutdown),
+                    )?);
                 }
                 Err(error) if is_interrupted(&error) || is_would_block(&error) => {}
                 Err(error) => return Err(error).context("failed to read terminal input"),
@@ -310,6 +301,16 @@ pub(crate) fn proxy(
             }
         }
     }
+}
+
+fn proxy_input<'a>(input: &'a [u8], shutdown: Option<&dyn Fn() -> Result<()>>) -> Result<&'a [u8]> {
+    if let Some(shutdown) = shutdown
+        && let Some(remaining) = input.strip_prefix(&[0x1b, 0x11])
+    {
+        shutdown().context("failed to request foreground shutdown")?;
+        return Ok(remaining);
+    }
+    Ok(input)
 }
 
 #[allow(unsafe_code)]
@@ -420,6 +421,28 @@ fn sync_terminal_size(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proxy_input_delegates_shutdown_and_preserves_input() {
+        let calls = std::cell::Cell::new(0);
+        let shutdown = || {
+            calls.set(calls.get() + 1);
+            Ok(())
+        };
+        assert_eq!(
+            proxy_input(b"\x1b\x11rest", Some(&shutdown)).unwrap(),
+            b"rest"
+        );
+        assert_eq!(
+            proxy_input(b"ordinary", Some(&shutdown)).unwrap(),
+            b"ordinary"
+        );
+        assert_eq!(proxy_input(b"\x1b", Some(&shutdown)).unwrap(), b"\x1b");
+        assert_eq!(proxy_input(b"\x1b\x11", None).unwrap(), b"\x1b\x11");
+        assert_eq!(calls.get(), 1);
+        let failure = || Err(std::io::Error::other("shutdown failed").into());
+        assert!(proxy_input(b"\x1b\x11", Some(&failure)).is_err());
+    }
 
     #[cfg(target_os = "android")]
     #[test]

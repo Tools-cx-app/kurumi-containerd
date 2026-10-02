@@ -24,7 +24,7 @@ use uuid::Uuid;
 use crate::{
     Runtime,
     container::init::InitSystem,
-    host::process::{parent_pid, require_handle},
+    host::process::{host_boot_id, parent_pid, process_start_time, require_handle},
 };
 
 mod info;
@@ -294,14 +294,6 @@ fn validate_monitor_identity(state: &ContainerState) -> bool {
     host_boot_id().is_ok_and(|value| value == state.host_boot_id)
         && process_start_time(state.monitor_pid)
             .is_ok_and(|value| value == state.monitor_start_time)
-}
-
-pub(crate) fn host_boot_id() -> Result<String> {
-    Ok(procfs::sys::kernel::random::boot_id()?)
-}
-
-pub(crate) fn process_start_time(pid: i32) -> Result<u64> {
-    Ok(Process::new(pid)?.stat()?.starttime)
 }
 
 pub(crate) fn namespace_inode(pid: i32, namespace: &str) -> Result<u64> {
