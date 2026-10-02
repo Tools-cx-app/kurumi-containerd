@@ -315,7 +315,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-config"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "fs2",
  "kurumi-containerd-error",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-error"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "procfs",
  "serde_json",
@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-helper"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bitflags",
  "libc",
@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-host"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "flate2",
  "fs2",
@@ -388,7 +388,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-runtime"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "fs2",
  "kurumi-containerd-config",
