@@ -27,6 +27,10 @@ pub struct SelinuxGuard {
 }
 
 impl SelinuxGuard {
+    /// Acquires the requested shared SELinux permissive state.
+    ///
+    /// # Errors
+    /// Returns errors when accessing SELinux controls or lease state fails.
     pub fn apply(config: &AndroidConfig, workdir: &Path) -> Result<Self> {
         if !config.selinux_permissive {
             return Ok(Self { workdir: None });
@@ -79,6 +83,10 @@ struct SelinuxState {
     restore_enforcing: bool,
 }
 
+/// Mounts Android integration resources needed before switching roots.
+///
+/// # Errors
+/// Returns errors when preparing mountpoints or binding storage fails.
 pub fn setup_before_pivot(rootfs: &Path, config: &AndroidConfig) -> Result<()> {
     if !requested(config) {
         return Ok(());
@@ -95,6 +103,10 @@ pub fn setup_before_pivot(rootfs: &Path, config: &AndroidConfig) -> Result<()> {
     Ok(())
 }
 
+/// Exposes configured Android devices and sockets after switching roots.
+///
+/// # Errors
+/// Returns device, socket, or bind-mount setup errors.
 pub fn setup_after_pivot(config: &AndroidConfig) -> Result<()> {
     if !requested(config) {
         return Ok(());

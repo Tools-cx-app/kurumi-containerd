@@ -34,6 +34,10 @@ pub struct Network {
 
 impl Network {
     #[allow(clippy::too_many_lines)]
+    /// Configures host links and rules using the supplied state directory.
+    ///
+    /// # Errors
+    /// Returns namespace, state access, or network command failures.
     pub fn setup_host(
         config: &Config,
         init_pid: i32,
@@ -184,10 +188,15 @@ impl Network {
         Ok(network)
     }
 
+    #[must_use]
     pub fn peer_name(&self) -> &str {
         self.peer_link.as_deref().unwrap_or("none")
     }
 
+    /// Configures interfaces inside the container network namespace.
+    ///
+    /// # Errors
+    /// Returns errors when interface or route configuration fails.
     pub fn setup_child(config: &Config, peer_name: &str) -> Result<()> {
         tracing::debug!(
             network_mode = ?config.container.network,
@@ -223,6 +232,10 @@ impl Network {
         Ok(())
     }
 
+    /// Runs an available DHCP client when requested.
+    ///
+    /// # Errors
+    /// Returns errors when no client exists or address acquisition fails.
     pub fn setup_dhcp(config: &Config) -> Result<()> {
         if config.container.network != NetworkMode::Dhcp {
             return Ok(());
@@ -242,6 +255,10 @@ impl Network {
         bail!("DHCP mode requires udhcpc, dhclient, or dhcpcd in the container rootfs")
     }
 
+    /// Writes the configured DNS servers into the rootfs.
+    ///
+    /// # Errors
+    /// Returns filesystem errors while preparing resolv.conf.
     pub fn write_dns(config: &Config, rootfs: &Path) -> Result<()> {
         let resolv = rootfs.join("etc/resolv.conf");
         if let Some(parent) = resolv.parent() {

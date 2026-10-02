@@ -1,21 +1,30 @@
 # Runtime architecture
 
-KurumiContainerd is a Cargo workspace with four crates:
+KurumiContainerd is a Cargo workspace with six crates:
 
 ```text
 crates/
   kurumi-containerd-cli/      command parsing and output
   kurumi-containerd-config/   strict TOML schema, path resolution, and validation
+  kurumi-containerd-error/    shared error types, result aliases, and context
   kurumi-containerd-helper/   target-aware Linux and Android syscall wrappers
-  kurumi-containerd-runtime/  lifecycle, isolation, state, and host integration
+  kurumi-containerd-host/     host resources and platform integration
+  kurumi-containerd-runtime/  lifecycle, isolation, and state
 ```
 
 The `kurumi-containerd` package produces the command-line binary. The library
 crates provide internal implementation boundaries.
 
-Dependencies flow in one direction: the CLI uses the runtime and
-configuration crates, while the runtime depends on configuration. Host and
-container implementation details remain private to `kurumi-containerd-runtime`.
+Dependencies flow in one direction: the CLI uses runtime, configuration, and
+helper; runtime uses host, configuration, helper, and error; host uses
+configuration, helper, and error; configuration uses error. Error and helper
+do not depend on other workspace crates.
+
+The error crate owns `ConfigError` and `RuntimeError`, preserving structured
+variants and source chains. Configuration and runtime re-export their existing
+error APIs. Host and runtime share `RuntimeError`, so policy callbacks cross
+the crate boundary without error conversion. The helper retains its low-level
+I/O errors.
 
 ## Configuration modules
 
@@ -55,7 +64,6 @@ The runtime source is grouped by ownership:
 src/
   container/  behavior and policy applied inside the container
   runtime/    lifecycle orchestration, execution, state, and supervision
-  host/       host processes, filesystems, networking, cgroups, and terminals
 ```
 
 The main modules are:
@@ -68,12 +76,19 @@ The main modules are:
 - `container/environment.rs`: deterministic init and session environments
 - `container/init.rs`: init-family detection and shutdown protocols
 - `container/security.rs`: seccomp and protected kernel views
-- `host/process.rs`: pidfd handles and procfs process identity helpers
-- `host/terminal.rs`: PTY allocation, descriptor passing, and console proxying
-- `host/rootfs.rs`: directory/image rootfs preparation and loop devices
-- `host/network.rs`: veth, bridges, NAT, forwarding, and rollback
-- `host/cgroup.rs`: cgroup v1/v2 resource limits and hierarchy detection
-- `host/android.rs`: Android host integration on Android targets
+
+The host crate's `src/` contains:
+
+- `process.rs`: pidfd handles and procfs process identity helpers
+- `terminal.rs`: PTY allocation, descriptor passing, and console proxying
+- `rootfs.rs` and `rootfs/install.rs`: rootfs preparation and archive installation
+- `archive.rs`: private archive format detection and extraction
+- `network.rs`: veth, bridges, NAT, forwarding, and rollback
+- `cgroup.rs`: cgroup v1/v2 resource limits and hierarchy detection
+- `android.rs`: Android host integration, exposed only on Android targets
+
+Runtime supplies network state paths and shutdown callbacks to host; host does
+not import lifecycle state or init-family policy.
 
 ## Nested user namespaces
 

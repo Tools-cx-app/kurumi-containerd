@@ -23,10 +23,14 @@ use uuid::Uuid;
 use super::Rootfs;
 #[cfg(test)]
 use super::detect_filesystem;
-use crate::host::archive;
+use crate::archive;
 
 impl Rootfs {
-    pub(crate) fn install(
+    /// Extracts and validates an archive before committing the rootfs replacement.
+    ///
+    /// # Errors
+    /// Returns errors for invalid targets, extraction, validation, or commit failures.
+    pub fn install(
         &self,
         archive: &Path,
         size: Option<u64>,

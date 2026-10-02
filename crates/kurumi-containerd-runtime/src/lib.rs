@@ -1,8 +1,8 @@
 //! Core container lifecycle and host-integration primitives for `KurumiContainerd`.
 
 mod container;
-mod error;
-mod host;
+use kurumi_containerd_error as error;
+use kurumi_containerd_host as host;
 mod runtime;
 
 use std::path::PathBuf;
@@ -11,9 +11,8 @@ use kurumi_containerd_config::Config;
 
 #[cfg(target_os = "android")]
 use crate::error::ErrorContext as _;
-pub use crate::error::RuntimeError;
+pub use crate::error::{Result, RuntimeError};
 use crate::{container::init::Init, host::rootfs::Rootfs};
-pub type Result<T> = std::result::Result<T, RuntimeError>;
 pub use crate::{
     container::init::InitSystem,
     runtime::state::{ContainerInfo, ContainerState},

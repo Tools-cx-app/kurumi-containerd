@@ -333,12 +333,24 @@ name = "kurumi-containerd-config"
 version = "0.2.1"
 dependencies = [
  "fs2",
+ "kurumi-containerd-error",
  "libc",
  "serde",
  "tempfile",
- "thiserror",
  "toml",
  "uuid",
+]
+
+[[package]]
+name = "kurumi-containerd-error"
+version = "0.2.1"
+dependencies = [
+ "procfs",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "zip",
 ]
 
 [[package]]
@@ -351,12 +363,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "kurumi-containerd-runtime"
+name = "kurumi-containerd-host"
 version = "0.2.1"
 dependencies = [
  "flate2",
  "fs2",
  "kurumi-containerd-config",
+ "kurumi-containerd-error",
  "kurumi-containerd-helper",
  "libc",
  "mio",
@@ -365,13 +378,31 @@ dependencies = [
  "serde_json",
  "tar",
  "tempfile",
- "thiserror",
  "toml",
  "tracing",
  "uuid",
  "xz2",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "kurumi-containerd-runtime"
+version = "0.2.1"
+dependencies = [
+ "fs2",
+ "kurumi-containerd-config",
+ "kurumi-containerd-error",
+ "kurumi-containerd-helper",
+ "kurumi-containerd-host",
+ "libc",
+ "procfs",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -11,79 +11,10 @@ use uuid::Uuid;
 
 use crate::{Config, NetworkMode, Protocol};
 
-#[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
-    #[error("{0}")]
-    Invalid(String),
-    #[error("{context}: {source}")]
-    Io {
-        context: String,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("{context}: {source}")]
-    TomlParse {
-        context: String,
-        #[source]
-        source: toml::de::Error,
-    },
-    #[error("failed to serialize persistent TOML config: {0}")]
-    TomlSerialize(#[from] toml::ser::Error),
-    #[error(transparent)]
-    PlainIo(#[from] std::io::Error),
-    #[error("{context}: {source}")]
-    Context {
-        context: String,
-        #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
-    },
-}
-
-pub type Result<T> = std::result::Result<T, ConfigError>;
-
-trait ErrorContext<T> {
-    fn context(self, context: &'static str) -> Result<T>;
-    fn with_context(self, context: impl FnOnce() -> String) -> Result<T>;
-}
-
-impl<T, E: Into<ConfigError>> ErrorContext<T> for std::result::Result<T, E> {
-    fn context(self, context: &'static str) -> Result<T> {
-        self.with_context(|| context.to_owned())
-    }
-
-    fn with_context(self, context: impl FnOnce() -> String) -> Result<T> {
-        self.map_err(|source| match source.into() {
-            ConfigError::PlainIo(source) => ConfigError::Io {
-                context: context(),
-                source,
-            },
-            source => ConfigError::Context {
-                context: context(),
-                source: Box::new(source),
-            },
-        })
-    }
-}
-
-impl<T> ErrorContext<T> for Option<T> {
-    fn context(self, context: &'static str) -> Result<T> {
-        self.ok_or_else(|| ConfigError::Invalid(context.to_owned()))
-    }
-
-    fn with_context(self, context: impl FnOnce() -> String) -> Result<T> {
-        self.ok_or_else(|| ConfigError::Invalid(context()))
-    }
-}
-
-macro_rules! bail {
-    ($($arg:tt)*) => { return Err(ConfigError::Invalid(format!($($arg)*))) };
-}
-
-macro_rules! ensure {
-    ($condition:expr, $($arg:tt)*) => {
-        if !$condition { bail!($($arg)*); }
-    };
-}
+pub use kurumi_containerd_error::config::{ConfigError, Result};
+use kurumi_containerd_error::{
+    config::ErrorContext as _, config_bail as bail, config_ensure as ensure,
+};
 
 impl Config {
     /// Loads, resolves, and validates a TOML configuration.

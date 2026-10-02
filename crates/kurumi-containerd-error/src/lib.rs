@@ -1,3 +1,12 @@
+//! Shared configuration and runtime errors.
+
+pub mod config;
+pub use config::ConfigError;
+
+/// A runtime operation result.
+pub type Result<T> = std::result::Result<T, RuntimeError>;
+
+/// An error from a host resource or container operation.
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error("{0}")]
@@ -11,7 +20,7 @@ pub enum RuntimeError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
-    Config(#[from] kurumi_containerd_config::ConfigError),
+    Config(#[from] ConfigError),
     #[error(transparent)]
     Proc(#[from] procfs::ProcError),
     #[error(transparent)]
@@ -30,8 +39,17 @@ pub enum RuntimeError {
     StripPrefix(#[from] std::path::StripPrefixError),
 }
 
-pub(crate) trait ErrorContext<T> {
+/// Attaches context without discarding the underlying error.
+pub trait ErrorContext<T> {
+    /// Adds static context.
+    ///
+    /// # Errors
+    /// Returns the original failure with context.
     fn context(self, context: &'static str) -> crate::Result<T>;
+    /// Adds lazily constructed context.
+    ///
+    /// # Errors
+    /// Returns the original failure with context.
     fn with_context(self, context: impl FnOnce() -> String) -> crate::Result<T>;
 }
 
@@ -60,21 +78,23 @@ impl<T> ErrorContext<T> for Option<T> {
     }
 }
 
+/// Returns a runtime error with a formatted message.
+#[macro_export]
 macro_rules! bail {
     ($($arg:tt)*) => {
         return Err($crate::RuntimeError::Message(format!($($arg)*)))
     };
 }
-pub(crate) use bail;
 
+/// Returns a runtime error when a condition is false.
+#[macro_export]
 macro_rules! ensure {
     ($condition:expr, $($arg:tt)*) => {
         if !$condition {
-            $crate::error::bail!($($arg)*);
+            $crate::bail!($($arg)*);
         }
     };
 }
-pub(crate) use ensure;
 
 #[cfg(test)]
 mod tests {

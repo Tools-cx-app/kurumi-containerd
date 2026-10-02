@@ -28,7 +28,8 @@ struct PreparedRootfs {
 }
 
 impl Rootfs {
-    pub(crate) fn new(config: &Config, mount_dir: &Path) -> Self {
+    #[must_use]
+    pub fn new(config: &Config, mount_dir: &Path) -> Self {
         Self {
             configured: config.container.rootfs.clone(),
             image: config.container.rootfs_image.clone(),
@@ -36,6 +37,10 @@ impl Rootfs {
         }
     }
 
+    /// Prepares the rootfs, keeping image mounts alive until the result is dropped.
+    ///
+    /// # Errors
+    /// Returns errors for missing images, unsupported filesystems, or failed mounts.
     pub fn prepare(&self) -> Result<impl AsRef<Path> + use<>> {
         if let Some(path) = &self.configured {
             return Ok(PreparedRootfs {

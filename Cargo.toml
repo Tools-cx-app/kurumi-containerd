@@ -2,6 +2,8 @@
 members = [
   "crates/kurumi-containerd-cli",
   "crates/kurumi-containerd-config",
+  "crates/kurumi-containerd-error",
+  "crates/kurumi-containerd-host",
   "crates/kurumi-containerd-helper",
   "crates/kurumi-containerd-runtime",
 ]
@@ -21,6 +23,8 @@ flate2 = { version = "1.1", default-features = false, features = [
   "rust_backend",
 ] }
 kurumi-containerd-helper = { path = "crates/kurumi-containerd-helper" }
+kurumi-containerd-error = { path = "crates/kurumi-containerd-error" }
+kurumi-containerd-host = { path = "crates/kurumi-containerd-host" }
 libc = "0.2"
 mio = { version = "1.0", features = ["os-poll", "os-ext"] }
 procfs = { version = "0.18", default-features = false }

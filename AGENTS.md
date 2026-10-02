@@ -3,15 +3,16 @@
 ## Workspace boundaries
 
 - `KurumiContainerd` is a privileged Linux/Android container runtime, not an Android app or a security sandbox. Runtime operations generally require root and a prepared rootfs; unit tests do not.
-- The workspace has four packages: `kurumi-containerd` (`crates/kurumi-containerd-cli`, binary entrypoint), `kurumi-containerd-config` (strict TOML loading/validation), `kurumi-containerd-runtime` (lifecycle and isolation), and `kurumi-containerd-helper` (target-aware syscall wrappers).
-- In `kurumi-containerd-runtime`, `runtime/` orchestrates lifecycle/state/exec, `host/` owns host resources, and `container/` applies in-container policy. Keep raw Linux/Android syscall wrappers in `kurumi-containerd-helper`; its crate-level unsafe/clippy allowances are intentional.
+- The workspace has six packages: `kurumi-containerd` (`crates/kurumi-containerd-cli`, binary entrypoint), `kurumi-containerd-config` (strict TOML loading/validation), `kurumi-containerd-error` (shared errors and context), `kurumi-containerd-host` (host resources), `kurumi-containerd-runtime` (lifecycle and isolation), and `kurumi-containerd-helper` (target-aware syscall wrappers).
+- In `kurumi-containerd-runtime`, `runtime/` orchestrates lifecycle/state/exec and `container/` applies in-container policy. Host resources live in `kurumi-containerd-host`. Keep raw Linux/Android syscall wrappers in `kurumi-containerd-helper`; its crate-level unsafe/clippy allowances are intentional.
 
 ## Code ownership
 
 - Put raw syscalls, libc/FFI details, file-descriptor primitives, and Linux/Android or architecture-specific wrappers in `kurumi-containerd-helper`. Keep policy, lifecycle decisions, and user-facing output out of this crate.
 - Changes to `kurumi-containerd-helper` must preserve the target kernel ABI: use ABI-correct libc types, constants, structure layouts, and calling conventions under the appropriate target/architecture gates. Keep `unsafe` blocks minimal, document their safety invariants, validate pointers, lengths, ownership, and return values at the safe wrapper boundary, and do not expose an API as safe unless callers cannot violate those invariants.
 - Put TOML schema, parsing, path resolution, defaults, and configuration validation in `kurumi-containerd-config`. It must not depend on runtime or host state.
-- Put container lifecycle and isolation policy in `kurumi-containerd-runtime`: orchestration/state/exec in `runtime/`, host-owned resources in `host/`, and behavior applied inside the container in `container/`. Call `kurumi-containerd-helper` rather than duplicating unsafe syscall code.
+- Put container lifecycle and isolation policy in `kurumi-containerd-runtime`: orchestration/state/exec in `runtime/` and behavior applied inside the container in `container/`. Put host-owned resources in `kurumi-containerd-host`; it must not depend on runtime. Call `kurumi-containerd-helper` rather than duplicating unsafe syscall code.
+- Put shared `ConfigError`, `RuntimeError`, result aliases, context extensions, and error macros in `kurumi-containerd-error`. It must not depend on other workspace crates. Config and runtime re-export their existing error types for compatibility.
 - Put argument parsing, command dispatch, capability-report formatting, and other terminal-facing presentation in `kurumi-containerd-cli`. The package and binary are named `kurumi-containerd`; keep reusable runtime behavior out of the CLI.
 
 ## Verification

@@ -16,6 +16,10 @@ pub struct Cgroup {
 }
 
 impl Cgroup {
+    /// Creates the configured cgroup hierarchy.
+    ///
+    /// # Errors
+    /// Returns errors for unavailable controllers or failed cgroup configuration.
     pub fn create(
         workdir: &Path,
         name: &str,
@@ -100,6 +104,10 @@ impl Cgroup {
         Ok(cgroup)
     }
 
+    /// Attaches a process to the configured cgroups.
+    ///
+    /// # Errors
+    /// Returns errors when writing cgroup membership fails.
     pub fn attach(&self, pid: i32) -> Result<()> {
         for path in &self.paths {
             fs::write(path.join("cgroup.procs"), pid.to_string())
@@ -108,6 +116,10 @@ impl Cgroup {
         Ok(())
     }
 
+    /// Removes the owned cgroups.
+    ///
+    /// # Errors
+    /// Returns errors when cgroup cleanup fails.
     pub fn remove(&mut self) -> Result<()> {
         let mut first_error = None;
         for path in self.paths.drain(..) {

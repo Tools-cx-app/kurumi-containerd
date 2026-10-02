@@ -14,21 +14,26 @@ use kurumi_containerd_helper::{
 use mio::{Events, Interest, Poll, Token, unix::SourceFd};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ProcessId(i32);
+pub struct ProcessId(i32);
 
 impl ProcessId {
-    pub(crate) const fn as_raw(self) -> i32 {
+    #[must_use]
+    pub const fn as_raw(self) -> i32 {
         self.0
     }
 }
 
-pub(crate) struct ProcessHandle {
+pub struct ProcessHandle {
     pid: ProcessId,
     fd: OwnedFd,
 }
 
 impl ProcessHandle {
-    pub(crate) fn open(pid: i32) -> Result<Self> {
+    /// Opens a stable pidfd handle.
+    ///
+    /// # Errors
+    /// Returns errors when the kernel cannot open the process handle.
+    pub fn open(pid: i32) -> Result<Self> {
         let fd = pidfd_open(pid).with_context(|| format!("failed to open pidfd for PID {pid}"))?;
         Ok(Self {
             pid: ProcessId(pid),
@@ -36,16 +41,25 @@ impl ProcessHandle {
         })
     }
 
-    pub(crate) const fn pid(&self) -> ProcessId {
+    #[must_use]
+    pub const fn pid(&self) -> ProcessId {
         self.pid
     }
 
-    pub(crate) fn send_signal(&self, signal: impl Into<SignalNumber>) -> Result<()> {
+    /// Sends a signal through the pidfd.
+    ///
+    /// # Errors
+    /// Returns errors when signaling the process fails.
+    pub fn send_signal(&self, signal: impl Into<SignalNumber>) -> Result<()> {
         pidfd_send_signal(self.fd.as_fd(), signal.into())
             .with_context(|| format!("failed to signal PID {} through pidfd", self.pid.as_raw()))
     }
 
-    pub(crate) fn wait_for_exit(&self, timeout: Duration) -> Result<bool> {
+    /// Waits up to the timeout for process exit.
+    ///
+    /// # Errors
+    /// Returns errors when registering or polling the pidfd fails.
+    pub fn wait_for_exit(&self, timeout: Duration) -> Result<bool> {
         let mut poll = Poll::new().context("failed to create pidfd poller")?;
         poll.registry()
             .register(
@@ -73,22 +87,38 @@ impl ProcessHandle {
     }
 }
 
-pub(crate) fn require_handle(pid: i32) -> Result<ProcessHandle> {
+/// Opens a handle after validating that the PID is positive.
+///
+/// # Errors
+/// Returns errors for invalid PIDs or failed pidfd access.
+pub fn require_handle(pid: i32) -> Result<ProcessHandle> {
     if pid <= 0 {
         bail!("invalid process PID {pid}");
     }
     ProcessHandle::open(pid)
 }
 
-pub(crate) fn parent_pid(pid: i32) -> Result<i32> {
+/// Reads a process's parent PID.
+///
+/// # Errors
+/// Returns errors when procfs cannot be read or parsed.
+pub fn parent_pid(pid: i32) -> Result<i32> {
     Ok(procfs::process::Process::new(pid)?.stat()?.ppid)
 }
 
-pub(crate) fn host_boot_id() -> Result<String> {
+/// Reads the current host boot identity.
+///
+/// # Errors
+/// Returns errors when the kernel boot ID cannot be read.
+pub fn host_boot_id() -> Result<String> {
     Ok(procfs::sys::kernel::random::boot_id()?)
 }
 
-pub(crate) fn process_start_time(pid: i32) -> Result<u64> {
+/// Reads a process's start time in kernel clock ticks.
+///
+/// # Errors
+/// Returns errors when procfs cannot be read or parsed.
+pub fn process_start_time(pid: i32) -> Result<u64> {
     Ok(procfs::process::Process::new(pid)?.stat()?.starttime)
 }
 

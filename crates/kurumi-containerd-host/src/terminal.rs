@@ -26,13 +26,17 @@ use kurumi_containerd_helper::{
 static FORWARDED_SIGNAL: AtomicI32 = AtomicI32::new(0);
 const PTY_MODE: u32 = 0o620;
 
-pub(crate) struct Console {
-    pub(crate) master: OwnedFd,
-    pub(crate) slave_path: String,
+pub struct Console {
+    pub master: OwnedFd,
+    pub slave_path: String,
 }
 
 impl Console {
-    pub(crate) fn open() -> Result<Self> {
+    /// Allocates a console using the current stdin terminal settings.
+    ///
+    /// # Errors
+    /// Returns PTY allocation, broker, or terminal configuration errors.
+    pub fn open() -> Result<Self> {
         Self::open_from(std::io::stdin().as_fd())
     }
 
@@ -56,7 +60,11 @@ impl Console {
         })
     }
 
-    pub(crate) fn open_slave(&self) -> Result<OwnedFd> {
+    /// Opens the console's slave endpoint.
+    ///
+    /// # Errors
+    /// Returns errors when the slave device cannot be opened.
+    pub fn open_slave(&self) -> Result<OwnedFd> {
         open_pty_slave(&self.slave_path)
     }
 }
@@ -153,14 +161,22 @@ fn open_console_pty(winsize: Option<&WindowSize>) -> Result<PtyPair> {
     open_pty(winsize).context("failed to allocate foreground console PTY")
 }
 
-pub(crate) fn configure_child(slave: &OwnedFd) -> Result<()> {
+/// Connects a child session and its stdio to a PTY slave.
+///
+/// # Errors
+/// Returns session, controlling-terminal, or descriptor duplication errors.
+pub fn configure_child(slave: &OwnedFd) -> Result<()> {
     setsid().context("failed to create terminal session")?;
     set_controlling_terminal(slave.as_fd()).context("failed to set controlling terminal")?;
     dup_stdio(slave).context("failed to connect console stdio")?;
     Ok(())
 }
 
-pub(crate) fn ignore_hangup() -> Result<()> {
+/// Ignores SIGHUP for an interactive session.
+///
+/// # Errors
+/// Returns errors when installing the signal handler fails.
+pub fn ignore_hangup() -> Result<()> {
     set_signal_handler(
         Signal::Hangup,
         SignalHandler::Ignore,
@@ -170,13 +186,21 @@ pub(crate) fn ignore_hangup() -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn send_fd(socket: &OwnedFd, fd: &OwnedFd) -> Result<()> {
+/// Sends a PTY descriptor over a Unix socket.
+///
+/// # Errors
+/// Returns descriptor transfer errors.
+pub fn send_fd(socket: &OwnedFd, fd: &OwnedFd) -> Result<()> {
     let descriptors = [fd.as_raw_fd()];
     send_fds(socket.as_fd(), &descriptors).context("failed to send interactive PTY")?;
     Ok(())
 }
 
-pub(crate) fn receive_fd(socket: &OwnedFd) -> Result<OwnedFd> {
+/// Receives a PTY descriptor from a Unix socket.
+///
+/// # Errors
+/// Returns errors for failed transfers or missing descriptors.
+pub fn receive_fd(socket: &OwnedFd) -> Result<OwnedFd> {
     receive_fds(socket.as_fd(), 1)
         .context("namespace worker exited before providing an interactive PTY")?
         .into_iter()
@@ -184,7 +208,11 @@ pub(crate) fn receive_fd(socket: &OwnedFd) -> Result<OwnedFd> {
         .context("helper returned no interactive PTY descriptor")
 }
 
-pub(crate) fn drain(master: &OwnedFd, child: i32) -> Result<WaitStatus> {
+/// Discards background PTY output while waiting for the child.
+///
+/// # Errors
+/// Returns polling, reading, or process wait errors.
+pub fn drain(master: &OwnedFd, child: i32) -> Result<WaitStatus> {
     set_nonblocking(master.as_fd()).context("failed to set PTY nonblocking")?;
     let mut buffer = [0_u8; 16 * 1024];
     loop {
@@ -205,7 +233,11 @@ pub(crate) fn drain(master: &OwnedFd, child: i32) -> Result<WaitStatus> {
     }
 }
 
-pub(crate) fn proxy(
+/// Proxies interactive terminal I/O and optionally delegates shutdown requests.
+///
+/// # Errors
+/// Returns terminal, signal forwarding, shutdown callback, or process wait errors.
+pub fn proxy(
     master: &OwnedFd,
     child: i32,
     shutdown_target: Option<(&ProcessHandle, &dyn Fn() -> Result<()>)>,
