@@ -94,21 +94,6 @@ impl Runtime {
         #[cfg(target_os = "android")]
         android::setup_before_pivot(rootfs, &self.config.container.android)?;
         self.validate_bind_targets(rootfs)?;
-        if let Some(console) = console {
-            let target = rootfs.join("dev/console");
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            File::create(&target).context("failed to create rootfs/dev/console")?;
-            mount(
-                Some(Path::new(&console.slave_path)),
-                &target,
-                None,
-                MountFlags::BIND,
-                None,
-            )
-            .context("failed to bind foreground PTY to rootfs/dev/console")?;
-        }
         chdir(rootfs).context("failed to enter rootfs")?;
         pivot_root(Path::new("."), Path::new(".old_root")).context("pivot_root failed")?;
         chdir("/").context("failed to enter new root")?;
@@ -188,6 +173,13 @@ impl Runtime {
             Some("mode=755"),
         )
         .context("failed to mount /dev")?;
+        if let Some(console) = console {
+            let source = Path::new("/.old_root").join(strip_root(Path::new(&console.slave_path)));
+            let target = Path::new("/dev/console");
+            File::create(target).context("failed to create /dev/console")?;
+            mount(Some(&source), target, None, MountFlags::BIND, None)
+                .context("failed to bind PTY to /dev/console")?;
+        }
         fs::create_dir_all("/dev/pts")?;
         mount(
             Some(Path::new("devpts")),

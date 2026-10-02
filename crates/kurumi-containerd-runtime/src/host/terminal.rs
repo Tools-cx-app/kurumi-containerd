@@ -185,6 +185,27 @@ pub(crate) fn receive_fd(socket: &OwnedFd) -> Result<OwnedFd> {
         .context("helper returned no interactive PTY descriptor")
 }
 
+pub(crate) fn drain(master: &OwnedFd, child: i32) -> Result<WaitStatus> {
+    set_nonblocking(master.as_fd()).context("failed to set PTY nonblocking")?;
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        if poll_terminal(master.as_fd(), master.as_fd(), false, false)?.0 {
+            match read(master, &mut buffer) {
+                Ok(_) => {}
+                Err(error)
+                    if is_interrupted(&error) || is_would_block(&error) || is_io_error(&error) => {}
+                Err(error) => return Err(error).context("failed to drain background PTY"),
+            }
+        }
+        match waitpid(child, true) {
+            Ok(WaitStatus::StillAlive) => {}
+            Ok(status) => return Ok(status),
+            Err(error) if is_interrupted(&error) => {}
+            Err(error) => return Err(error).context("failed waiting for generation worker"),
+        }
+    }
+}
+
 pub(crate) fn proxy(
     master: &OwnedFd,
     child: i32,

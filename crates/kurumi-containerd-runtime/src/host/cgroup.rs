@@ -30,7 +30,12 @@ impl Cgroup {
             });
         }
         if let Some(root) = ensure_cgroup2_root(bootstrap)? {
-            let path = root.join("kurumi-containerd").join(name);
+            let controllers = requested_controllers(resources, false);
+            enable_controllers(&root, &controllers)?;
+            let parent = root.join("kurumi-containerd");
+            fs::create_dir_all(&parent)?;
+            enable_controllers(&parent, &controllers)?;
+            let path = parent.join(name);
             fs::create_dir_all(&path)
                 .with_context(|| format!("failed to create cgroup {}", path.display()))?;
             let cgroup = Self {
@@ -197,6 +202,36 @@ enum Controller {
     Pids,
 }
 
+fn enable_controllers(path: &Path, controllers: &[Controller]) -> Result<()> {
+    if controllers.is_empty() {
+        return Ok(());
+    }
+    let available = fs::read_to_string(path.join("cgroup.controllers"))?;
+    let enabled = fs::read_to_string(path.join("cgroup.subtree_control"))?;
+    let mut changes = Vec::new();
+    for controller in controllers {
+        let name = match controller {
+            Controller::Memory => "memory",
+            Controller::Cpu => "cpu",
+            Controller::Pids => "pids",
+        };
+        ensure!(
+            available.split_whitespace().any(|value| value == name),
+            "cgroup controller {name} is unavailable at {}",
+            path.display()
+        );
+        if !enabled.split_whitespace().any(|value| value == name) {
+            changes.push(format!("+{name}"));
+        }
+    }
+    if !changes.is_empty() {
+        fs::write(path.join("cgroup.subtree_control"), changes.join(" ")).with_context(|| {
+            format!("failed to enable cgroup controllers at {}", path.display())
+        })?;
+    }
+    Ok(())
+}
+
 fn ensure_cgroup1_roots(
     resources: &ResourceConfig,
     required: bool,
@@ -326,9 +361,31 @@ mod tests {
     use procfs::process::MountInfo;
 
     use super::{
-        Cgroup, Controller, cgroup_required, parse_cgroup1_roots, requested_controllers,
-        write_limit,
+        Cgroup, Controller, cgroup_required, enable_controllers, parse_cgroup1_roots,
+        requested_controllers, write_limit,
     };
+
+    #[test]
+    fn enables_only_missing_requested_controllers() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("cgroup.controllers"),
+            "cpu memory pids",
+        )
+        .unwrap();
+        let control = directory.path().join("cgroup.subtree_control");
+        std::fs::write(&control, "cpu").unwrap();
+        enable_controllers(directory.path(), &[Controller::Cpu, Controller::Memory]).unwrap();
+        assert_eq!(std::fs::read_to_string(&control).unwrap(), "+memory");
+
+        std::fs::write(&control, "cpu memory").unwrap();
+        enable_controllers(directory.path(), &[Controller::Memory]).unwrap();
+        assert_eq!(std::fs::read_to_string(&control).unwrap(), "cpu memory");
+
+        std::fs::write(directory.path().join("cgroup.controllers"), "cpu").unwrap();
+        assert!(enable_controllers(directory.path(), &[Controller::Memory]).is_err());
+        assert_eq!(std::fs::read_to_string(control).unwrap(), "cpu memory");
+    }
 
     #[test]
     fn systemd_requires_cgroup_without_resource_limits() {

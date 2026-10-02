@@ -326,7 +326,7 @@ impl Runtime {
                 )
                 .context("foreground console proxy failed")
             } else {
-                waitpid(intermediate, false).context("failed waiting for generation worker")
+                terminal::drain(&console.master, intermediate)
             };
             let status = match status {
                 Ok(status) => status,
