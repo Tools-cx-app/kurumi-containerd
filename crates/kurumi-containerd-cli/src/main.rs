@@ -74,6 +74,8 @@ enum Commands {
     Scan,
     /// Check host capabilities.
     Check,
+    /// Open the interactive container manager.
+    Tui,
 }
 
 fn main() -> Result<()> {
@@ -89,6 +91,9 @@ fn main() -> Result<()> {
         .init();
     if matches!(cli.command, Commands::Check) {
         return check();
+    }
+    if matches!(cli.command, Commands::Tui) {
+        return kurumi_containerd_tui::run(&std::env::current_exe()?);
     }
     let pointers = ConfigPointer::load_home()?;
     let config_path = &ConfigPointer::select(&pointers, cli.name.as_deref())?.file;
@@ -146,6 +151,7 @@ fn main() -> Result<()> {
             log_recovered(&states);
         }
         Commands::Check => unreachable!("check is handled before loading configuration"),
+        Commands::Tui => unreachable!("tui is handled before selecting a configuration"),
         Commands::Install { .. } => unreachable!("install is handled before loading configuration"),
     }
     Ok(())
@@ -246,20 +252,9 @@ fn log_started(state: &ContainerState) {
 }
 
 fn log_info(info: &ContainerInfo) {
-    tracing::info!(
-        container = info.name,
-        active = info.active,
-        init_pid = ?info.init_pid,
-        monitor_pid = ?info.monitor_pid,
-        rootfs = %info.rootfs.display(),
-        uuid = ?info.uuid,
-        init_system = ?info.init_system,
-        generation = ?info.generation,
-        uptime_seconds = ?info.uptime_seconds,
-        memory_kb = ?info.memory_kb,
-        processes = ?info.processes,
-        "container info"
-    );
+    for line in info.display_lines() {
+        tracing::info!("{line}");
+    }
 }
 
 fn log_containers(states: &[ContainerState]) {

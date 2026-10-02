@@ -98,6 +98,10 @@ sudo -H ./target/release/kurumi-containerd enter
 sudo -H ./target/release/kurumi-containerd stop
 ```
 
+For interactive management of all registered containers, run
+`sudo -H ./target/release/kurumi-containerd tui`. See [CLI usage](docs/usage.md)
+for keys and graphical terminal requirements.
+
 The pointer is read from the running process's `$HOME/.kurumi-containerd/config.json`.
 These examples use `sudo -H` consistently so creation and execution use root's HOME.
 JSON is a nonempty list with unique management names. A single entry is selected

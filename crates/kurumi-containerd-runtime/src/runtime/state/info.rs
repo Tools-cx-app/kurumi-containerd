@@ -28,56 +28,45 @@ pub struct ContainerInfo {
 
 impl std::fmt::Display for ContainerInfo {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(formatter, "{}", self.name)?;
+        write!(formatter, "{}", self.display_lines().join("\n"))
+    }
+}
+
+impl ContainerInfo {
+    #[must_use]
+    pub fn display_lines(&self) -> Vec<String> {
+        let mut lines = vec![format!("Name: {}", self.name)];
         if self.active {
-            writeln!(
-                formatter,
-                "{:>12}: active (running) for {}",
-                "Active",
-                format_duration(self.uptime_seconds.unwrap_or_default())
-            )?;
-            writeln!(
-                formatter,
-                "{:>12}: {} ({})",
-                "Main PID",
-                self.init_pid.unwrap_or_default(),
-                self.init_system.unwrap_or_default()
-            )?;
-            writeln!(
-                formatter,
-                "{:>12}: {}",
-                "Monitor PID",
-                self.monitor_pid.unwrap_or_default()
-            )?;
-            writeln!(
-                formatter,
-                "{:>12}: {}",
-                "Tasks",
-                self.processes.unwrap_or_default()
-            )?;
-            writeln!(
-                formatter,
-                "{:>12}: {}",
-                "Memory",
-                format_memory(self.memory_kb.unwrap_or_default())
-            )?;
-            writeln!(
-                formatter,
-                "{:>12}: {}",
-                "Generation",
-                self.generation.unwrap_or_default()
-            )?;
+            lines.extend([
+                format!(
+                    "Active: active (running) for {}",
+                    format_duration(self.uptime_seconds.unwrap_or_default())
+                ),
+                format!(
+                    "Main PID: {} ({})",
+                    self.init_pid.unwrap_or_default(),
+                    self.init_system.unwrap_or_default()
+                ),
+                format!("Monitor PID: {}", self.monitor_pid.unwrap_or_default()),
+                format!("Tasks: {}", self.processes.unwrap_or_default()),
+                format!(
+                    "Memory: {}",
+                    format_memory(self.memory_kb.unwrap_or_default())
+                ),
+                format!("Generation: {}", self.generation.unwrap_or_default()),
+            ]);
         } else {
-            writeln!(formatter, "{:>12}: inactive (dead)", "Active")?;
+            lines.push("Active: inactive (dead)".to_owned());
         }
-        writeln!(formatter, "{:>12}: {}", "Rootfs", self.rootfs.display())?;
-        write!(
-            formatter,
-            "{:>12}: {}",
-            "UUID",
-            self.uuid
-                .map_or_else(|| "unassigned".to_owned(), |uuid| uuid.to_string())
-        )
+        lines.extend([
+            format!("Rootfs: {}", self.rootfs.display()),
+            format!(
+                "UUID: {}",
+                self.uuid
+                    .map_or_else(|| "unassigned".to_owned(), |uuid| uuid.to_string())
+            ),
+        ]);
+        lines
     }
 }
 
@@ -224,7 +213,7 @@ mod tests {
         };
         assert_eq!(
             info.to_string(),
-            "test\n      Active: active (running) for 1h 02m 03s\n    Main PID: 123 (systemd)\n Monitor PID: 122\n       Tasks: 4\n      Memory: 1.5 MiB\n  Generation: 1\n      Rootfs: /rootfs\n        UUID: 00000000-0000-0000-0000-000000000000"
+            "Name: test\nActive: active (running) for 1h 02m 03s\nMain PID: 123 (systemd)\nMonitor PID: 122\nTasks: 4\nMemory: 1.5 MiB\nGeneration: 1\nRootfs: /rootfs\nUUID: 00000000-0000-0000-0000-000000000000"
         );
     }
 
@@ -245,7 +234,49 @@ mod tests {
         };
         assert_eq!(
             info.to_string(),
-            "test\n      Active: inactive (dead)\n      Rootfs: /rootfs\n        UUID: 00000000-0000-0000-0000-000000000000"
+            "Name: test\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: 00000000-0000-0000-0000-000000000000"
+        );
+    }
+
+    #[test]
+    fn displays_container_info_lines() {
+        let info = ContainerInfo {
+            name: "test".to_owned(),
+            active: true,
+            init_pid: Some(123),
+            monitor_pid: Some(122),
+            rootfs: PathBuf::from("/a/very/long/rootfs/path"),
+            uuid: Some(Uuid::nil()),
+            init_system: Some(crate::InitSystem::Systemd),
+            generation: Some(1),
+            uptime_seconds: Some(3_723),
+            memory_kb: Some(1_536),
+            processes: Some(4),
+        };
+        let lines = info.display_lines();
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "Rootfs: /a/very/long/rootfs/path")
+        );
+        assert!(lines.iter().any(|line| line.starts_with("UUID: ")));
+
+        let inactive = ContainerInfo {
+            active: false,
+            init_pid: None,
+            monitor_pid: None,
+            init_system: None,
+            generation: None,
+            uptime_seconds: None,
+            memory_kb: None,
+            processes: None,
+            ..info
+        };
+        assert!(
+            inactive
+                .display_lines()
+                .iter()
+                .any(|line| line == "Active: inactive (dead)")
         );
     }
 

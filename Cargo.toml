@@ -6,6 +6,7 @@ members = [
   "crates/kurumi-containerd-host",
   "crates/kurumi-containerd-helper",
   "crates/kurumi-containerd-runtime",
+  "crates/kurumi-containerd-tui",
 ]
 resolver = "2"
 

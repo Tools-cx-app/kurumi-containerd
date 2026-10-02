@@ -21,6 +21,37 @@ configuration. The examples below use `sudo -H`: create the JSON under root's HO
 Most operations require root because they create namespaces, mounts, devices,
 cgroups, and network interfaces.
 
+## Terminal manager
+
+```bash
+sudo -H kurumi-containerd tui
+```
+
+The ratatui manager shows every entry in the HOME JSON registry, including
+stopped containers. Use `j`/`k` or the arrow keys to select a container;
+`h`/`l` or left/right to choose an action; Enter to open it. `Tab` moves
+between input fields (and adds another argument for `run`); `Space` toggles
+force while the install force field is selected. Enter submits; stop, restart,
+scan and forced install require a second Enter to confirm. Escape cancels the
+form, `r` reloads the JSON registry, PageUp/PageDown scroll command output,
+and `q` exits when no command is in progress. Status refreshes periodically.
+
+The manager exposes install, start/stop/restart (including foreground modes),
+enter, run, info, pid, show, scan and check. Each operation invokes the same
+CLI executable, so `sudo -H` and `--name` select the same HOME and entry as
+ordinary commands. `run` accepts an executable and separate argument fields;
+it does not interpret shell quoting or pipes. Captured output is limited to
+the first 1 MiB in the manager.
+
+Interactive and foreground commands open a separate graphical terminal on
+Linux. The manager detects `xterm`, `kitty` or `alacritty`, in that order;
+set `KURUMI_CONTAINERD_TERMINAL` to one of those executable names or its
+path to override detection. The terminal remains open after the command so
+its result can be read; close it when finished. On headless Linux or Android,
+these actions are unavailable, while noninteractive management remains in
+the TUI. A TOML configuration with `container.foreground = true` also routes
+ordinary start and restart through the separate terminal.
+
 ## Install a local rootfs
 
 `install` accepts only a local archive. It never downloads a rootfs or accepts

@@ -1,6 +1,6 @@
 # Runtime architecture
 
-KurumiContainerd is a Cargo workspace with six crates:
+KurumiContainerd is a Cargo workspace with seven crates:
 
 ```text
 crates/
@@ -10,13 +10,15 @@ crates/
   kurumi-containerd-helper/   target-aware Linux and Android syscall wrappers
   kurumi-containerd-host/     host resources and platform integration
   kurumi-containerd-runtime/  lifecycle, isolation, and state
+  kurumi-containerd-tui/      ratatui manager and CLI action dispatch
 ```
 
 The `kurumi-containerd` package produces the command-line binary. The library
 crates provide internal implementation boundaries.
 
-Dependencies flow in one direction: the CLI uses runtime, configuration, and
-helper; runtime uses host, configuration, helper, and error; host uses
+Dependencies flow in one direction: the CLI uses TUI, runtime, configuration,
+and helper; TUI uses runtime and configuration; runtime uses host, configuration,
+helper, and error; host uses
 configuration, helper, and error; configuration uses error. Error and helper
 do not depend on other workspace crates.
 

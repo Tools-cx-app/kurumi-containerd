@@ -3,7 +3,7 @@
 ## Workspace boundaries
 
 - `KurumiContainerd` is a privileged Linux/Android container runtime, not an Android app or a security sandbox. Runtime operations generally require root and a prepared rootfs; unit tests do not.
-- The workspace has six packages: `kurumi-containerd` (`crates/kurumi-containerd-cli`, binary entrypoint), `kurumi-containerd-config` (strict TOML loading/validation), `kurumi-containerd-error` (shared errors and context), `kurumi-containerd-host` (host resources), `kurumi-containerd-runtime` (lifecycle and isolation), and `kurumi-containerd-helper` (target-aware syscall wrappers).
+- The workspace has seven packages: `kurumi-containerd` (`crates/kurumi-containerd-cli`, binary entrypoint), `kurumi-containerd-tui` (terminal manager), `kurumi-containerd-config` (strict TOML loading/validation), `kurumi-containerd-error` (shared errors and context), `kurumi-containerd-host` (host resources), `kurumi-containerd-runtime` (lifecycle and isolation), and `kurumi-containerd-helper` (target-aware syscall wrappers).
 - In `kurumi-containerd-runtime`, `runtime/` orchestrates lifecycle/state/exec and `container/` applies in-container policy. Host resources live in `kurumi-containerd-host`. Keep raw Linux/Android syscall wrappers in `kurumi-containerd-helper`; its crate-level unsafe/clippy allowances are intentional.
 
 ## Code ownership
@@ -14,6 +14,7 @@
 - Put container lifecycle and isolation policy in `kurumi-containerd-runtime`: orchestration/state/exec in `runtime/` and behavior applied inside the container in `container/`. Put host-owned resources in `kurumi-containerd-host`; it must not depend on runtime. Call `kurumi-containerd-helper` rather than duplicating unsafe syscall code.
 - Put shared `ConfigError`, `RuntimeError`, result aliases, context extensions, and error macros in `kurumi-containerd-error`. It must not depend on other workspace crates. Config and runtime re-export their existing error types for compatibility.
 - Put argument parsing, command dispatch, capability-report formatting, and other terminal-facing presentation in `kurumi-containerd-cli`. The package and binary are named `kurumi-containerd`; keep reusable runtime behavior out of the CLI.
+- Put the ratatui screen, TUI state, and TUI subprocess presentation in `kurumi-containerd-tui`; CLI owns the `tui` subcommand and passes its executable path to this crate.
 
 ## Verification
 

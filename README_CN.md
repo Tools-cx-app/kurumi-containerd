@@ -91,6 +91,10 @@ sudo -H ./target/release/kurumi-containerd enter
 sudo -H ./target/release/kurumi-containerd stop
 ```
 
+使用 `sudo -H ./target/release/kurumi-containerd tui` 可打开 ratatui 管理界面，
+浏览所有已登记容器并执行现有 CLI 命令。交互命令在 Linux 图形终端中另开窗口；
+Android 上仍可使用非交互管理操作。按键及终端配置见 [CLI 使用](docs/usage.md)。
+
 固定读取实际运行进程的 `$HOME/.kurumi-containerd/config.json`。上述命令统一使用
 `sudo -H`，让创建和运行都使用 root 的 HOME。JSON 是非空列表，`name` 必须唯一；
 单项自动选中，多项使用 `kurumi-containerd --name debian start`。`name` 用于展示和选择，
