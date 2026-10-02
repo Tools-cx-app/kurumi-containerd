@@ -1,11 +1,13 @@
 //! Configuration schema, loading, path resolution, and validation for `KurumiContainerd`.
 
 mod config;
+mod environment;
 mod model;
 mod pointer;
 pub use pointer::ConfigPointer;
 
-pub use config::{ConfigError, Result, parse_environment};
+pub use config::{ConfigError, Result};
+pub use environment::parse_environment;
 pub use model::{
     AndroidConfig, BindMount, Config, ContainerConfig, NetworkConfig, NetworkMode, PortForward,
     Protocol, ResourceConfig, RuntimeConfig, SecurityConfig,
@@ -220,6 +222,52 @@ mod tests {
         assert_eq!(environment.get("EMPTY").map(String::as_str), Some(""));
         assert_eq!(environment.get("VALUE").map(String::as_str), Some("a=b"));
         assert!(parse_environment("INVALID\n").is_err());
+    }
+
+    #[test]
+    fn preserves_environment_file_values() {
+        let environment = parse_environment(concat!(
+            "  # comment\r\n\r\n",
+            "  export   LANG='C.UTF-8'  \r\n",
+            "EMPTY=\nDOUBLE=\" hello = 世界 \"\n",
+            "LITERAL=$HOME\\n # literal\n",
+            "UNMATCHED='value\nSPACE=  value  \n",
+            "DUP=first\nDUP=last\nexport=value\n",
+            "QUOTED_EMPTY=''\nSINGLE_QUOTE='\nFINAL=a=b=c",
+        ))
+        .unwrap();
+        for (key, value) in [
+            ("LANG", "C.UTF-8"),
+            ("EMPTY", ""),
+            ("DOUBLE", " hello = 世界 "),
+            ("LITERAL", "$HOME\\n # literal"),
+            ("UNMATCHED", "'value"),
+            ("SPACE", "  value"),
+            ("DUP", "last"),
+            ("export", "value"),
+            ("QUOTED_EMPTY", ""),
+            ("SINGLE_QUOTE", "'"),
+            ("FINAL", "a=b=c"),
+        ] {
+            assert_eq!(environment[key], value, "{key}");
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_environment_entries_with_line_numbers() {
+        for (line, message) in [
+            ("MISSING", "line 3 has no '='"),
+            ("=value", "invalid key on line 3"),
+            ("1KEY=value", "invalid key on line 3"),
+            ("KEY =value", "invalid key on line 3"),
+            ("export\tKEY=value", "invalid key on line 3"),
+            ("KÉY=value", "invalid key on line 3"),
+            ("KEY=val\0ue", "NUL byte on line 3"),
+            ("KEY='\0'", "NUL byte on line 3"),
+        ] {
+            let error = parse_environment(&format!("# comment\n\n{line}")).unwrap_err();
+            assert_eq!(error.to_string(), message);
+        }
     }
 
     #[test]

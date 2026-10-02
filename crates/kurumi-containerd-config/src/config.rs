@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::Write,
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, chown},
@@ -9,7 +8,7 @@ use std::{
 use fs2::FileExt;
 use uuid::Uuid;
 
-use crate::{Config, NetworkMode, Protocol};
+use crate::{Config, NetworkMode, Protocol, environment::valid_env_key, parse_environment};
 
 pub use kurumi_containerd_error::config::{ConfigError, Result};
 use kurumi_containerd_error::{
@@ -342,39 +341,6 @@ impl Config {
     }
 }
 
-/// Parses newline-separated `KEY=VALUE` environment entries.
-///
-/// # Errors
-///
-/// Returns an error for malformed lines, invalid variable names, or NUL bytes.
-pub fn parse_environment(source: &str) -> Result<BTreeMap<String, String>> {
-    let mut environment = BTreeMap::new();
-    for (index, raw) in source.lines().enumerate() {
-        let mut line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some(value) = line.strip_prefix("export ") {
-            line = value.trim_start();
-        }
-        let (key, raw_value) = line
-            .split_once('=')
-            .with_context(|| format!("line {} has no '='", index + 1))?;
-        ensure!(valid_env_key(key), "invalid key on line {}", index + 1);
-        let value = if raw_value.len() >= 2
-            && ((raw_value.starts_with('"') && raw_value.ends_with('"'))
-                || (raw_value.starts_with('\'') && raw_value.ends_with('\'')))
-        {
-            &raw_value[1..raw_value.len() - 1]
-        } else {
-            raw_value
-        };
-        ensure!(!value.contains('\0'), "NUL byte on line {}", index + 1);
-        environment.insert(key.to_owned(), value.to_owned());
-    }
-    Ok(environment)
-}
-
 fn absolute_from(base: &Path, path: &Path) -> Result<PathBuf> {
     let joined = if path.is_absolute() {
         path.to_path_buf()
@@ -438,12 +404,6 @@ fn protocol_name(protocol: Protocol) -> &'static str {
         Protocol::Tcp => "tcp",
         Protocol::Udp => "udp",
     }
-}
-
-fn valid_env_key(key: &str) -> bool {
-    let mut bytes = key.bytes();
-    matches!(bytes.next(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_'))
-        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 fn valid_interface_name(name: &str) -> bool {
