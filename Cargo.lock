@@ -336,6 +336,7 @@ dependencies = [
  "kurumi-containerd-error",
  "libc",
  "serde",
+ "serde_json",
  "tempfile",
  "toml",
  "uuid",

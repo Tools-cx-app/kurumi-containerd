@@ -1,6 +1,36 @@
 # Configuration
 
-KurumiContainerd uses strict TOML. Unknown fields and invalid values are rejected.
+## Configuration pointer
+
+The CLI reads `$HOME/.kurumi-containerd/config.json` from the running process's
+environment. HOME must be a nonempty absolute path. With `sudo -H`, create this
+file under the target user's HOME, normally root's, rather than your login HOME.
+
+```json
+[
+  {
+    "name": "debian",
+    "file": "/srv/kurumi/debian/kurumi-containerd.toml"
+  }
+]
+```
+
+The top level is a nonempty list. Each entry has required nonblank strings and
+rejects unknown fields. Names must be unique (case-sensitive exact matching).
+A single entry is selected automatically; multiple entries require `--name NAME`
+before the command. `name` is for display and selection and never overrides TOML `container.name`.
+`file` selects one TOML file; relative paths resolve from the JSON directory.
+Neither `~` nor environment variables in `file` are expanded. Missing or invalid
+configuration produces an error, with no automatic creation or fallback.
+`check` does not read HOME or configuration. Missing UUIDs are still persisted
+in the TOML, not in this JSON.
+
+See the [migration guide](migration-config-pointer.md) to replace the old CLI
+configuration entry points without moving or converting your TOML.
+
+## TOML configuration
+
+KurumiContainerd uses strict TOML for container settings. Unknown fields and invalid values are rejected.
 Start from [kurumi-containerd.example.toml](../kurumi-containerd.example.toml).
 
 Host paths may be absolute or relative to the TOML file. Container paths such

@@ -1,5 +1,6 @@
 """Privileged P1 regressions: sudo python3 tests/p1_runtime.py <runtime-binary>."""
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -57,9 +58,14 @@ def run_case(binary, directory, mode):
             "cpu_quota=10000\ncpu_period=100000\n"
         )
     config.write_text(source)
-    command = [binary, "--config", str(config)]
+    home = directory / f"{mode}-home"
+    pointer_dir = home / ".kurumi-containerd"
+    pointer_dir.mkdir(parents=True)
+    (pointer_dir / "config.json").write_text(json.dumps([{"name": name, "file": str(config)}]))
+    environment = dict(os.environ, HOME=str(home))
+    command = [binary]
     try:
-        result = subprocess.run(command + ["start"], capture_output=True, timeout=20)
+        result = subprocess.run(command + ["start"], env=environment, capture_output=True, timeout=20)
         assert result.returncode == 0, result.stdout.decode() + result.stderr.decode()
         deadline = time.monotonic() + 5
         while not (root / "passed").exists() and time.monotonic() < deadline:
@@ -71,7 +77,7 @@ def run_case(binary, directory, mode):
                                    ("cpu.max", "10000 100000")]:
                 assert (cgroup / file).read_text().strip() == expected
     finally:
-        subprocess.run(command + ["stop"], capture_output=True, timeout=20)
+        subprocess.run(command + ["stop"], env=environment, capture_output=True, timeout=20)
 
 
 def main():

@@ -69,16 +69,40 @@ Debian/RPM 包将程序安装到 `/usr/bin`，文档和示例配置安装到
 ```bash
 cp kurumi-containerd.example.toml kurumi-containerd.toml
 $EDITOR kurumi-containerd.toml
-sudo ./target/release/kurumi-containerd --config kurumi-containerd.toml install ./rootfs.tar.zst
-sudo ./target/release/kurumi-containerd --config kurumi-containerd.toml start
-sudo ./target/release/kurumi-containerd --config kurumi-containerd.toml info
-sudo ./target/release/kurumi-containerd --config kurumi-containerd.toml enter
-sudo ./target/release/kurumi-containerd --config kurumi-containerd.toml stop
+sudo -H sh -c 'mkdir -p "$HOME/.kurumi-containerd" && exec vi "$HOME/.kurumi-containerd/config.json"'
 ```
 
-`--config` 默认读取 `kurumi-containerd.toml`，也可通过
-`KURUMI_CONTAINERD_CONFIG` 指定。
-配置中的相对主机路径以 TOML 文件所在目录为基准，而不是当前工作目录。
+将下面的 `file` 替换为 TOML 的实际绝对路径并保存：
+
+```json
+[
+  {
+    "name": "debian",
+    "file": "/absolute/path/to/kurumi-containerd.toml"
+  }
+]
+```
+
+```bash
+sudo -H ./target/release/kurumi-containerd install ./rootfs.tar.zst
+sudo -H ./target/release/kurumi-containerd start
+sudo -H ./target/release/kurumi-containerd info
+sudo -H ./target/release/kurumi-containerd enter
+sudo -H ./target/release/kurumi-containerd stop
+```
+
+固定读取实际运行进程的 `$HOME/.kurumi-containerd/config.json`。上述命令统一使用
+`sudo -H`，让创建和运行都使用 root 的 HOME。JSON 是非空列表，`name` 必须唯一；
+单项自动选中，多项使用 `kurumi-containerd --name debian start`。`name` 用于展示和选择，
+运行时名称仍使用 TOML 的 `container.name`。`file` 的相对路径以 JSON 所在目录
+为基准；TOML 内部相对主机路径仍以 TOML 所在目录为基准。
+
+## 破坏性变更与迁移
+
+已删除 `-c/--config`、`KURUMI_CONTAINERD_CONFIG` 及当前目录默认 TOML 查找入口。
+保留原 TOML，在上述 JSON 中填写其绝对路径，并移除命令和脚本中的配置参数。
+已有 JSON 请先备份再编辑。详细操作、sudo HOME 规则、验证和回退步骤见
+[配置入口迁移指南](docs/migration-config-pointer.md)。
 
 ## 命令
 

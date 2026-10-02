@@ -2,6 +2,8 @@
 
 mod config;
 mod model;
+mod pointer;
+pub use pointer::ConfigPointer;
 
 pub use config::{ConfigError, Result, parse_environment};
 pub use model::{

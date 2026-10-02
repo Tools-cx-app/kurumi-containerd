@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use kurumi_containerd_config::Config;
+use kurumi_containerd_config::{Config, ConfigPointer};
 use kurumi_containerd_helper::process::{
     ForkResult, NamespaceFlags, WaitStatus, fork, is_interrupted, unshare, waitpid,
 };
@@ -15,14 +15,9 @@ use tracing::level_filters::LevelFilter;
 #[derive(Debug, Parser)]
 #[command(version, about = "Privileged Linux container runtime")]
 struct Cli {
-    /// TOML configuration file. Relative host paths are resolved from this file.
-    #[arg(
-        short,
-        long,
-        env = "KURUMI_CONTAINERD_CONFIG",
-        default_value = "kurumi-containerd.toml"
-    )]
-    config: PathBuf,
+    /// Select a configuration entry by its JSON management name.
+    #[arg(long)]
+    name: Option<String>,
     /// Logger verbose
     #[arg(short, long, default_value = "false")]
     verbose: bool,
@@ -95,13 +90,15 @@ fn main() -> Result<()> {
     if matches!(cli.command, Commands::Check) {
         return check();
     }
+    let pointers = ConfigPointer::load_home()?;
+    let config_path = &ConfigPointer::select(&pointers, cli.name.as_deref())?.file;
     if let Commands::Install {
         archive,
         size,
         force,
     } = &cli.command
     {
-        let config = Config::load_for_install(&cli.config)?;
+        let config = Config::load_for_install(config_path)?;
         let target = config
             .container
             .rootfs
@@ -113,7 +110,7 @@ fn main() -> Result<()> {
         tracing::info!(archive = %archive.display(), rootfs = %target.display(), "rootfs installed");
         return Ok(());
     }
-    let config = Config::load_persistent(&cli.config)?;
+    let config = Config::load_persistent(config_path)?;
     let container_name = config.container.name.clone();
     let runtime = Runtime::new(config)?;
     match cli.command {
@@ -350,6 +347,14 @@ mod tests {
             Commands::Install { archive, size: Some(size), force: true }
                 if archive == Path::new("rootfs.tar.zst") && size == 8 * 1024_u64.pow(3)
         ));
+    }
+
+    #[test]
+    fn rejects_config_options() {
+        for flag in ["-c", "--config"] {
+            assert!(Cli::try_parse_from(["kurumi-containerd", flag, "old.toml", "start"]).is_err());
+        }
+        assert!(Cli::try_parse_from(["kurumi-containerd", "start"]).is_ok());
     }
 
     #[test]

@@ -76,16 +76,44 @@ Create a configuration from the example and update the rootfs path:
 ```bash
 cp kurumi-containerd.example.toml kurumi-containerd.toml
 $EDITOR kurumi-containerd.toml
-sudo ./target/release/kurumi-containerd --config kurumi-containerd.toml install ./rootfs.tar.zst
-sudo ./target/release/kurumi-containerd --config kurumi-containerd.toml start
-sudo ./target/release/kurumi-containerd --config kurumi-containerd.toml info
-sudo ./target/release/kurumi-containerd --config kurumi-containerd.toml enter
-sudo ./target/release/kurumi-containerd --config kurumi-containerd.toml stop
+sudo -H sh -c 'mkdir -p "$HOME/.kurumi-containerd" && exec vi "$HOME/.kurumi-containerd/config.json"'
 ```
 
-`--config` defaults to `kurumi-containerd.toml` and can also be set with
-`KURUMI_CONTAINERD_CONFIG`. Relative host paths are resolved from the configuration
-file, not from the current working directory.
+Save the following JSON, replacing `file` with the absolute path to your TOML:
+
+```json
+[
+  {
+    "name": "debian",
+    "file": "/absolute/path/to/kurumi-containerd.toml"
+  }
+]
+```
+
+```bash
+sudo -H ./target/release/kurumi-containerd install ./rootfs.tar.zst
+sudo -H ./target/release/kurumi-containerd start
+sudo -H ./target/release/kurumi-containerd info
+sudo -H ./target/release/kurumi-containerd enter
+sudo -H ./target/release/kurumi-containerd stop
+```
+
+The pointer is read from the running process's `$HOME/.kurumi-containerd/config.json`.
+These examples use `sudo -H` consistently so creation and execution use root's HOME.
+JSON is a nonempty list with unique management names. A single entry is selected
+automatically; with multiple entries use `kurumi-containerd --name debian start`.
+The runtime still uses TOML `container.name`.
+Relative `file` paths resolve from the JSON directory; relative host paths inside
+TOML still resolve from the TOML directory.
+
+## Breaking changes: configuration entry point
+
+`-c/--config`, `KURUMI_CONTAINERD_CONFIG`, and automatic lookup of TOML in the
+working directory have been removed. Keep your original TOML in place and put
+its absolute path in the JSON pointer above; remove configuration flags from
+commands and scripts. Existing JSON should be backed up before editing.
+See the [step-by-step migration guide](docs/migration-config-pointer.md)
+for HOME handling, verification, troubleshooting, and rollback.
 
 ## Commands
 

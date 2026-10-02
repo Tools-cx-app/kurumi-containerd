@@ -1,18 +1,22 @@
 # CLI usage
 
-KurumiContainerd manages one configured container per invocation. Use separate TOML
-files for multiple containers and point them at the same protected runtime
-work directory when shared listing and recovery are required.
+KurumiContainerd manages one configured container per invocation. To select a
+different TOML, select its entry in `$HOME/.kurumi-containerd/config.json` using
+`--name NAME`. Single-entry lists are selected automatically; multiple entries
+require an exact, case-sensitive name before the command.
 
 ## Invocation
 
 ```text
-kurumi-containerd [--config PATH] COMMAND
+kurumi-containerd [--name NAME] COMMAND
 ```
 
-The config path defaults to `kurumi-containerd.toml`. `KURUMI_CONTAINERD_CONFIG` provides the
-same value through the environment. `check` is the only command that does not
-load a configuration.
+The process reads `$HOME/.kurumi-containerd/config.json`, containing a nonempty
+list of entries with unique management `name` values and `file` paths pointing
+to TOML files. See [configuration](configuration.md)
+for the JSON format and the [migration guide](migration-config-pointer.md) for
+upgrading existing commands. `check` is the only command that does not load a
+configuration. The examples below use `sudo -H`: create the JSON under root's HOME.
 
 Most operations require root because they create namespaces, mounts, devices,
 cgroups, and network interfaces.
@@ -27,14 +31,15 @@ detected from the file header rather than its name or extension.
 For a configured directory target:
 
 ```bash
-sudo kurumi-containerd --config debian.toml install ./debian-rootfs.tar.zst
+sudo -H kurumi-containerd install ./debian-rootfs.tar.zst
 ```
 
 For `container.rootfs_image`, provide the logical size of the new sparse ext4
-image. Binary suffixes such as `M`, `G`, `MiB`, and `GiB` are accepted:
+image. First point JSON `file` to your image-target TOML. Binary suffixes such as
+`M`, `G`, `MiB`, and `GiB` are accepted:
 
 ```bash
-sudo kurumi-containerd --config debian-image.toml install ./debian-rootfs.tar.zst --size 8G
+sudo -H kurumi-containerd install ./debian-rootfs.tar.zst --size 8G
 ```
 
 An existing target is rejected unless `--force` is supplied. Replacement is
@@ -51,10 +56,10 @@ targets.
 ## Lifecycle
 
 ```bash
-sudo kurumi-containerd --config debian.toml start
-sudo kurumi-containerd --config debian.toml start --foreground
-sudo kurumi-containerd --config debian.toml restart
-sudo kurumi-containerd --config debian.toml stop
+sudo -H kurumi-containerd start
+sudo -H kurumi-containerd start --foreground
+sudo -H kurumi-containerd restart
+sudo -H kurumi-containerd stop
 ```
 
 Background start detaches a monitor process. Foreground start connects the
@@ -84,10 +89,10 @@ be limited to trusted containers.
 ## Enter and run
 
 ```bash
-sudo kurumi-containerd --config debian.toml enter
-sudo kurumi-containerd --config debian.toml enter developer
-sudo kurumi-containerd --config debian.toml run uname -a
-sudo kurumi-containerd --config debian.toml run sh -c 'id && mount'
+sudo -H kurumi-containerd enter
+sudo -H kurumi-containerd enter developer
+sudo -H kurumi-containerd run uname -a
+sudo -H kurumi-containerd run sh -c 'id && mount'
 ```
 
 `enter` opens an interactive login and defaults to `root`. `run` executes
@@ -97,10 +102,10 @@ redirection, or compound commands.
 ## Inspect and recover
 
 ```bash
-sudo kurumi-containerd --config debian.toml info
-sudo kurumi-containerd --config debian.toml pid
-sudo kurumi-containerd --config debian.toml show
-sudo kurumi-containerd --config debian.toml scan
+sudo -H kurumi-containerd info
+sudo -H kurumi-containerd pid
+sudo -H kurumi-containerd show
+sudo -H kurumi-containerd scan
 ```
 
 `show` reads live states from the configured work directory. `scan` searches
