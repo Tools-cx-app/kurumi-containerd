@@ -6,10 +6,10 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-crossterm = "0.28"
+crossterm = "0.29"
 kurumi-containerd-config = { path = "../kurumi-containerd-config" }
 kurumi-containerd-runtime = { path = "../kurumi-containerd-runtime" }
-ratatui = "0.29"
+ratatui = "0.30"
 tempfile.workspace = true
 which.workspace = true
 uuid.workspace = true
