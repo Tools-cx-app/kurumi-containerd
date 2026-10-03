@@ -1,0 +1,19 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "cargo"
+      ],
+      "groupName": "rust-dependencies",
+      "rangeStrategy": "bump"
+    }
+  ],
+  "skipArtifactsUpdate": true,
+  "constraints": {
+    "rust": "nightly"
+  }
+}
