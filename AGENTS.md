@@ -16,6 +16,13 @@
 - Put argument parsing, command dispatch, capability-report formatting, and other terminal-facing presentation in `kurumi-containerd-cli`. The package and binary are named `kurumi-containerd`; keep reusable runtime behavior out of the CLI.
 - Put the ratatui screen, TUI state, and TUI subprocess presentation in `kurumi-containerd-tui`; CLI owns the `tui` subcommand and passes its executable path to this crate.
 
+## Module and test layout
+
+- Use directory-based modules: `<module>/mod.rs`, declared with `mod <module>;` and the existing visibility and platform gates. Keep crate entrypoints as `src/lib.rs` or `src/main.rs`. This layout is compatible with Rust 2021; the workspace edition remains defined in `Cargo.toml`.
+- Keep unit tests in each module's sibling `tests.rs`, loaded from `mod.rs` with `#[cfg(test)] mod tests;`. Crate-root unit tests live in `src/tests.rs`, declared from `lib.rs` or `main.rs`. Preserve test module paths, private-item access, and platform gates when moving tests.
+- CLI argument-parsing and output unit tests may remain inline at the end of `src/main.rs` and `src/output/mod.rs` under `#[cfg(test)] mod tests { ... }`. Tests that launch the CLI binary remain integration tests in `crates/kurumi-containerd-cli/tests/`.
+- Keep test-only helpers and imports in `tests.rs` where possible. Integration tests remain in each crate's `tests/` directory; privileged runtime scripts remain in the workspace `tests/` directory.
+
 ## Verification
 
 - Run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo test --workspace --locked` for a full local check.
@@ -28,7 +35,7 @@
 ## Runtime constraints
 
 - Config is strict TOML. Relative host paths resolve from the config file, while init/mount/device paths are container paths. `Config::load_persistent` may atomically rewrite the source TOML to add a missing UUID; use `Config::load` in tests that must not mutate it.
-- Changes to persisted state or recovery must preserve the trust model in `runtime/state.rs`: restrictive ownership/permissions, no-follow access, atomic replacement, and PID identity checks. A numeric PID alone is not trusted.
+- Changes to persisted state or recovery must preserve the trust model in `runtime/state/mod.rs`: restrictive ownership/permissions, no-follow access, atomic replacement, and PID identity checks. A numeric PID alone is not trusted.
 - Before configuring cgroup v2 limits, enable the requested controllers in both the hierarchy root and the `kurumi-containerd` parent's `cgroup.subtree_control`. Preserve already-enabled controllers and report unavailable controllers explicitly.
 - Keep consuming PTY output while monitoring background containers, even when discarding it; an unread master can block init or services once its buffer fills. Bind `/dev/console` after mounting the container's `/dev` tmpfs and before detaching `/.old_root`, which supplies the host PTY path.
 - Platform behavior is selected with `cfg(target_os = "android")` and architecture gates. A successful host build does not verify Android code; preserve and exercise the CI target matrix when changing gated code.

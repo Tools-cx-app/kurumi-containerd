@@ -52,12 +52,20 @@ sudo -H kurumi-containerd tui
 
 The ratatui manager shows every entry in the HOME JSON registry, including
 stopped containers. Use `j`/`k` or the arrow keys to select a container;
-`h`/`l` or left/right to choose an action; Enter to open it. `Tab` moves
-between input fields (and adds another argument for `run`); `Space` toggles
+`h`/`l` or left/right to choose an action; Enter to open its dialog. Unavailable
+actions show the reason. `Tab`/`Shift+Tab` switch focus between containers,
+details and output; PageUp/PageDown scroll the focused details or output pane
+independently. Switching containers resets the details position. Narrow terminals
+stack the container list and details; very small terminals show a resize hint.
+
+Inside a dialog, `Tab`/`Shift+Tab` move between input fields (`Tab` at the last
+`run` argument adds another argument); `Space` toggles
 force while the install force field is selected. Enter submits; stop, restart,
 scan and forced install require a second Enter to confirm. Escape cancels the
-form, `r` reloads the JSON registry, PageUp/PageDown scroll command output,
+dialog, `r` reloads the JSON registry,
 and `q` exits when no command is in progress. Status refreshes periodically.
+Validation errors appear in the dialog, and confirmation identifies the target.
+Check host is also available when the registry is empty.
 
 The manager exposes install, start/stop/restart (including foreground modes),
 enter, run, info, pid, show, scan and check. Each operation invokes the same
