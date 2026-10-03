@@ -32,21 +32,29 @@ pub struct Console {
 }
 
 impl Console {
-    /// Allocates a console using the current stdin terminal settings.
+    /// Allocates a console using stdin terminal settings and the first valid stdio size.
     ///
     /// # Errors
     /// Returns PTY allocation, broker, or terminal configuration errors.
     pub fn open() -> Result<Self> {
-        Self::open_from(std::io::stdin().as_fd())
+        Self::open_from(&[
+            std::io::stdin().as_fd(),
+            std::io::stdout().as_fd(),
+            std::io::stderr().as_fd(),
+        ])
     }
 
-    fn open_from(source: BorrowedFd<'_>) -> Result<Self> {
-        let winsize = terminal_size(source).ok();
-        let settings = terminal_settings(source).ok();
+    fn open_from(sources: &[BorrowedFd<'_>]) -> Result<Self> {
+        let winsize = first_terminal_size(sources).unwrap_or(WindowSize {
+            rows: 24,
+            columns: 80,
+            ..WindowSize::default()
+        });
+        let settings = sources.first().and_then(|fd| terminal_settings(*fd).ok());
         let PtyPair { master, slave } = if effective_uid() == 0 {
-            open_console_pty_unprivileged(winsize.as_ref())?
+            open_console_pty_unprivileged(Some(&winsize))?
         } else {
-            open_console_pty(winsize.as_ref())?
+            open_console_pty(Some(&winsize))?
         };
         if let Some(settings) = &settings {
             set_terminal_settings(slave.as_fd(), settings)
@@ -244,6 +252,7 @@ pub fn proxy(
 ) -> Result<WaitStatus> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
+    let stderr = std::io::stderr();
     let _raw_terminal = RawTerminal::enable(stdin.as_fd())?;
     let _signal_forwarding = shutdown_target
         .map(|_| ForwardSignals::install())
@@ -263,7 +272,10 @@ pub fn proxy(
                     .context("failed to forward foreground signal")?;
             }
         }
-        sync_terminal_size(stdin.as_fd(), master.as_fd())?;
+        sync_terminal_size(
+            &[stdin.as_fd(), stdout.as_fd(), stderr.as_fd()],
+            master.as_fd(),
+        )?;
         let (output_ready, read_input, write_ready) = poll_terminal(
             master.as_fd(),
             stdin.as_fd(),
@@ -439,12 +451,16 @@ impl Drop for ForwardSignals {
     }
 }
 
-fn sync_terminal_size(
-    source: std::os::fd::BorrowedFd<'_>,
-    target: std::os::fd::BorrowedFd<'_>,
-) -> Result<()> {
-    if is_terminal(source)? {
-        let size = terminal_size(source)?;
+fn first_terminal_size(sources: &[BorrowedFd<'_>]) -> Option<WindowSize> {
+    sources.iter().find_map(|fd| {
+        terminal_size(*fd)
+            .ok()
+            .filter(|size| size.rows > 0 && size.columns > 0)
+    })
+}
+
+fn sync_terminal_size(sources: &[BorrowedFd<'_>], target: BorrowedFd<'_>) -> Result<()> {
+    if let Some(size) = first_terminal_size(sources) {
         set_terminal_size(target, &size).context("failed to resize PTY")?;
     }
     Ok(())
@@ -506,13 +522,90 @@ mod tests {
     }
 
     #[test]
+    fn console_and_sync_use_first_valid_terminal_size() {
+        let null = std::fs::File::open("/dev/null").unwrap();
+        let first = open_pty(None).unwrap();
+        let second = open_pty(Some(&WindowSize {
+            rows: 31,
+            columns: 97,
+            x_pixels: 970,
+            y_pixels: 310,
+        }))
+        .unwrap();
+        let third = open_pty(Some(&WindowSize {
+            rows: 42,
+            columns: 120,
+            ..WindowSize::default()
+        }))
+        .unwrap();
+        let sources = [
+            first.slave.as_fd(),
+            second.slave.as_fd(),
+            third.slave.as_fd(),
+        ];
+        let console = Console::open_from(&sources).unwrap();
+        let size = terminal_size(console.master.as_fd()).unwrap();
+        assert_eq!(
+            (size.rows, size.columns, size.x_pixels, size.y_pixels),
+            (31, 97, 970, 310)
+        );
+
+        sync_terminal_size(
+            &[null.as_fd(), first.slave.as_fd(), third.slave.as_fd()],
+            console.master.as_fd(),
+        )
+        .unwrap();
+        let size = terminal_size(console.master.as_fd()).unwrap();
+        assert_eq!((size.rows, size.columns), (42, 120));
+        sync_terminal_size(&[null.as_fd()], console.master.as_fd()).unwrap();
+        let size = terminal_size(console.master.as_fd()).unwrap();
+        assert_eq!((size.rows, size.columns), (42, 120));
+    }
+
+    #[test]
+    fn console_defaults_when_source_has_no_valid_size() {
+        let source = open_pty(None).unwrap();
+        let null = std::fs::File::open("/dev/null").unwrap();
+        for fd in [source.slave.as_fd(), null.as_fd()] {
+            let console = Console::open_from(&[fd]).unwrap();
+            let size = terminal_size(console.master.as_fd()).unwrap();
+            assert_eq!((size.rows, size.columns), (24, 80));
+        }
+    }
+
+    #[test]
+    fn sync_preserves_size_when_source_is_invalid() {
+        let source = open_pty(None).unwrap();
+        let target = open_pty(Some(&WindowSize {
+            rows: 31,
+            columns: 97,
+            ..WindowSize::default()
+        }))
+        .unwrap();
+        for (rows, columns) in [(0, 0), (0, 97), (31, 0)] {
+            set_terminal_size(
+                source.slave.as_fd(),
+                &WindowSize {
+                    rows,
+                    columns,
+                    ..WindowSize::default()
+                },
+            )
+            .unwrap();
+            sync_terminal_size(&[source.slave.as_fd()], target.master.as_fd()).unwrap();
+            let size = terminal_size(target.slave.as_fd()).unwrap();
+            assert_eq!((size.rows, size.columns), (31, 97));
+        }
+    }
+
+    #[test]
     fn copies_source_terminal_settings() {
         let source = open_pty(None).unwrap();
         let mut settings = terminal_settings(source.slave.as_fd()).unwrap();
         make_raw(&mut settings);
         set_terminal_settings(source.slave.as_fd(), &settings).unwrap();
 
-        let console = Console::open_from(source.slave.as_fd()).unwrap();
+        let console = Console::open_from(&[source.slave.as_fd()]).unwrap();
         let slave = console.open_slave().unwrap();
         write(&console.master, b"x").unwrap();
 
