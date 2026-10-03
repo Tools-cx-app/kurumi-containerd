@@ -2,6 +2,13 @@ use anyhow::{Context, Result};
 
 use crate::action::{Action, ActionKind};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Focus {
+    Containers,
+    Details,
+    Output,
+}
+
 pub(super) struct UiState {
     names: Vec<String>,
     pub(super) selected: usize,
@@ -11,6 +18,10 @@ pub(super) struct UiState {
     pub(super) field: usize,
     pub(super) force: bool,
     pub(super) confirming: bool,
+    pub(super) focus: Focus,
+    pub(super) details_scroll: u16,
+    pub(super) output_scroll: u16,
+    pub(super) form_error: String,
 }
 
 impl UiState {
@@ -24,6 +35,10 @@ impl UiState {
             field: 0,
             force: false,
             confirming: false,
+            focus: Focus::Containers,
+            details_scroll: 0,
+            output_scroll: 0,
+            form_error: String::new(),
         }
     }
     fn selected_name(&self) -> Option<&str> {
@@ -35,8 +50,10 @@ impl UiState {
         self.selected = old
             .and_then(|name| self.names.iter().position(|item| *item == name))
             .unwrap_or(0);
+        self.details_scroll = 0;
     }
     pub(super) fn open(&mut self, kind: ActionKind) {
+        self.form_error.clear();
         self.open = Some(kind);
         self.fields = vec![String::new(); kind.fields().len()];
         self.field = 0;
@@ -59,10 +76,39 @@ impl UiState {
         };
         self.confirming = false;
     }
+    pub(super) fn previous_field(&mut self) {
+        let count = self.fields.len() + usize::from(self.open == Some(ActionKind::Install));
+        self.field = if count == 0 {
+            0
+        } else {
+            (self.field + count - 1) % count
+        };
+        self.confirming = false;
+    }
+    pub(super) fn cycle_focus(&mut self, backwards: bool) {
+        self.focus = match (self.focus, backwards) {
+            (Focus::Containers, false) | (Focus::Output, true) => Focus::Details,
+            (Focus::Details, false) | (Focus::Containers, true) => Focus::Output,
+            _ => Focus::Containers,
+        };
+    }
+    pub(super) fn scroll(&mut self, down: bool) {
+        let offset = match self.focus {
+            Focus::Details => &mut self.details_scroll,
+            Focus::Output => &mut self.output_scroll,
+            Focus::Containers => return,
+        };
+        *offset = if down {
+            offset.saturating_add(5)
+        } else {
+            offset.saturating_sub(5)
+        };
+    }
     pub(super) fn toggle_force(&mut self) {
         if self.open == Some(ActionKind::Install) && self.field == self.fields.len() {
             self.force = !self.force;
             self.confirming = false;
+            self.form_error.clear();
         }
     }
     pub(super) fn submit(&mut self) -> Result<Option<Action>> {
@@ -80,6 +126,18 @@ impl UiState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reverse_form_navigation_wraps_and_clears_confirmation() {
+        let mut state = UiState::new(vec![]);
+        state.open(ActionKind::Install);
+        state.confirming = true;
+        state.previous_field();
+        assert_eq!(state.field, 2);
+        assert!(!state.confirming);
+        state.previous_field();
+        assert_eq!(state.field, 1);
+    }
 
     #[test]
     fn reload_preserves_selected_name() {

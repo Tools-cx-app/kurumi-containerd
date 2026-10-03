@@ -33,7 +33,6 @@ pub fn run(exe: &Path) -> Result<()> {
     let mut output = String::new();
     let mut child: Option<Child> = None;
     let mut output_file: Option<File> = None;
-    let mut scroll = 0;
     let mut refreshed = Instant::now();
     let _screen = Screen::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
@@ -47,7 +46,7 @@ pub fn run(exe: &Path) -> Result<()> {
             let mut bytes = Vec::new();
             file.take(1024 * 1024).read_to_end(&mut bytes)?;
             output = format!("Exit: {status}\n{}", String::from_utf8_lossy(&bytes));
-            scroll = 0;
+            state.output_scroll = 0;
             refresh(&mut entries);
         }
         if refreshed.elapsed() >= Duration::from_secs(3) && child.is_none() {
@@ -57,15 +56,7 @@ pub fn run(exe: &Path) -> Result<()> {
         let terminal_choice = terminal_command();
         let can_open = terminal_choice.as_ref().is_ok_and(Option::is_some);
         terminal.draw(|frame| {
-            draw(
-                frame,
-                &state,
-                &entries,
-                &output,
-                scroll,
-                child.is_some(),
-                can_open,
-            );
+            draw(frame, &state, &entries, &output, child.is_some(), can_open);
         })?;
         if !event::poll(Duration::from_millis(100))? {
             continue;
@@ -88,11 +79,6 @@ pub fn run(exe: &Path) -> Result<()> {
                 can_open,
             )?;
         } else {
-            match key.code {
-                KeyCode::PageUp => scroll = scroll.saturating_sub(5),
-                KeyCode::PageDown => scroll = scroll.saturating_add(5),
-                _ => {}
-            }
             handle_screen(
                 key.code,
                 &mut state,
@@ -122,36 +108,45 @@ fn handle_form(
     match code {
         KeyCode::Esc => state.cancel(),
         KeyCode::Tab => state.next_field(),
+        KeyCode::BackTab => state.previous_field(),
         KeyCode::Char(' ') if state.field == state.fields.len() => state.toggle_force(),
         KeyCode::Backspace => {
             if let Some(v) = state.fields.get_mut(state.field) {
                 v.pop();
             }
             state.confirming = false;
+            state.form_error.clear();
         }
         KeyCode::Char(c) => {
             if let Some(v) = state.fields.get_mut(state.field) {
                 v.push(c);
                 state.confirming = false;
+                state.form_error.clear();
             }
         }
         KeyCode::Enter => {
+            let kind = state.open.expect("form is open");
+            let selected = entries.get(state.selected);
+            if kind != crate::action::ActionKind::Check {
+                let Some(selected) = selected else {
+                    state.form_error = "No container selected".into();
+                    return Ok(());
+                };
+                if let Err(error) = allowed(kind, selected, can_open) {
+                    state.form_error = format!("{error:#}");
+                    return Ok(());
+                }
+            }
             let submitted = match state.submit() {
                 Ok(action) => action,
                 Err(error) => {
-                    *output = format!("{error:#}");
+                    state.form_error = format!("{error:#}");
                     return Ok(());
                 }
             };
             if let Some(action) = submitted {
-                let kind = ACTIONS[state.action_index];
-                let selected = &entries[state.selected];
-                if let Err(e) = allowed(kind, selected, can_open) {
-                    *output = format!("{e:#}");
-                    return Ok(());
-                }
-                let args = action.args(&selected.pointer.name);
-                if action.needs_terminal(selected.foreground) {
+                let args = action.args(selected.map_or("", |entry| entry.pointer.name.as_str()));
+                if action.needs_terminal(selected.is_some_and(|entry| entry.foreground)) {
                     if let Ok(Some((path, program))) = terminal_command() {
                         let mut cmd = Command::new(path);
                         match program {
@@ -187,10 +182,17 @@ fn handle_form(
                         .stdin(Stdio::null())
                         .stdout(Stdio::from(f.try_clone()?))
                         .stderr(Stdio::from(err));
-                    *child = Some(cmd.spawn()?);
-                    *file = Some(f);
-                    *output = format!("Running {}...", kind.label());
+                    match cmd.spawn() {
+                        Ok(process) => {
+                            *child = Some(process);
+                            *file = Some(f);
+                            *output = format!("Running {}...", kind.label());
+                        }
+                        Err(error) => *output = format!("command launch failed: {error}"),
+                    }
                 }
+                state.output_scroll = 0;
+                state.focus = crate::state::Focus::Output;
             }
         }
         _ => {}
@@ -205,7 +207,12 @@ fn handle_screen(
     output: &mut String,
     busy: bool,
 ) {
+    let previous = state.selected;
     match code {
+        KeyCode::Tab => state.cycle_focus(false),
+        KeyCode::BackTab => state.cycle_focus(true),
+        KeyCode::PageUp => state.scroll(false),
+        KeyCode::PageDown => state.scroll(true),
         KeyCode::Up | KeyCode::Char('k') => state.selected = state.selected.saturating_sub(1),
         KeyCode::Down | KeyCode::Char('j') => {
             state.selected = (state.selected + 1).min(entries.len().saturating_sub(1));
@@ -225,10 +232,27 @@ fn handle_screen(
             Err(e) => *output = format!("{e:#}"),
         },
         KeyCode::Enter if !busy => {
-            output.clear();
-            state.open(ACTIONS[state.action_index]);
+            let kind = ACTIONS[state.action_index];
+            let can_open = terminal_command().as_ref().is_ok_and(Option::is_some);
+            let availability = if kind == crate::action::ActionKind::Check {
+                Ok(())
+            } else if let Some(entry) = entries.get(state.selected) {
+                allowed(kind, entry, can_open)
+            } else {
+                Err(anyhow::anyhow!("No container selected"))
+            };
+            match availability {
+                Ok(()) => state.open(kind),
+                Err(error) => {
+                    *output = format!("{error:#}");
+                    state.output_scroll = 0;
+                }
+            }
         }
         _ => {}
+    }
+    if previous != state.selected {
+        state.details_scroll = 0;
     }
 }
 
@@ -238,12 +262,105 @@ mod tests {
     use crate::state::UiState;
 
     #[test]
+    fn screen_focus_scrolls_details_and_output_independently() {
+        let mut state = UiState::new(Vec::new());
+        let mut entries = Vec::new();
+        let mut output = String::new();
+        for key in [
+            KeyCode::Tab,
+            KeyCode::PageDown,
+            KeyCode::Tab,
+            KeyCode::PageDown,
+            KeyCode::PageDown,
+        ] {
+            handle_screen(key, &mut state, &mut entries, &mut output, false);
+        }
+        assert_eq!(state.details_scroll, 5);
+        assert_eq!(state.output_scroll, 10);
+        handle_screen(
+            KeyCode::BackTab,
+            &mut state,
+            &mut entries,
+            &mut output,
+            false,
+        );
+        handle_screen(
+            KeyCode::PageUp,
+            &mut state,
+            &mut entries,
+            &mut output,
+            false,
+        );
+        assert_eq!(state.details_scroll, 0);
+        assert_eq!(state.output_scroll, 10);
+    }
+
+    #[test]
+    fn empty_registry_blocks_container_actions_but_opens_check() {
+        let mut state = UiState::new(Vec::new());
+        let mut entries = Vec::new();
+        let mut output = String::new();
+        handle_screen(KeyCode::Enter, &mut state, &mut entries, &mut output, false);
+        assert!(state.open.is_none());
+        assert!(output.contains("No container selected"));
+        state.action_index = ACTIONS.len() - 1;
+        handle_screen(KeyCode::Enter, &mut state, &mut entries, &mut output, false);
+        assert_eq!(state.open, Some(crate::action::ActionKind::Check));
+        let mut child = None;
+        let mut file = None;
+        handle_form(
+            KeyCode::Enter,
+            &mut state,
+            &mut output,
+            &mut child,
+            &mut file,
+            Path::new("/bin/true"),
+            &[],
+            false,
+        )
+        .unwrap();
+        assert!(child.as_mut().unwrap().wait().unwrap().success());
+    }
+
+    #[test]
+    fn failed_command_launch_is_reported_without_exiting_manager() {
+        let mut state = UiState::new(Vec::new());
+        state.open(crate::action::ActionKind::Check);
+        let mut output = String::new();
+        let mut child = None;
+        let mut file = None;
+        handle_form(
+            KeyCode::Enter,
+            &mut state,
+            &mut output,
+            &mut child,
+            &mut file,
+            Path::new("/nonexistent/kurumi-containerd"),
+            &[],
+            false,
+        )
+        .unwrap();
+        assert!(output.contains("command launch failed"));
+        assert!(child.is_none());
+        assert!(state.open.is_none());
+    }
+
+    #[test]
     fn form_preserves_spaces_and_recovers_from_missing_input() {
         let mut state = UiState::new(Vec::new());
         state.open(crate::action::ActionKind::Install);
         let mut output = String::new();
         let mut child = None;
         let mut file = None;
+        let entry = crate::registry::Entry {
+            pointer: kurumi_containerd_config::ConfigPointer {
+                name: "test".into(),
+                file: "container.toml".into(),
+            },
+            info: Err(anyhow::anyhow!("rootfs not installed")),
+            foreground: false,
+            install_ready: true,
+        };
 
         for code in [KeyCode::Char(' '), KeyCode::Enter] {
             handle_form(
@@ -253,13 +370,13 @@ mod tests {
                 &mut child,
                 &mut file,
                 Path::new("unused"),
-                &[],
+                std::slice::from_ref(&entry),
                 false,
             )
             .unwrap();
             assert_eq!(state.fields[0], " ");
         }
-        assert!(output.contains("archive path is required"));
+        assert!(state.form_error.contains("archive path is required"));
         assert!(state.open.is_some());
         assert!(child.is_none());
     }
