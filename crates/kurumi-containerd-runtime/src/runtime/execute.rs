@@ -1,4 +1,13 @@
-use std::{collections::BTreeMap, ffi::CString, fs, os::fd::AsFd, path::Path};
+use std::{
+    collections::BTreeMap,
+    ffi::CString,
+    fs,
+    os::{
+        fd::{AsFd, AsRawFd},
+        unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, chown},
+    },
+    path::Path,
+};
 
 use crate::{
     Result,
@@ -210,6 +219,11 @@ struct PasswdEntry {
 
 fn exec_login(user: &str, configured: &BTreeMap<String, String>, android: &AndroidConfig) -> ! {
     let base_env = command_environment(configured, android);
+    let source = fs::read_to_string("/etc/passwd")
+        .unwrap_or_else(|error| exec_failure(&format!("failed to read /etc/passwd: {error}")));
+    let account = parse_passwd(&source, user)
+        .unwrap_or_else(|| exec_failure(&format!("login user '{user}' was not found")));
+    result_or_exit(prepare_runtime_directory(Path::new("/run/user"), &account));
     for su in ["/bin/su", "/usr/bin/su", "/run/wrappers/bin/su"] {
         if Path::new(su).is_file() {
             let executable = result_or_exit(CString::new(su));
@@ -221,10 +235,6 @@ fn exec_login(user: &str, configured: &BTreeMap<String, String>, android: &Andro
             let _ = execve(&executable, &arguments, &base_env);
         }
     }
-    let source = fs::read_to_string("/etc/passwd")
-        .unwrap_or_else(|error| exec_failure(&format!("failed to read /etc/passwd: {error}")));
-    let account = parse_passwd(&source, user)
-        .unwrap_or_else(|| exec_failure(&format!("login user '{user}' was not found")));
     if !account.shell.starts_with('/') || !Path::new(&account.shell).is_file() {
         exec_failure("login user has no usable absolute shell");
     }
@@ -247,8 +257,48 @@ fn exec_login(user: &str, configured: &BTreeMap<String, String>, android: &Andro
     replace_environment(&mut environment, "USER", user);
     replace_environment(&mut environment, "LOGNAME", user);
     replace_environment(&mut environment, "SHELL", &account.shell);
+    result_or_exit(environment::login_environment_defaults(
+        &mut environment,
+        &account.home,
+        account.uid,
+    ));
     let error = execve(&shell, &arguments, &environment).unwrap_err();
     exec_failure(&format!("failed to execute login shell: {error}"));
+}
+
+fn prepare_runtime_directory(parent: &Path, account: &PasswdEntry) -> Result<()> {
+    fs::create_dir_all(parent).context("failed to create runtime directory parent")?;
+    let metadata = fs::symlink_metadata(parent)?;
+    ensure!(
+        metadata.is_dir() && metadata.uid() == 0 && metadata.mode() & 0o022 == 0,
+        "XDG runtime directory parent must be a root-owned directory without group or other write access"
+    );
+    let path = parent.join(account.uid.to_string());
+    let created = match fs::DirBuilder::new().mode(0o700).create(&path) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
+        Err(error) => return Err(error).context("failed to create XDG runtime directory"),
+    };
+    let directory = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+        .open(&path)
+        .context("failed to open XDG runtime directory")?;
+    if created {
+        // Follow our open descriptor, never a path a container user can replace.
+        chown(
+            format!("/proc/self/fd/{}", directory.as_raw_fd()),
+            Some(account.uid),
+            Some(account.gid),
+        )
+        .context("failed to set XDG runtime directory owner")?;
+    }
+    let metadata = directory.metadata()?;
+    ensure!(
+        metadata.uid() == account.uid && metadata.mode() & 0o7777 == 0o700,
+        "XDG runtime directory must be owned by the login user with mode 0700"
+    );
+    Ok(())
 }
 
 fn replace_environment(environment: &mut Vec<CString>, key: &str, value: &str) {
@@ -346,6 +396,22 @@ mod tests {
         assert!(!valid_login_name(""));
         assert!(!valid_login_name("../../root"));
         assert!(!valid_login_name("user:name"));
+    }
+
+    #[test]
+    fn rejects_writable_runtime_directory_parent() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o777)).unwrap();
+        let account = PasswdEntry {
+            uid: 1000,
+            gid: 1000,
+            home: "/home/developer".to_owned(),
+            shell: "/bin/sh".to_owned(),
+        };
+        assert!(prepare_runtime_directory(directory.path(), &account).is_err());
+        assert!(!directory.path().join("1000").exists());
     }
 
     #[test]
