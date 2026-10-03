@@ -134,5 +134,5 @@ check                   检查主机能力
 
 ## 许可证
 
-KurumiContainerd 使用 GNU General Public License v3.0 or later，详见
+KurumiContainerd 使用 GNU 通用公共许可证第 3 版（仅限此版本，`GPL-3.0-only`），详见
 [LICENSE](LICENSE)。

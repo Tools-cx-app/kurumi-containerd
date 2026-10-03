@@ -72,7 +72,7 @@ Name: kurumi-containerd
 Version: $package_version
 Release: 1
 Summary: Privileged Linux container runtime and command-line tool
-License: GPL-3.0-or-later
+License: GPL-3.0-only
 
 %description
 Privileged Linux container runtime and command-line tool.

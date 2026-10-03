@@ -145,5 +145,6 @@ check                   Probe required host capabilities
 
 ## License
 
-KurumiContainerd is licensed under the GNU General Public License v3.0 or later. See
+KurumiContainerd is licensed under the GNU General Public License v3.0 only
+(`GPL-3.0-only`). See
 [LICENSE](LICENSE).
