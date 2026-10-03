@@ -27,7 +27,7 @@ kurumi-containerd-helper = { path = "crates/kurumi-containerd-helper" }
 kurumi-containerd-error = { path = "crates/kurumi-containerd-error" }
 kurumi-containerd-host = { path = "crates/kurumi-containerd-host" }
 libc = "0.2.190"
-mio = { version = "1.2.3", features = ["os-poll", "os-ext"] }
+mio = { version = "1.2.4", features = ["os-poll", "os-ext"] }
 procfs = { version = "0.18", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
