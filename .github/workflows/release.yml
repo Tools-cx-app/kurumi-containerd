@@ -141,7 +141,7 @@ jobs:
           sha256sum -- *.deb *.rpm *.tar.xz > SHA256SUMS
           sha256sum --check SHA256SUMS
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.deb
