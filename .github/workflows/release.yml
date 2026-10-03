@@ -104,10 +104,10 @@ jobs:
           key: release-${{ matrix.target }}
       - name: Build Linux
         if: matrix.platform == 'linux'
-        run: cargo build --workspace --release --locked --target "${{ matrix.target }}"
+        run: cargo build --workspace --release --target "${{ matrix.target }}"
       - name: Build Android
         if: matrix.platform == 'android'
-        run: cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --release --locked
+        run: cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --release
       - name: Package
         env:
           TARGET: ${{ matrix.target }}

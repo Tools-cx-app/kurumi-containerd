@@ -58,7 +58,7 @@ jobs:
           key: android-${{ matrix.abi }}
 
       - name: Build
-        run: cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace --release --locked
+        run: cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace --release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -100,7 +100,7 @@ jobs:
           key: linux-${{ matrix.target }}
 
       - name: Build
-        run: cargo build --workspace --release --locked --target ${{ matrix.target }}
+        run: cargo build --workspace --release --target ${{ matrix.target }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
