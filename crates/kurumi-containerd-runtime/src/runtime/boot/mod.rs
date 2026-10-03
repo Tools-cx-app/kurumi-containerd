@@ -225,6 +225,18 @@ impl Runtime {
             &self.config.container.android,
         )?;
         security::harden_mounts(&self.config.container.security)?;
+        if init_system == init::InitSystem::Systemd {
+            // Host propagation was disconnected before pivot_root. Systemd needs
+            // shared mounts inside the container to publish service credentials.
+            mount(
+                None,
+                Path::new("/"),
+                None,
+                MountFlags::REC | MountFlags::SHARED,
+                None,
+            )
+            .context("failed to enable systemd container mount propagation")?;
+        }
         security::install_seccomp(&self.config.container.security)?;
 
         let init =

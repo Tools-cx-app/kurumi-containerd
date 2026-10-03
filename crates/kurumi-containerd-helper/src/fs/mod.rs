@@ -31,6 +31,7 @@ bitflags::bitflags! {
         const RDONLY = libc::MS_RDONLY;
         const REC = libc::MS_REC;
         const REMOUNT = libc::MS_REMOUNT;
+        const SHARED = libc::MS_SHARED;
     }
 }
 
