@@ -16,30 +16,30 @@ edition = "2024"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
-anyhow = "1.0"
-bitflags = "2.9"
-clap = { version = "4.5", features = ["derive", "env"] }
-fs2 = "0.4"
-flate2 = { version = "1.1", default-features = false, features = [
+anyhow = "1.0.104"
+bitflags = "2.13.2"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+fs2 = "0.4.3"
+flate2 = { version = "1.1.10", default-features = false, features = [
   "rust_backend",
 ] }
 kurumi-containerd-helper = { path = "crates/kurumi-containerd-helper" }
 kurumi-containerd-error = { path = "crates/kurumi-containerd-error" }
 kurumi-containerd-host = { path = "crates/kurumi-containerd-host" }
-libc = "0.2"
-mio = { version = "1.0", features = ["os-poll", "os-ext"] }
+libc = "0.2.190"
+mio = { version = "1.2.3", features = ["os-poll", "os-ext"] }
 procfs = { version = "0.18", default-features = false }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tempfile = "3.20"
-thiserror = "2"
-tar = "0.4"
-toml = "1.1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = { version = "1.17", features = ["v4", "serde"] }
-which = "8.0.5"
-xz2 = "0.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tar = "0.4.46"
+toml = "1.1.6"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.27.0", features = ["v4", "serde"] }
+which = "8.0.6"
+xz2 = "0.1.7"
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
 zstd = { version = "0.14", default-features = false }
 

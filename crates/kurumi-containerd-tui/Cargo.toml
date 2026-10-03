@@ -9,7 +9,7 @@ anyhow.workspace = true
 crossterm = "0.29"
 kurumi-containerd-config = { path = "../kurumi-containerd-config" }
 kurumi-containerd-runtime = { path = "../kurumi-containerd-runtime" }
-ratatui = "0.30"
+ratatui = "0.30.2"
 tempfile.workspace = true
 which.workspace = true
 uuid.workspace = true
