@@ -92,7 +92,7 @@ jobs:
           runner: none
       - name: Install cargo-ndk
         if: matrix.platform == 'android'
-        uses: taiki-e/install-action@v2.87.13
+        uses: taiki-e/install-action@v2.87.22
         with:
           tool: cargo-ndk
       - name: Install native package tools
@@ -130,7 +130,7 @@ jobs:
       contents: write
     steps:
       - name: Download release artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: dist
@@ -141,7 +141,7 @@ jobs:
           sha256sum -- *.deb *.rpm *.tar.xz > SHA256SUMS
           sha256sum --check SHA256SUMS
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.deb
