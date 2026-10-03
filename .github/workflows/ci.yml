@@ -56,6 +56,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: android-${{ matrix.abi }}
+          cache-workspace-crates: "true"
+          cache-all-crates: "true"
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Build
         run: cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace --release
@@ -98,6 +101,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: linux-${{ matrix.target }}
+          cache-workspace-crates: "true"
+          cache-all-crates: "true"
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Build
         run: cargo build --workspace --release --target ${{ matrix.target }}
