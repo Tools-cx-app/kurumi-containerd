@@ -726,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -742,7 +742,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-config"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "fs2",
  "kurumi-containerd-error",
@@ -756,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-error"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "procfs",
  "serde_json",
@@ -768,7 +768,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-helper"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "bitflags 2.13.2",
  "libc",
@@ -777,7 +777,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-host"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "flate2",
  "fs2",
@@ -801,7 +801,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-runtime"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "fs2",
  "kurumi-containerd-config",
@@ -820,7 +820,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-tui"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -970,9 +970,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.2.3"
+version = "1.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b18443e9c262bfe8fa82f51666e2642c53393f7e5c27b3e1aeab922cff5b9d8"
+checksum = "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee"
 dependencies = [
  "libc",
  "log",
