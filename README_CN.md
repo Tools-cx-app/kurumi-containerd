@@ -132,6 +132,13 @@ check                   检查主机能力
 - [运行时架构](docs/architecture.md)
 - [实现状态](docs/status.md)
 
+## 致谢
+
+特别感谢以下项目及其贡献者：
+
+- [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS)
+- [lxc](https://github.com/lxc/lxc)
+
 ## 许可证
 
 KurumiContainerd 使用 GNU 通用公共许可证第 3 版（仅限此版本，`GPL-3.0-only`），详见

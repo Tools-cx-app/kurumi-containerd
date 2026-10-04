@@ -143,6 +143,13 @@ check                   Probe required host capabilities
 - [Runtime architecture](docs/architecture.md)
 - [Implementation status](docs/status.md)
 
+## Acknowledgments
+
+Special thanks to the following projects and their contributors:
+
+- [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS)
+- [lxc](https://github.com/lxc/lxc)
+
 ## License
 
 KurumiContainerd is licensed under the GNU General Public License v3.0 only
