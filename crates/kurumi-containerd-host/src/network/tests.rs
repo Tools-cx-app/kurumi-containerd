@@ -65,6 +65,6 @@ fn rejects_stale_nat_lease_owner_identity() {
 #[test]
 fn preserves_restore_state_from_legacy_nat_lease() {
     let lease: NatLease = serde_json::from_str(r#"{"users":2,"restore_disabled":true}"#).unwrap();
-    assert!(lease.owners.is_empty());
+    assert_eq!(lease.owners.len(), 0);
     assert!(lease.restore_disabled);
 }

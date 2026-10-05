@@ -6,6 +6,33 @@ use super::*;
 use crate::config::{safe_container_path, valid_name};
 
 #[test]
+fn loads_init_absolute_symlink_inside_rootfs() {
+    let dir = tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("rootfs/sbin")).unwrap();
+    fs::write(dir.path().join("rootfs/container-test-init"), "init").unwrap();
+    std::os::unix::fs::symlink("/container-test-init", dir.path().join("rootfs/sbin/init"))
+        .unwrap();
+    let path = dir.path().join("container.toml");
+    fs::write(
+        &path,
+        "[runtime]\n[container]\nname='test'\nrootfs='rootfs'\n",
+    )
+    .unwrap();
+    assert!(Config::load(&path).is_ok());
+    fs::remove_file(dir.path().join("rootfs/container-test-init")).unwrap();
+    assert!(Config::load(&path).is_err());
+}
+
+#[test]
+fn container_path_rejects_escape_and_symlink_loop() {
+    let dir = tempdir().unwrap();
+    std::os::unix::fs::symlink("../outside", dir.path().join("escape")).unwrap();
+    std::os::unix::fs::symlink("loop", dir.path().join("loop")).unwrap();
+    assert!(resolve_container_path(dir.path(), Path::new("/escape")).is_err());
+    assert!(resolve_container_path(dir.path(), Path::new("/loop")).is_err());
+}
+
+#[test]
 fn loads_toml_and_resolves_relative_host_paths() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("rootfs/sbin")).unwrap();

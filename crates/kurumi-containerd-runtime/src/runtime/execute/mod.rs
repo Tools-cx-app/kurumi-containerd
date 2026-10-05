@@ -4,9 +4,12 @@ use std::{
     fs,
     os::{
         fd::{AsFd, AsRawFd},
-        unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, chown},
+        unix::{
+            ffi::OsStrExt,
+            fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, chown},
+        },
     },
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use crate::{
@@ -82,11 +85,11 @@ impl Runtime {
             .then(socket_pair)
             .transpose()
             .context("failed to create interactive PTY channel")?;
-        drop(lock);
 
         // SAFETY: the CLI is single-threaded; the child immediately joins namespaces and forks again.
         match unsafe { fork() }.context("failed to fork command worker")? {
             ForkResult::Parent { child } => {
+                drop(lock);
                 let status = if let Some((receiver, sender)) = terminal_socket {
                     drop(sender);
                     let master = match terminal::receive_fd(&receiver) {
@@ -115,22 +118,19 @@ impl Runtime {
                     drop(receiver);
                     sender
                 });
+                Cgroup::attach_existing(
+                    &self.config.container.name,
+                    &self.config.container.resources,
+                    state.init_system == crate::InitSystem::Systemd,
+                    current_pid(),
+                )
+                .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                 for (name, namespace) in &namespaces {
                     setns(namespace.as_fd(), NamespaceFlags::EMPTY).unwrap_or_else(|error| {
                         exec_failure(&format!("failed to join {name} namespace: {error}"))
                     });
                 }
-                let cgroup = Cgroup::create(
-                    &self.workdir,
-                    &self.config.container.name,
-                    &self.config.container.resources,
-                    false,
-                    false,
-                )
-                .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
-                cgroup
-                    .attach(current_pid())
-                    .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
+                drop(lock);
                 let console = terminal_sender.map(|sender| {
                     let console = terminal::Console::open()
                         .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
@@ -176,22 +176,26 @@ impl Runtime {
                                 &self.config.container.android,
                             );
                         }
-                        let mut resolved = command.to_vec();
-                        if !resolved[0].contains('/') {
-                            resolved[0] =
-                                resolve_container_command(&resolved[0]).unwrap_or_else(|| {
-                                    exec_failure("command was not found in container PATH")
-                                });
-                        }
-                        let args = resolved
+                        let mut resolved = command
                             .iter()
-                            .map(|arg| CString::new(arg.as_str()))
-                            .collect::<std::result::Result<Vec<_>, _>>()
-                            .unwrap_or_else(|error| exec_failure(&error.to_string()));
+                            .map(std::ffi::OsString::from)
+                            .collect::<Vec<_>>();
                         let env = command_environment(
                             &self.config.container.environment,
                             &self.config.container.android,
                         );
+                        if !command[0].contains('/') {
+                            resolved[0] = resolve_container_command(&command[0], &env)
+                                .unwrap_or_else(|| {
+                                    exec_failure("command was not found in container PATH")
+                                })
+                                .into_os_string();
+                        }
+                        let args = resolved
+                            .iter()
+                            .map(|arg| CString::new(arg.as_bytes()))
+                            .collect::<std::result::Result<Vec<_>, _>>()
+                            .unwrap_or_else(|error| exec_failure(&error.to_string()));
                         let error = execve(&args[0], &args, &env).unwrap_err();
                         exec_failure(&error.to_string());
                     }
@@ -356,18 +360,17 @@ fn result_or_exit<T, E: std::fmt::Display>(result: std::result::Result<T, E>) ->
     result.unwrap_or_else(|error| exec_failure(&format!("{error:#}")))
 }
 
-fn resolve_container_command(command: &str) -> Option<String> {
-    [
-        "/usr/local/sbin",
-        "/usr/local/bin",
-        "/usr/sbin",
-        "/usr/bin",
-        "/sbin",
-        "/bin",
-    ]
-    .into_iter()
-    .map(|directory| format!("{directory}/{command}"))
-    .find(|candidate| Path::new(candidate).is_file())
+fn resolve_container_command(command: &str, environment: &[CString]) -> Option<PathBuf> {
+    let path = environment
+        .iter()
+        .find_map(|entry| entry.to_bytes().strip_prefix(b"PATH="))?;
+    std::env::split_paths(std::ffi::OsStr::from_bytes(path))
+        .map(|directory| directory.join(command))
+        .find(|candidate| {
+            fs::metadata(candidate).is_ok_and(|metadata| {
+                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+            })
+        })
 }
 
 #[cfg(test)]

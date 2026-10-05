@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn command_lookup_uses_path_and_skips_non_executable_files() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let directory = tempfile::tempdir().unwrap();
+    let first = directory.path().join("first");
+    let second = directory.path().join("second");
+    for path in [&first, &second] {
+        fs::create_dir(path).unwrap();
+        fs::write(path.join("tool"), "#!/bin/sh\n").unwrap();
+    }
+    fs::set_permissions(second.join("tool"), fs::Permissions::from_mode(0o755)).unwrap();
+    let env = [CString::new(format!("PATH={}:{}", first.display(), second.display())).unwrap()];
+    assert_eq!(
+        resolve_container_command("tool", &env),
+        Some(second.join("tool"))
+    );
+    fs::set_permissions(first.join("tool"), fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        resolve_container_command("tool", &env),
+        Some(first.join("tool"))
+    );
+    assert_eq!(resolve_container_command("missing", &env), None);
+}
+
+#[test]
 fn parses_login_account() {
     let source = "root:x:0:0:root:/root:/bin/bash\nuser:x:1000:1000::/home/user:/bin/sh\n";
     assert_eq!(

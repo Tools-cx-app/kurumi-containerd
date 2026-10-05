@@ -8,7 +8,7 @@ fn command_failure_is_a_diagnostic_on_stderr() {
         .output()
         .unwrap();
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, []);
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("ERROR"), "{stderr}");
     assert!(stderr.contains("command failed"), "{stderr}");
@@ -24,7 +24,7 @@ fn verbose_includes_debug_diagnostics_without_polluting_stdout() {
         .output()
         .unwrap();
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, []);
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("DEBUG"), "{stderr}");
     assert!(stderr.contains("ERROR"), "{stderr}");

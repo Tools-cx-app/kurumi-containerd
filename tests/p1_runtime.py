@@ -20,7 +20,8 @@ INIT = r"""
 #include <sys/wait.h>
 #include <unistd.h>
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc > 1 && strcmp(argv[1], "exec-check") == 0) return 0;
     const char *mode = getenv("MODE");
     if (strcmp(mode, "credentials") == 0) {
         if (access("/run/systemd/system/systemd-journald.service.d/kurumi-containerd.conf", F_OK) == 0)
@@ -118,8 +119,16 @@ def run_case(binary, directory, mode):
             for file, expected in [("memory.max", "67108864"), ("pids.max", "32"),
                                    ("cpu.max", "10000 100000")]:
                 assert (cgroup / file).read_text().strip() == expected
+            result = subprocess.run(command + ["run", "/init", "exec-check"], env=environment,
+                                    capture_output=True, timeout=10)
+            assert result.returncode == 0, result.stderr.decode()
+            # Leave empty nested cgroups for monitor cleanup to remove.
+            (cgroup / "nested" / "service").mkdir(parents=True)
     finally:
-        subprocess.run(command + ["stop"], env=environment, capture_output=True, timeout=20)
+        stopped = subprocess.run(command + ["stop"], env=environment, capture_output=True, timeout=20)
+        assert stopped.returncode == 0, stopped.stderr.decode()
+        if mode == "cgroup":
+            assert not (Path("/sys/fs/cgroup/kurumi-containerd") / name).exists()
 
 
 def main():

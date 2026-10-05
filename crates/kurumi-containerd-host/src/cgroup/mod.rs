@@ -116,21 +116,61 @@ impl Cgroup {
         Ok(())
     }
 
+    /// Joins an existing container hierarchy without changing its limits.
+    ///
+    /// # Errors
+    /// Returns errors if the hierarchy is missing or membership cannot be written.
+    pub fn attach_existing(
+        name: &str,
+        resources: &ResourceConfig,
+        required: bool,
+        pid: i32,
+    ) -> Result<()> {
+        if !cgroup_required(resources, required) {
+            return Ok(());
+        }
+        let roots = if let Some(root) = cgroup2_root() {
+            vec![root]
+        } else {
+            ensure_cgroup1_roots(resources, required, false)?
+                .into_iter()
+                .map(|(_, root)| root)
+                .collect()
+        };
+        for root in roots {
+            let container = root.join("kurumi-containerd").join(name);
+            ensure!(
+                container.is_dir(),
+                "container cgroup is missing: {}",
+                container.display()
+            );
+            // Systemd enables subtree controllers, so commands need a leaf cgroup.
+            let leaf = container.join("kurumi-exec");
+            match fs::create_dir(&leaf) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
+            fs::write(leaf.join("cgroup.procs"), pid.to_string())
+                .context("failed to attach command to container cgroup")?;
+        }
+        Ok(())
+    }
+
     /// Removes the owned cgroups.
     ///
     /// # Errors
     /// Returns errors when cgroup cleanup fails.
     pub fn remove(&mut self) -> Result<()> {
         let mut first_error = None;
-        for path in self.paths.drain(..) {
-            match fs::remove_dir(path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    first_error.get_or_insert(error);
-                }
+        self.paths.retain(|path| match remove_cgroup_tree(path) {
+            Ok(()) => false,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => {
+                first_error.get_or_insert(error);
+                true
             }
-        }
+        });
         first_error.map_or(Ok(()), |error| Err(error.into()))
     }
 
@@ -138,6 +178,16 @@ impl Cgroup {
     pub fn unified(&self) -> bool {
         self.unified
     }
+}
+
+fn remove_cgroup_tree(path: &Path) -> std::io::Result<()> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            remove_cgroup_tree(&entry.path())?;
+        }
+    }
+    fs::remove_dir(path)
 }
 
 fn write_limit(path: &Path, value: Option<String>, unlimited: &str) -> Result<()> {

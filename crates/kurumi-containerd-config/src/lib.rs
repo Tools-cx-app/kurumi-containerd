@@ -6,6 +6,7 @@ mod model;
 mod pointer;
 pub use pointer::ConfigPointer;
 
+pub use config::resolve_container_path;
 pub use config::{ConfigError, Result};
 pub use environment::parse_environment;
 pub use model::{

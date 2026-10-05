@@ -1,10 +1,8 @@
 use std::{
-    collections::VecDeque,
-    ffi::OsString,
     fs::{self, OpenOptions},
     io::Write,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use crate::{Result, RuntimeError, error::bail};
@@ -34,7 +32,7 @@ impl Init {
             .path
             .strip_prefix("/")
             .map_err(|_| RuntimeError::Message("container.init must be an absolute path".into()))?;
-        let init = resolve_inside_rootfs(rootfs, relative)?;
+        let init = kurumi_containerd_config::resolve_container_path(rootfs, relative)?;
         let metadata = init
             .symlink_metadata()
             .map_err(|error| RuntimeError::Context {
@@ -53,61 +51,6 @@ impl Init {
     pub(crate) fn detect(&self, rootfs: &Path) -> InitSystem {
         detect(rootfs, &self.path)
     }
-}
-
-fn resolve_inside_rootfs(rootfs: &Path, path: &Path) -> Result<PathBuf> {
-    enum Part {
-        Root,
-        Parent,
-        Normal(OsString),
-    }
-
-    fn parts(path: &Path) -> Result<VecDeque<Part>> {
-        path.components()
-            .map(|component| match component {
-                Component::Normal(component) => Ok(Part::Normal(component.to_os_string())),
-                Component::CurDir => Ok(Part::Normal(OsString::new())),
-                Component::ParentDir => Ok(Part::Parent),
-                Component::RootDir => Ok(Part::Root),
-                Component::Prefix(_) => bail!("unsupported init path prefix"),
-            })
-            .collect()
-    }
-
-    let mut pending = parts(path)?;
-    let mut relative = PathBuf::new();
-    let mut links = 0;
-    while let Some(component) = pending.pop_front() {
-        match component {
-            Part::Normal(component) if !component.is_empty() => relative.push(component),
-            Part::Normal(_) => {}
-            Part::Parent => {
-                if !relative.pop() {
-                    bail!("init path escapes rootfs");
-                }
-            }
-            Part::Root => relative.clear(),
-        }
-        let candidate = rootfs.join(&relative);
-        if candidate
-            .symlink_metadata()
-            .is_ok_and(|metadata| metadata.file_type().is_symlink())
-        {
-            links += 1;
-            if links > 40 {
-                bail!("too many symbolic links in init path");
-            }
-            let target = fs::read_link(&candidate)?;
-            relative.pop();
-            if target.is_absolute() {
-                relative.clear();
-            }
-            for component in parts(&target)?.into_iter().rev() {
-                pending.push_front(component);
-            }
-        }
-    }
-    Ok(rootfs.join(relative))
 }
 
 pub(crate) fn prepare_runtime(system: InitSystem) -> Result<()> {

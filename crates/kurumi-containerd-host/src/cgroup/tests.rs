@@ -9,6 +9,26 @@ use super::{
 };
 
 #[test]
+fn cleanup_removes_nested_groups_and_retains_failed_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("container");
+    std::fs::create_dir_all(root.join("system.slice/service")).unwrap();
+    let mut cgroup = Cgroup {
+        paths: vec![root.clone()],
+        unified: true,
+    };
+    cgroup.remove().unwrap();
+    assert!(!root.exists());
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("file"), "busy").unwrap();
+    cgroup.paths.push(root.clone());
+    assert!(cgroup.remove().is_err());
+    std::fs::remove_file(root.join("file")).unwrap();
+    cgroup.remove().unwrap();
+    assert!(!root.exists());
+}
+
+#[test]
 fn enables_only_missing_requested_controllers() {
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(

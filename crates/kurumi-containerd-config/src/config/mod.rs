@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fs::{self, File, OpenOptions},
     io::Write,
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, chown},
@@ -292,7 +293,7 @@ impl Config {
             );
         }
         if require_rootfs && let Some(rootfs) = &self.container.rootfs {
-            let init = rootfs.join(strip_root(&self.container.init));
+            let init = resolve_container_path(rootfs, &self.container.init)?;
             ensure!(
                 init.exists(),
                 "init does not exist in rootfs: {}",
@@ -341,6 +342,44 @@ impl Config {
     }
 }
 
+/// Resolves a path using rootfs-relative absolute symlink semantics.
+///
+/// # Errors
+/// Returns errors for paths escaping rootfs, missing components, or symlink loops.
+pub fn resolve_container_path(rootfs: &Path, path: &Path) -> Result<PathBuf> {
+    let mut pending = path
+        .components()
+        .map(|part| part.as_os_str().to_owned())
+        .collect::<VecDeque<_>>();
+    let mut relative = PathBuf::new();
+    let mut links = 0;
+    while let Some(part) = pending.pop_front() {
+        if part == "/" {
+            relative.clear();
+            continue;
+        }
+        if part == "." {
+            continue;
+        }
+        if part == ".." {
+            ensure!(relative.pop(), "container path escapes rootfs");
+            continue;
+        }
+        relative.push(part);
+        let candidate = rootfs.join(&relative);
+        if fs::symlink_metadata(&candidate)?.file_type().is_symlink() {
+            links += 1;
+            ensure!(links <= 40, "too many symbolic links in container path");
+            let target = fs::read_link(candidate)?;
+            relative.pop();
+            for component in target.components().rev() {
+                pending.push_front(component.as_os_str().to_owned());
+            }
+        }
+    }
+    Ok(rootfs.join(relative))
+}
+
 fn absolute_from(base: &Path, path: &Path) -> Result<PathBuf> {
     let joined = if path.is_absolute() {
         path.to_path_buf()
@@ -374,10 +413,6 @@ fn absolute_install_target(base: &Path, path: &Path) -> Result<PathBuf> {
         .canonicalize()
         .with_context(|| format!("failed to resolve install parent for {}", joined.display()))?;
     Ok(parent.join(name))
-}
-
-pub(crate) fn strip_root(path: &Path) -> &Path {
-    path.strip_prefix("/").unwrap_or(path)
 }
 
 pub(crate) fn safe_container_path(path: &Path) -> bool {
