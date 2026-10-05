@@ -1,7 +1,5 @@
 use std::{
-    fs::{self, File, OpenOptions},
-    io::Write,
-    os::unix::fs::OpenOptionsExt,
+    fs::{self, File},
     path::{Path, PathBuf},
 };
 
@@ -9,10 +7,10 @@ use crate::{
     Result,
     error::{ErrorContext as _, ensure},
 };
-use fs2::FileExt;
 use kurumi_containerd_config::AndroidConfig;
-use kurumi_containerd_helper::fs::{MountFlags, OPEN_CLOEXEC, OPEN_NOFOLLOW, mount};
-use serde::{Deserialize, Serialize};
+use kurumi_containerd_helper::fs::{MountFlags, mount};
+
+pub use crate::selinux::SelinuxGuard;
 
 const GPU_DIRECTORIES: &[(&str, &str)] = &[
     ("/dev/dri", "renderD"),
@@ -21,67 +19,6 @@ const GPU_DIRECTORIES: &[(&str, &str)] = &[
     ("/dev", "video"),
 ];
 const BINDER_DEVICES: &[&str] = &["/dev/binder", "/dev/hwbinder", "/dev/vndbinder"];
-
-pub struct SelinuxGuard {
-    workdir: Option<PathBuf>,
-}
-
-impl SelinuxGuard {
-    /// Acquires the requested shared SELinux permissive state.
-    ///
-    /// # Errors
-    /// Returns errors when accessing SELinux controls or lease state fails.
-    pub fn apply(config: &AndroidConfig, workdir: &Path) -> Result<Self> {
-        if !config.selinux_permissive {
-            return Ok(Self { workdir: None });
-        }
-
-        let enforce = Path::new("/sys/fs/selinux/enforce");
-        ensure!(enforce.exists(), "SELinux enforce control is unavailable");
-        let _lock = selinux_lock(workdir)?;
-        let state_path = workdir.join("selinux-state.json");
-        let mut state = read_selinux_state(&state_path);
-        if state.users == 0 {
-            state.restore_enforcing = fs::read_to_string(enforce)?.trim() == "1";
-        }
-        if state.users == 0 && state.restore_enforcing {
-            write_control(enforce, b"0")?;
-        }
-        state.users += 1;
-        write_selinux_state(&state_path, &state)?;
-        Ok(Self {
-            workdir: Some(workdir.to_path_buf()),
-        })
-    }
-}
-
-impl Drop for SelinuxGuard {
-    fn drop(&mut self) {
-        let Some(workdir) = self.workdir.take() else {
-            return;
-        };
-        let Ok(_lock) = selinux_lock(&workdir) else {
-            return;
-        };
-        let state_path = workdir.join("selinux-state.json");
-        let mut state = read_selinux_state(&state_path);
-        state.users = state.users.saturating_sub(1);
-        if state.users == 0 {
-            if state.restore_enforcing {
-                let _ = write_control(Path::new("/sys/fs/selinux/enforce"), b"1");
-            }
-            let _ = fs::remove_file(state_path);
-        } else {
-            let _ = write_selinux_state(&state_path, &state);
-        }
-    }
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-struct SelinuxState {
-    users: u64,
-    restore_enforcing: bool,
-}
 
 /// Mounts Android integration resources needed before switching roots.
 ///
@@ -208,38 +145,4 @@ fn bind_path(source: &Path, target: &Path, recursive: bool) -> Result<()> {
             target.display()
         )
     })
-}
-
-fn write_control(path: &Path, value: &[u8]) -> Result<()> {
-    let mut file = OpenOptions::new().write(true).open(path)?;
-    file.write_all(value)?;
-    Ok(())
-}
-
-fn selinux_lock(workdir: &Path) -> Result<File> {
-    fs::create_dir_all(workdir)?;
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(OPEN_NOFOLLOW | OPEN_CLOEXEC)
-        .open(workdir.join("selinux.lock"))?;
-    file.lock_exclusive()?;
-    Ok(file)
-}
-
-fn read_selinux_state(path: &Path) -> SelinuxState {
-    fs::read(path)
-        .ok()
-        .and_then(|source| serde_json::from_slice(&source).ok())
-        .unwrap_or_default()
-}
-
-fn write_selinux_state(path: &Path, state: &SelinuxState) -> Result<()> {
-    let temporary = path.with_extension("json.tmp");
-    fs::write(&temporary, serde_json::to_vec(state)?)?;
-    fs::rename(temporary, path)?;
-    Ok(())
 }

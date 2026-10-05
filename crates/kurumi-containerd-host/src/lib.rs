@@ -10,4 +10,6 @@ pub mod cgroup;
 pub mod network;
 pub mod process;
 pub mod rootfs;
+#[cfg(any(target_os = "android", test))]
+mod selinux;
 pub mod terminal;
