@@ -57,7 +57,7 @@ impl ConfigPointer {
                 path.display()
             );
             ensure!(
-                names.insert(pointer.name.clone()),
+                names.insert(pointer.name.as_str()),
                 "config pointer {}: names must be unique",
                 path.display()
             );

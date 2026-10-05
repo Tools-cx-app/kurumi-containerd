@@ -33,7 +33,7 @@ fn applies_defaults_and_user_overrides() {
 #[test]
 fn quotes_profile_values_for_shell() {
     let mut configured = BTreeMap::new();
-    configured.insert("VALUE".to_owned(), "it's safe".to_owned());
+    configured.insert("VALUE", "it's safe");
     let rendered = render_profile_environment(&configured);
     assert!(rendered.starts_with("export VALUE='it'\\''s safe'\n"));
 }

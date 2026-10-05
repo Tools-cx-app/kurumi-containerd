@@ -83,7 +83,7 @@ impl Runtime {
     pub fn scan(&self) -> Result<Vec<ContainerState>> {
         Self::ensure_root()?;
         self.ensure_layout()?;
-        let mut candidates = BTreeMap::new();
+        let mut candidates: BTreeMap<String, ContainerState> = BTreeMap::new();
         for entry in fs::read_dir(self.recovery_dir())? {
             let entry = entry?;
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
@@ -111,14 +111,14 @@ impl Runtime {
             if handle.pid().as_raw() != init_pid || !validate_process_identity(&state) {
                 continue;
             }
-            if let Some(existing) = candidates.insert(state.name.clone(), state.clone())
-                && existing.uuid != state.uuid
-            {
-                bail!(
+            if let Some(existing) = candidates.get(&state.name) {
+                ensure!(
+                    existing.uuid == state.uuid,
                     "multiple live recovery records claim container '{}'",
                     state.name
                 );
             }
+            candidates.insert(state.name.clone(), state);
         }
         for state in candidates.values() {
             self.write_state_paths(state)?;
@@ -137,16 +137,16 @@ impl Runtime {
     pub(crate) fn ensure_layout(&self) -> Result<()> {
         ensure_trusted_directory(&self.workdir)?;
         let state_dir = self.state_dir();
-        fs::create_dir_all(&state_dir)
+        fs::create_dir_all(state_dir)
             .with_context(|| format!("failed to create workdir {}", self.workdir.display()))?;
-        ensure_trusted_directory(&state_dir)?;
+        ensure_trusted_directory(state_dir)?;
         let recovery_dir = self.recovery_dir();
-        fs::create_dir_all(&recovery_dir)?;
-        ensure_trusted_directory(&recovery_dir)
+        fs::create_dir_all(recovery_dir)?;
+        ensure_trusted_directory(recovery_dir)
     }
 
-    fn state_dir(&self) -> PathBuf {
-        self.state_dir.clone()
+    fn state_dir(&self) -> &Path {
+        &self.state_dir
     }
     fn state_path(&self) -> PathBuf {
         self.state_path_for(&self.config.container.name)
@@ -156,8 +156,8 @@ impl Runtime {
         self.state_dir().join(format!("{name}.json"))
     }
 
-    fn recovery_dir(&self) -> PathBuf {
-        self.recovery_dir.clone()
+    fn recovery_dir(&self) -> &Path {
+        &self.recovery_dir
     }
 
     fn recovery_path(&self, uuid: Uuid) -> PathBuf {

@@ -41,30 +41,41 @@ pub(crate) fn container_environment(
     configured: &BTreeMap<String, String>,
     android: &AndroidConfig,
 ) -> Result<Vec<CString>> {
+    container_environment_from(
+        configured
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str())),
+        android,
+    )
+}
+
+fn container_environment_from<'a>(
+    configured: impl IntoIterator<Item = (&'a str, &'a str)>,
+    android: &AndroidConfig,
+) -> Result<Vec<CString>> {
     let term = env::var("TERM")
         .ok()
         .filter(|value| !value.is_empty() && !value.contains('.') && !value.starts_with("bg"))
         .unwrap_or_else(|| "xterm-256color".to_owned());
     let mut environment = BTreeMap::from([
-        ("PATH".to_owned(), DEFAULT_PATH.to_owned()),
-        ("TERM".to_owned(), term),
-        ("HOME".to_owned(), "/root".to_owned()),
-        ("container".to_owned(), "kurumi-containerd".to_owned()),
-        ("LANG".to_owned(), "en_US.UTF-8".to_owned()),
+        ("PATH", DEFAULT_PATH),
+        ("TERM", term.as_str()),
+        ("HOME", "/root"),
+        ("container", "kurumi-containerd"),
+        ("LANG", "en_US.UTF-8"),
     ]);
     if android.termux_x11 {
-        environment.insert("DISPLAY".to_owned(), ":5".to_owned());
+        environment.insert("DISPLAY", ":5");
     }
     if android.virgl {
-        environment.insert("GALLIUM_DRIVER".to_owned(), "virpipe".to_owned());
+        environment.insert("GALLIUM_DRIVER", "virpipe");
     }
     if android.pulse_audio {
-        environment.insert(
-            "PULSE_SERVER".to_owned(),
-            "unix:/tmp/.pulse-socket".to_owned(),
-        );
+        environment.insert("PULSE_SERVER", "unix:/tmp/.pulse-socket");
     }
-    environment.extend(configured.clone());
+    for (key, value) in configured {
+        environment.insert(key, value);
+    }
     environment
         .iter()
         .map(|(key, value)| variable(key, value))
@@ -88,30 +99,34 @@ fn session_environment_from(
     configured: &BTreeMap<String, String>,
     android: &AndroidConfig,
 ) -> Result<Vec<CString>> {
-    let mut environment = kurumi_containerd_config::parse_environment(source)?;
-    environment.extend(configured.clone());
-    container_environment(&environment, android)
+    let environment = kurumi_containerd_config::parse_environment(source)?;
+    container_environment_from(
+        environment
+            .iter()
+            .chain(configured)
+            .map(|(key, value)| (key.as_str(), value.as_str())),
+        android,
+    )
 }
 
 pub(crate) fn write_profile_environment(
     configured: &BTreeMap<String, String>,
     android: &AndroidConfig,
 ) -> Result<()> {
-    let mut environment = configured.clone();
+    let mut environment = configured
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect::<BTreeMap<_, _>>();
     if android.termux_x11 {
-        environment
-            .entry("DISPLAY".to_owned())
-            .or_insert(":5".to_owned());
+        environment.entry("DISPLAY").or_insert(":5");
     }
     if android.virgl {
-        environment
-            .entry("GALLIUM_DRIVER".to_owned())
-            .or_insert("virpipe".to_owned());
+        environment.entry("GALLIUM_DRIVER").or_insert("virpipe");
     }
     if android.pulse_audio {
         environment
-            .entry("PULSE_SERVER".to_owned())
-            .or_insert("unix:/tmp/.pulse-socket".to_owned());
+            .entry("PULSE_SERVER")
+            .or_insert("unix:/tmp/.pulse-socket");
     }
     let contents = render_profile_environment(&environment);
     fs::write("/run/kurumi-containerd.env", contents)
@@ -129,7 +144,7 @@ pub(crate) fn write_profile_environment(
     Ok(())
 }
 
-fn render_profile_environment(environment: &BTreeMap<String, String>) -> String {
+fn render_profile_environment(environment: &BTreeMap<&str, &str>) -> String {
     let mut contents = environment
         .iter()
         .fold(String::new(), |mut output, (key, value)| {

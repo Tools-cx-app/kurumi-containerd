@@ -241,12 +241,11 @@ impl Runtime {
 
         let init =
             std::ffi::CString::new(self.config.container.init.as_os_str().as_encoded_bytes())?;
-        let argv = [init.clone()];
         let env = environment::container_environment(
             &self.config.container.environment,
             &self.config.container.android,
         )?;
-        execve(&init, &argv, &env).context("failed to execute init")?;
+        execve(&init, std::slice::from_ref(&init), &env).context("failed to execute init")?;
         Ok(())
     }
 
