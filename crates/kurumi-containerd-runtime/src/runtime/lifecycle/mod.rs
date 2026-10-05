@@ -148,7 +148,7 @@ impl Runtime {
 
         loop {
             let (boot_reader, boot_writer) = pipe().context("failed to create boot pipe")?;
-            let (network_reader, mut network_writer) =
+            let (network_reader, network_writer) =
                 pipe().context("failed to create network pipe")?;
             let (pid_reader, mut pid_writer) = pipe().context("failed to create PID pipe")?;
             let (result_reader, mut result_writer) =
@@ -223,6 +223,11 @@ impl Runtime {
                 }
             };
 
+            let mut processes = GenerationProcesses {
+                worker: Some(intermediate),
+                init: None,
+                network_writer: Some(network_writer),
+            };
             drop(pid_writer);
             drop(result_writer);
             drop(network_reader);
@@ -232,88 +237,62 @@ impl Runtime {
                 .read_exact(&mut pid_bytes)
                 .context("generation worker failed to report init PID")?;
             let init_pid = i32::from_ne_bytes(pid_bytes);
-            let init_process = match ProcessHandle::open(init_pid) {
-                Ok(process) => process,
-                Err(error) => {
-                    let _ = kill(intermediate, Signal::Kill);
-                    let _ = waitpid(intermediate, false);
-                    return Err(error);
-                }
-            };
+            let init_process = ProcessHandle::open(init_pid)?;
             if process_parent(init_pid).ok() != Some(intermediate) {
-                let _ = kill(intermediate, Signal::Kill);
-                let _ = waitpid(intermediate, false);
                 bail!("reported init PID is no longer a child of the generation worker");
             }
+            processes.init = Some(init_process);
+            let init_process = processes.init.as_ref().expect("init handle was captured");
 
-            let network =
-                match Network::setup_host(&self.config, init_pid, &host_netns, &self.workdir) {
-                    Ok(network) => network,
-                    Err(error) => {
-                        let _ = init_process.send_signal(Signal::Kill);
-                        let _ = waitpid(intermediate, false);
-                        return Err(error);
-                    }
-                };
-            if let Err(error) = cgroup.attach(init_pid) {
-                let _ = init_process.send_signal(Signal::Kill);
-                let _ = waitpid(intermediate, false);
-                network.cleanup();
-                return Err(error);
-            }
-            if let Err(error) = write(&mut network_writer, network.peer_name().as_bytes()) {
-                let _ = init_process.send_signal(Signal::Kill);
-                let _ = waitpid(intermediate, false);
-                network.cleanup();
-                return Err(error).context("failed to complete generation network handshake");
-            }
-            drop(network_writer);
+            let network = Network::setup_host(&self.config, init_pid, &host_netns, &self.workdir)?;
+            cgroup.attach(init_pid)?;
+            write(
+                processes
+                    .network_writer
+                    .as_ref()
+                    .expect("network handshake is pending"),
+                network.peer_name().as_bytes(),
+            )
+            .context("failed to complete generation network handshake")?;
+            drop(processes.network_writer.take());
             let mut boot_status = String::new();
             File::from(boot_reader)
                 .read_to_string(&mut boot_status)
                 .context("failed to read boot status")?;
             if !boot_status.is_empty() {
-                let _ = init_process.send_signal(Signal::Kill);
-                let _ = waitpid(intermediate, false);
-                network.cleanup();
                 bail!("{boot_status}");
             }
 
-            let state = match (|| {
-                Ok::<_, RuntimeError>(ContainerState {
-                    name: self.config.container.name.clone(),
-                    init_pid,
-                    monitor_pid,
-                    rootfs: rootfs.as_ref().to_path_buf(),
-                    uuid,
-                    host_boot_id: host_boot_id.clone(),
-                    init_start_time: process_start_time(init_pid)?,
-                    pid_namespace_inode: namespace_inode(init_pid, "pid")?,
-                    started_at_unix: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
-                    monitor_start_time,
-                    init_system,
-                    generation,
-                })
-            })() {
-                Ok(state) => state,
-                Err(error) => {
-                    let _ = init_process.send_signal(Signal::Kill);
-                    let _ = waitpid(intermediate, false);
-                    network.cleanup();
-                    return Err(error);
-                }
+            let state = ContainerState {
+                name: self.config.container.name.clone(),
+                init_pid,
+                monitor_pid,
+                rootfs: rootfs.as_ref().to_path_buf(),
+                uuid,
+                host_boot_id: host_boot_id.clone(),
+                init_start_time: process_start_time(init_pid)?,
+                pid_namespace_inode: namespace_inode(init_pid, "pid")?,
+                started_at_unix: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                monitor_start_time,
+                init_system,
+                generation,
             };
             if let Err(error) = self.write_state(&state) {
-                let _ = init_process.send_signal(Signal::Kill);
-                let _ = waitpid(intermediate, false);
-                network.cleanup();
+                self.remove_state_for(&state).ok();
                 return Err(error);
             }
             drop(generation_lock.take());
             if first_boot {
                 if let Some(startup) = startup.as_mut() {
-                    write(startup, &serde_json::to_vec(&state)?)
-                        .context("failed to report container PID")?;
+                    let report = serde_json::to_vec(&state)
+                        .map_err(RuntimeError::from)
+                        .and_then(|payload| {
+                            write(startup, &payload).context("failed to report container PID")
+                        });
+                    if let Err(error) = report {
+                        self.remove_state_for(&state).ok();
+                        return Err(error);
+                    }
                 }
                 drop(startup.take());
                 first_boot = false;
@@ -326,8 +305,8 @@ impl Runtime {
                 terminal::proxy(
                     &console.master,
                     intermediate,
-                    Some((&init_process, &|| {
-                        init::request_shutdown(&init_process, init_system)
+                    Some((init_process, &|| {
+                        init::request_shutdown(init_process, init_system)
                     })),
                 )
                 .context("foreground console proxy failed")
@@ -337,14 +316,14 @@ impl Runtime {
             let status = match status {
                 Ok(status) => status,
                 Err(error) => {
-                    let _ = init_process.send_signal(Signal::Kill);
-                    let _ = waitpid(intermediate, false);
                     network.cleanup();
                     self.remove_state_for(&state).ok();
                     cgroup.remove().ok();
                     return Err(error);
                 }
             };
+            // The console wait has reaped this direct child. Never signal a recycled PID.
+            processes.worker = None;
             let mut generation_result = [0_u8; 1];
             let result_length = read_retry(&result_reader, &mut generation_result)
                 .context("failed to read generation result")?;
@@ -427,6 +406,54 @@ impl Runtime {
 
 fn report_startup_error(startup: Option<&mut OwnedFd>, message: &str) -> bool {
     startup.is_some_and(|pipe| write(pipe, message.as_bytes()).is_ok())
+}
+
+struct GenerationProcesses {
+    worker: Option<i32>,
+    init: Option<ProcessHandle>,
+    network_writer: Option<OwnedFd>,
+}
+
+impl Drop for GenerationProcesses {
+    fn drop(&mut self) {
+        // EOF releases init even if PID capture failed before a trusted handle existed.
+        drop(self.network_writer.take());
+        if let Some(init) = &self.init
+            && let Err(error) = init.send_signal(Signal::Kill)
+        {
+            tracing::debug!(%error, "generation init is unavailable during cleanup");
+        }
+        if let Some(init) = &self.init {
+            match init.wait_for_exit(Duration::from_secs(5)) {
+                Ok(true) => {}
+                Ok(false) => tracing::error!("generation init did not exit during cleanup"),
+                Err(error) => tracing::error!(%error, "failed to wait for generation init cleanup"),
+            }
+        }
+        if let Some(worker) = self.worker.take() {
+            match waitpid(worker, true) {
+                Ok(WaitStatus::StillAlive) => {}
+                Ok(_) => return,
+                Err(error) if error.raw_os_error() == Some(libc::ECHILD) => return,
+                Err(error) if kurumi_containerd_helper::process::is_interrupted(&error) => {}
+                Err(error) => {
+                    tracing::error!(%error, "failed to check generation worker before cleanup");
+                    return;
+                }
+            }
+            if self.init.is_some()
+                && let Err(error) = kill(worker, Signal::Kill)
+                && error.raw_os_error() != Some(libc::ESRCH)
+            {
+                tracing::error!(%error, "failed to terminate generation worker");
+            }
+            if let Err(error) = waitpid_retry(worker)
+                && error.raw_os_error() != Some(libc::ECHILD)
+            {
+                tracing::error!(%error, "failed to reap generation worker");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
