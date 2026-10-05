@@ -10,7 +10,7 @@ use crate::{
     error::{ErrorContext as _, bail, ensure},
 };
 use kurumi_containerd_helper::{
-    fs::{MountFlags, mount, unmount},
+    fs::{MountFlags, make_mount_tree_read_only, mount, unmount},
     process::{NamespaceFlags, chdir, close_fds_except, execve, pivot_root, set_hostname, unshare},
 };
 use uuid::Uuid;
@@ -292,13 +292,12 @@ impl Runtime {
                 None,
             )?;
             if bind.read_only {
-                mount(
-                    None,
-                    &target,
-                    None,
-                    MountFlags::BIND | MountFlags::REMOUNT | MountFlags::RDONLY,
-                    None,
-                )?;
+                make_bind_tree_read_only(&target).with_context(|| {
+                    format!(
+                        "failed to make bind mount {} recursively read-only",
+                        target.display()
+                    )
+                })?;
             }
         }
         Ok(())
@@ -338,6 +337,44 @@ impl Runtime {
         .context("failed to mount volatile overlay")?;
         Ok(merged)
     }
+}
+
+fn make_bind_tree_read_only(target: &Path) -> Result<()> {
+    match make_mount_tree_read_only(target) {
+        Ok(()) => return Ok(()),
+        Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {}
+        Err(error) => return Err(error.into()),
+    }
+    // The boot child owns a private mount namespace; no other process can add
+    // mounts while we apply the legacy per-mount fallback.
+    let mounts = procfs::process::Process::myself()?.mountinfo()?;
+    let mut mounts = mounts
+        .0
+        .iter()
+        .filter(|entry| entry.mount_point.starts_with(target))
+        .collect::<Vec<_>>();
+    ensure!(!mounts.is_empty(), "bind mount is missing from mountinfo");
+    mounts.sort_by_key(|entry| std::cmp::Reverse(entry.mount_point.components().count()));
+    for entry in mounts {
+        let mut flags = MountFlags::BIND | MountFlags::REMOUNT | MountFlags::RDONLY;
+        for (name, flag) in [
+            ("nosuid", MountFlags::NOSUID),
+            ("nodev", MountFlags::NODEV),
+            ("noexec", MountFlags::NOEXEC),
+            ("noatime", MountFlags::NOATIME),
+            ("nodiratime", MountFlags::NODIRATIME),
+            ("relatime", MountFlags::RELATIME),
+            ("strictatime", MountFlags::STRICTATIME),
+            ("nosymfollow", MountFlags::NOSYMFOLLOW),
+        ] {
+            if entry.mount_options.contains_key(name) {
+                flags |= flag;
+            }
+        }
+        mount(None, &entry.mount_point, None, flags, None)
+            .with_context(|| format!("failed to make {} read-only", entry.mount_point.display()))?;
+    }
+    Ok(())
 }
 
 fn mount_pristine_proc_sysfs() -> Result<()> {

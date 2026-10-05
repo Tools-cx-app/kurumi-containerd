@@ -27,6 +27,9 @@ bitflags::bitflags! {
         const NOATIME = libc::MS_NOATIME;
         const NOEXEC = libc::MS_NOEXEC;
         const NOSUID = libc::MS_NOSUID;
+        const RELATIME = libc::MS_RELATIME;
+        const STRICTATIME = libc::MS_STRICTATIME;
+        const NOSYMFOLLOW = libc::MS_NOSYMFOLLOW;
         const PRIVATE = libc::MS_PRIVATE;
         const RDONLY = libc::MS_RDONLY;
         const REC = libc::MS_REC;
@@ -79,6 +82,47 @@ pub fn unmount(path: &Path, detach: bool) -> io::Result<()> {
     // SAFETY: path is NUL-terminated and flags is a valid umount2 bitmask.
     cvt(unsafe { libc::umount2(path.as_ptr(), if detach { libc::MNT_DETACH } else { 0 }) })
         .map(drop)
+}
+
+/// Makes a mount and its submounts read-only.
+///
+/// Preserves other mount attributes. Returns an error on kernels without
+/// `mount_setattr` (Linux before 5.12) rather than leaving writable submounts.
+pub fn make_mount_tree_read_only(path: &Path) -> io::Result<()> {
+    let path = path_cstring(path)?;
+    // Linux UAPI mount_attr consists of four __u64 fields on every ABI,
+    // including 32-bit Android where libc does not export this structure.
+    #[repr(C)]
+    struct MountAttributes {
+        attr_set: u64,
+        attr_clr: u64,
+        propagation: u64,
+        userns_fd: u64,
+    }
+    const MOUNT_ATTR_RDONLY: u64 = 1;
+    let attributes = MountAttributes {
+        attr_set: MOUNT_ATTR_RDONLY,
+        attr_clr: 0,
+        propagation: 0,
+        userns_fd: 0,
+    };
+    // SAFETY: path is NUL-terminated, attributes matches the kernel UAPI layout,
+    // and both remain live for the synchronous call. Flags and size use ABI types.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_mount_setattr,
+            libc::AT_FDCWD,
+            path.as_ptr(),
+            libc::AT_RECURSIVE as libc::c_uint,
+            &raw const attributes,
+            std::mem::size_of::<MountAttributes>(),
+        )
+    };
+    if result == -1 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 pub fn filesystem_type(path: &Path) -> io::Result<i64> {
