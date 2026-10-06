@@ -73,8 +73,15 @@ impl Network {
         };
 
         let setup = (|| {
-            if !link_exists(bridge) {
-                run("ip", &["link", "add", bridge, "type", "bridge"])?;
+            if config.container.network == NetworkMode::Nat {
+                if !link_exists(bridge) {
+                    run("ip", &["link", "add", bridge, "type", "bridge"])?;
+                }
+            } else {
+                ensure!(
+                    link_exists(bridge),
+                    "configured gateway bridge does not exist: {bridge}"
+                );
             }
             if config.container.network == NetworkMode::Nat {
                 let address = format!("{}/{}", options.gateway, options.prefix);
@@ -266,11 +273,6 @@ impl Network {
         if let Some(parent) = resolv.parent() {
             fs::create_dir_all(parent)?;
         }
-        if fs::symlink_metadata(&resolv).is_ok_and(|metadata| metadata.file_type().is_symlink())
-            && !resolv.try_exists()?
-        {
-            fs::remove_file(&resolv)?;
-        }
         let content =
             config
                 .container
@@ -281,8 +283,11 @@ impl Network {
                     let _ = writeln!(content, "nameserver {dns}");
                     content
                 });
-        fs::write(&resolv, content)
+        let temporary = resolv.with_extension("kurumi.tmp");
+        fs::write(&temporary, content)
             .with_context(|| format!("failed to write DNS configuration {}", resolv.display()))?;
+        fs::rename(&temporary, &resolv)
+            .with_context(|| format!("failed to replace DNS configuration {}", resolv.display()))?;
         Ok(())
     }
 

@@ -43,6 +43,32 @@ fn replaces_dangling_resolv_conf_symlink() {
     );
 }
 
+#[test]
+fn replaces_live_resolv_conf_symlink() {
+    let rootfs = tempfile::tempdir().unwrap();
+    fs::create_dir(rootfs.path().join("etc")).unwrap();
+    fs::write(rootfs.path().join("etc/target"), "keep me\n").unwrap();
+    symlink("target", rootfs.path().join("etc/resolv.conf")).unwrap();
+    let config = test_config();
+
+    Network::write_dns(&config, rootfs.path()).unwrap();
+
+    assert_eq!(
+        fs::read_to_string(rootfs.path().join("etc/resolv.conf")).unwrap(),
+        "nameserver 1.1.1.1\n"
+    );
+    assert_eq!(
+        fs::read_to_string(rootfs.path().join("etc/target")).unwrap(),
+        "keep me\n"
+    );
+    assert!(
+        !fs::symlink_metadata(rootfs.path().join("etc/resolv.conf"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
+
 fn test_config() -> Config {
     toml::from_str(
         "[runtime]\n\n[container]\nname = 'test'\nrootfs = '/tmp'\n\n[container.network_options]\ndns = ['1.1.1.1']\n",
