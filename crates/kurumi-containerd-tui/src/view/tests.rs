@@ -37,6 +37,62 @@ fn tiny_screen_offers_resize_hint() {
 }
 
 #[test]
+fn dashboard_cards_and_form_fields_have_distinct_structure() {
+    let state = UiState::new(vec![]);
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|frame| draw(frame, &state, &[], "", false, false))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let lines: Vec<String> = buffer
+        .content
+        .chunks(100)
+        .map(|row| row.iter().map(ratatui::buffer::Cell::symbol).collect())
+        .collect();
+    assert_eq!(lines[1].matches('╭').count(), 4);
+    assert!(lines[1].contains("Running") && lines[1].contains("Errors"));
+    assert!(lines.iter().any(|line| line.contains("[ Install ]")));
+
+    let mut state = state;
+    state.open(ActionKind::Install);
+    terminal
+        .draw(|frame| draw(frame, &state, &[], "", false, false))
+        .unwrap();
+    assert!(
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .any(|cell| cell.symbol() == "▍" && cell.bg == SURFACE)
+    );
+}
+
+#[test]
+fn focused_panel_and_disabled_selection_keep_visible_contrast() {
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|frame| draw(frame, &UiState::new(vec![]), &[], "", false, false))
+        .unwrap();
+    let cells = &terminal.backend().buffer().content;
+    assert!(
+        cells
+            .iter()
+            .any(|cell| cell.symbol() == "╭" && cell.fg == ACCENT)
+    );
+    assert!(
+        cells
+            .iter()
+            .any(|cell| cell.bg == YELLOW && cell.fg == CRUST)
+    );
+    assert!(
+        cells
+            .iter()
+            .any(|cell| cell.bg == GREEN && cell.fg == CRUST)
+    );
+}
+
+#[test]
 fn selected_action_and_form_error_are_visible() {
     let mut state = UiState::new(vec![]);
     state.action_index = ACTIONS.len() - 1;
