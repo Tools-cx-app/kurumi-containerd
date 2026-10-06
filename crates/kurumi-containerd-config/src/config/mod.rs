@@ -9,7 +9,9 @@ use std::{
 use fs2::FileExt;
 use uuid::Uuid;
 
-use crate::{Config, NetworkMode, Protocol, environment::valid_env_key, parse_environment};
+use crate::{
+    Config, NetworkMode, Protocol, Validate, environment::valid_env_key, parse_environment,
+};
 
 pub use kurumi_containerd_error::config::{ConfigError, Result};
 use kurumi_containerd_error::{
@@ -171,11 +173,6 @@ impl Config {
     ///
     /// Returns an error for invalid names or paths, missing rootfs content,
     /// invalid networking values, or malformed environment keys.
-    #[allow(clippy::too_many_lines)]
-    pub fn validate(&mut self) -> Result<()> {
-        self.validate_inner(true)
-    }
-
     #[allow(clippy::too_many_lines)]
     fn validate_inner(&mut self, require_rootfs: bool) -> Result<()> {
         ensure!(
@@ -339,6 +336,26 @@ impl Config {
             self.container.environment.extend(configured);
         }
         Ok(())
+    }
+}
+
+impl Config {
+    /// Validates and normalizes the configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a configuration value is invalid or cannot be
+    /// normalized.
+    pub fn validate(&mut self) -> Result<()> {
+        <Self as Validate>::validate(self)
+    }
+}
+
+impl Validate for Config {
+    type Error = ConfigError;
+
+    fn validate(&mut self) -> Result<()> {
+        self.validate_inner(true)
     }
 }
 

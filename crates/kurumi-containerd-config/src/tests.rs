@@ -75,6 +75,12 @@ fn invalid_name_keeps_validation_message() {
 }
 
 #[test]
+fn config_can_be_validated_through_trait() {
+    let (_dir, mut config) = test_config();
+    Validate::validate(&mut config).unwrap();
+}
+
+#[test]
 fn rejects_removed_workdir_setting() {
     let source = "[runtime]\nworkdir = '/tmp'\n[container]\nname = 'test'\nrootfs = '/tmp'\n";
     assert!(toml::from_str::<Config>(source).is_err());

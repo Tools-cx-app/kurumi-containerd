@@ -28,6 +28,13 @@ error APIs. Host and runtime share `RuntimeError`, so policy callbacks cross
 the crate boundary without error conversion. The helper retains its low-level
 I/O errors.
 
+Configuration exposes a `Validate` trait for the existing mutating validation
+flow. Runtime exposes a `ContainerRuntime` trait for all user-facing container
+operations, while namespace, mount, cgroup, process, and state internals remain
+on concrete implementation types. Host exposes a `HostCheck` trait and typed
+capability report for platform probes; CLI remains responsible for formatting
+that report.
+
 ## Configuration modules
 
 The configuration crate keeps its public API in `lib.rs` and uses two

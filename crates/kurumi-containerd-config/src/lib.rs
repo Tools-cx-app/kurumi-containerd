@@ -14,5 +14,19 @@ pub use model::{
     Protocol, ResourceConfig, RuntimeConfig, SecurityConfig,
 };
 
+/// Validates a configuration value, including any normalization required by
+/// the configuration format.
+pub trait Validate {
+    /// The error returned when validation fails.
+    type Error;
+
+    /// Validates and, where required, normalizes the value.
+    ///
+    /// # Errors
+    ///
+    /// Returns the validation error for an invalid value.
+    fn validate(&mut self) -> std::result::Result<(), Self::Error>;
+}
+
 #[cfg(test)]
 mod tests;

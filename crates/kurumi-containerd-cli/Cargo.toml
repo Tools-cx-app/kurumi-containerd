@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 kurumi-containerd-config = { path = "../kurumi-containerd-config" }
+kurumi-containerd-host = { path = "../kurumi-containerd-host" }
 kurumi-containerd-helper.workspace = true
 kurumi-containerd-runtime = { path = "../kurumi-containerd-runtime" }
 procfs.workspace = true

@@ -7,6 +7,7 @@ pub use kurumi_containerd_error::{Result, RuntimeError};
 pub mod android;
 mod archive;
 pub mod cgroup;
+pub mod check;
 pub mod network;
 pub mod process;
 pub mod rootfs;

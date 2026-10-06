@@ -1,6 +1,6 @@
 use std::{
     io::{self, IsTerminal},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 mod output;
@@ -8,10 +8,8 @@ mod output;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use kurumi_containerd_config::{Config, ConfigPointer};
-use kurumi_containerd_helper::process::{
-    ForkResult, NamespaceFlags, WaitStatus, fork, is_interrupted, unshare, waitpid,
-};
-use kurumi_containerd_runtime::Runtime;
+use kurumi_containerd_host::check::{HostCapabilities, HostCheck};
+use kurumi_containerd_runtime::{ContainerRuntime, Runtime};
 use tracing::level_filters::LevelFilter;
 
 #[derive(Debug, Parser)]
@@ -132,7 +130,8 @@ fn run(cli: Cli) -> Result<()> {
             .or(config.container.rootfs_image.as_ref())
             .context("rootfs target is not configured")?
             .clone();
-        Runtime::new(config)?.install(archive, *size, *force)?;
+        let runtime = Runtime::new(config)?;
+        ContainerRuntime::install(&runtime, archive, *size, *force)?;
         output::write(|out| {
             writeln!(
                 out,
@@ -147,6 +146,7 @@ fn run(cli: Cli) -> Result<()> {
     let container_name = config.container.name.clone();
     let configured_foreground = config.container.foreground;
     let runtime = Runtime::new(config)?;
+    let runtime: &dyn ContainerRuntime = &runtime;
     match cli.command {
         Commands::Start { foreground } => {
             let state = runtime.start(foreground)?;
@@ -235,64 +235,14 @@ fn parse_size(value: &str) -> Result<u64, String> {
 
 fn check() -> Result<()> {
     output::write(|out| writeln!(out, "Host: {}", std::env::consts::OS))?;
-    let namespaces = [
-        probe_namespace(NamespaceFlags::MOUNT),
-        probe_namespace(NamespaceFlags::PID),
-        probe_namespace(NamespaceFlags::UTS),
-        probe_namespace(NamespaceFlags::IPC),
-        probe_namespace(NamespaceFlags::NETWORK),
-    ];
-    let namespaces_available = namespaces.into_iter().all(|available| available);
-    print_check(
-        "Namespaces",
-        namespaces_available,
-        "mount, pid, uts, ipc, network",
-    )?;
-    print_check(
-        "OverlayFS",
-        std::fs::read_to_string("/proc/filesystems")?.contains("overlay"),
-        "kernel filesystem",
-    )?;
-    let mountinfo = procfs::process::Process::myself()?.mountinfo()?;
-    print_check(
-        "Cgroup v2",
-        Path::new("/sys/fs/cgroup/cgroup.controllers").exists(),
-        "unified hierarchy",
-    )?;
-    print_check(
-        "Cgroup v1",
-        mountinfo.0.iter().any(|mount| mount.fs_type == "cgroup"),
-        "legacy hierarchy",
-    )?;
-    print_check(
-        "Pidfd",
-        kurumi_containerd_runtime::pidfd_available(),
-        "process handles",
-    )?;
-    print_command("ip")?;
-    print_command("iptables")?;
-    if !namespaces_available {
+    let report = HostCapabilities.check()?;
+    for capability in &report.capabilities {
+        print_check(&capability.name, capability.available, &capability.detail)?;
+    }
+    if !report.required_namespaces_available() {
         bail!("one or more required namespaces are unavailable");
     }
     Ok(())
-}
-
-#[allow(unsafe_code)]
-fn probe_namespace(flag: NamespaceFlags) -> bool {
-    match unsafe { fork() } {
-        Err(_) => false,
-        Ok(ForkResult::Child) => {
-            let code = i32::from(unshare(flag).is_err());
-            std::process::exit(code);
-        }
-        Ok(ForkResult::Parent { child }) => loop {
-            match waitpid(child, false) {
-                Ok(status) => break matches!(status, WaitStatus::Exited(_, 0)),
-                Err(error) if is_interrupted(&error) => {}
-                Err(_) => break false,
-            }
-        },
-    }
 }
 
 fn print_check(capability: &str, available: bool, detail: &str) -> Result<()> {
@@ -300,15 +250,10 @@ fn print_check(capability: &str, available: bool, detail: &str) -> Result<()> {
     Ok(())
 }
 
-fn print_command(command: &str) -> Result<()> {
-    match which::which(command) {
-        Ok(path) => print_check(command, true, &path.display().to_string()),
-        Err(_) => print_check(command, false, "not found in PATH"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use clap::CommandFactory;
 
     use super::*;

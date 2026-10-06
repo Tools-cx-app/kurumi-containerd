@@ -732,6 +732,7 @@ dependencies = [
  "clap",
  "kurumi-containerd-config",
  "kurumi-containerd-helper",
+ "kurumi-containerd-host",
  "kurumi-containerd-runtime",
  "kurumi-containerd-tui",
  "procfs",
