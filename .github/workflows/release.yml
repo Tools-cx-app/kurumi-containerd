@@ -114,6 +114,19 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
           VERSION: ${{ needs.validate.outputs.version }}
         run: bash .github/scripts/package-release.sh
+      - name: Stage Android module binary
+        if: matrix.platform == 'android'
+        run: |
+          mkdir -p "module-binary/${{ matrix.abi }}"
+          cp "target/${{ matrix.target }}/release/kurumi-containerd" \
+            "module-binary/${{ matrix.abi }}/kurumi-containerd"
+      - name: Upload Android module binary
+        if: matrix.platform == 'android'
+        uses: actions/upload-artifact@v7
+        with:
+          name: module-binary-${{ matrix.abi }}
+          path: module-binary/*/kurumi-containerd
+          if-no-files-found: error
       - name: Upload release artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -124,7 +137,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [validate, build]
+    needs: [validate, build, module]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -138,7 +151,7 @@ jobs:
       - name: Generate checksums
         working-directory: dist
         run: |
-          sha256sum -- *.deb *.rpm *.tar.xz > SHA256SUMS
+          sha256sum -- *.deb *.rpm *.tar.xz *.zip > SHA256SUMS
           sha256sum --check SHA256SUMS
       - name: Create release
         uses: softprops/action-gh-release@v3
@@ -147,7 +160,36 @@ jobs:
             dist/*.deb
             dist/*.rpm
             dist/*.tar.xz
+            dist/*.zip
             dist/SHA256SUMS
           generate_release_notes: true
           prerelease: ${{ contains(needs.validate.outputs.version, '-') }}
           fail_on_unmatched_files: true
+
+  module:
+    name: Package Android module
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download Android binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: module-binary-*
+          path: artifacts
+          merge-multiple: true
+      - name: Arrange Android binaries
+        run: |
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            mkdir -p "artifacts/kurumi-containerd-android-$abi"
+            test -s "artifacts/$abi/kurumi-containerd"
+            mv "artifacts/$abi/kurumi-containerd" "artifacts/kurumi-containerd-android-$abi/"
+          done
+      - name: Package Android module
+        run: python3 .github/scripts/package-android-module.py --binaries artifacts --output dist --version "${{ needs.validate.outputs.version }}" --version-code "$GITHUB_RUN_NUMBER"
+      - name: Upload module package
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-android-module
+          path: dist/*.zip
+          if-no-files-found: error

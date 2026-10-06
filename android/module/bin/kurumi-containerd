@@ -1,0 +1,8 @@
+#!/system/bin/sh
+MODDIR=${0%/*}
+export HOME=${KURUMI_CONTAINERD_HOME:-/data/adb/kurumi-containerd}
+export TMPDIR="$HOME/tmp"
+export TMP="$TMPDIR"
+umask 077
+mkdir -p "$TMPDIR" || exit 1
+exec "$MODDIR/kurumi-containerd.bin" "$@"

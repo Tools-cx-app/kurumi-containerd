@@ -25,6 +25,7 @@ Linux namespace、挂载、cgroup、网络及持久化 TOML 配置管理轻量�
 - seccomp 过滤和只读内核视图
 - 可选的 user namespace 支持，用于容器内运行 Docker、Podman、Flatpak 和 Bubblewrap
 - 不依赖 Android App 的可选 Android 主机集成
+- Magisk、KernelSU、APatch 通用模块，支持容器开机启动
 
 ## 环境要求
 
@@ -131,6 +132,7 @@ check                   检查主机能力
 - [配置参考](docs/configuration.md)
 - [运行时架构](docs/architecture.md)
 - [实现状态](docs/status.md)
+- [Android root 模块](docs/android-module.md)
 
 ## 致谢
 

@@ -28,6 +28,7 @@ resources when compiled for and executed on Android.
 - Seccomp filtering and read-only kernel views
 - Optional user-namespace support for nested Docker, Podman, Flatpak, and Bubblewrap workloads
 - Optional Android host integration without an Android app
+- Magisk, KernelSU, and APatch module with container boot startup
 
 ## Requirements
 
@@ -142,6 +143,7 @@ check                   Probe required host capabilities
 - [Configuration reference](docs/configuration.md)
 - [Runtime architecture](docs/architecture.md)
 - [Implementation status](docs/status.md)
+- [Android root module](docs/android-module.md)
 
 ## Acknowledgments
 

@@ -70,6 +70,35 @@ jobs:
           path: target/${{ matrix.target }}/release/kurumi-containerd
           if-no-files-found: error
 
+  android-module:
+    name: Android module
+    runs-on: ubuntu-latest
+    needs: android
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Download Android binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: kurumi-containerd-android-*
+          path: artifacts
+      - name: Package module
+        run: |
+          python3 .github/scripts/package-android-module.py \
+            --binaries artifacts --output dist --version "$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"])')" \
+            --version-code "$GITHUB_RUN_NUMBER"
+      - name: Validate module scripts
+        run: |
+          sh -n android/module/customize.sh android/module/service.sh \
+            android/module/bin/kurumi-containerd android/module/system/bin/kurumi-containerd
+          python3 .github/scripts/test-android-module.py
+      - name: Upload module artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: kurumi-containerd-android-module
+          path: dist/*.zip
+          if-no-files-found: error
+
   linux:
     name: Linux (${{ matrix.target }})
     runs-on: ubuntu-latest
