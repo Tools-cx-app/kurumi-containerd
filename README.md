@@ -101,24 +101,11 @@ sudo -H ./target/release/kurumi-containerd stop
 
 For interactive management of all registered containers, run
 `sudo -H ./target/release/kurumi-containerd tui`. See [CLI usage](docs/usage.md)
-for keys and graphical terminal requirements.
+for command details, configuration selection, and terminal requirements.
 
-The pointer is read from the running process's `$HOME/.kurumi-containerd/config.json`.
-These examples use `sudo -H` consistently so creation and execution use root's HOME.
-JSON is a nonempty list with unique management names. A single entry is selected
-automatically; with multiple entries use `kurumi-containerd --name debian start`.
-The runtime still uses TOML `container.name`.
-Relative `file` paths resolve from the JSON directory; relative host paths inside
-TOML still resolve from the TOML directory.
-
-## Breaking changes: configuration entry point
-
-`-c/--config`, `KURUMI_CONTAINERD_CONFIG`, and automatic lookup of TOML in the
-working directory have been removed. Keep your original TOML in place and put
-its absolute path in the JSON pointer above; remove configuration flags from
-commands and scripts. Existing JSON should be backed up before editing.
-See the [step-by-step migration guide](docs/migration-config-pointer.md)
-for HOME handling, verification, troubleshooting, and rollback.
+The configuration pointer format and path rules are documented in
+[Configuration](docs/configuration.md). For migration from the removed
+`-c/--config` entry points, see the [migration guide](docs/migration-config-pointer.md).
 
 ## Commands
 

@@ -86,6 +86,13 @@ The main modules are:
 - `container/init.rs`: init-family detection and shutdown protocols
 - `container/security.rs`: seccomp and protected kernel views
 
+Large host modules keep their public resource APIs in the parent directory module.
+Network state and NAT lease persistence live in `host/network/state.rs`; the
+parent `network/mod.rs` retains setup and cleanup orchestration. Terminal,
+configuration, and TUI rendering modules remain cohesive because their private
+helpers share the same lifecycle and rendering state; they are not split merely
+to reduce line counts.
+
 The host crate's `src/` contains:
 
 - `process.rs`: pidfd handles and procfs process identity helpers

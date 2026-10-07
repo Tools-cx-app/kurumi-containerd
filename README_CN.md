@@ -93,21 +93,9 @@ sudo -H ./target/release/kurumi-containerd stop
 ```
 
 使用 `sudo -H ./target/release/kurumi-containerd tui` 可打开 ratatui 管理界面，
-浏览所有已登记容器并执行现有 CLI 命令。交互命令在 Linux 图形终端中另开窗口；
-Android 上仍可使用非交互管理操作。按键及终端配置见 [CLI 使用](docs/usage.md)。
-
-固定读取实际运行进程的 `$HOME/.kurumi-containerd/config.json`。上述命令统一使用
-`sudo -H`，让创建和运行都使用 root 的 HOME。JSON 是非空列表，`name` 必须唯一；
-单项自动选中，多项使用 `kurumi-containerd --name debian start`。`name` 用于展示和选择，
-运行时名称仍使用 TOML 的 `container.name`。`file` 的相对路径以 JSON 所在目录
-为基准；TOML 内部相对主机路径仍以 TOML 所在目录为基准。
-
-## 破坏性变更与迁移
-
-已删除 `-c/--config`、`KURUMI_CONTAINERD_CONFIG` 及当前目录默认 TOML 查找入口。
-保留原 TOML，在上述 JSON 中填写其绝对路径，并移除命令和脚本中的配置参数。
-已有 JSON 请先备份再编辑。详细操作、sudo HOME 规则、验证和回退步骤见
-[配置入口迁移指南](docs/migration-config-pointer.md)。
+浏览所有已登记容器并执行现有 CLI 命令。按键、配置选择和终端要求见
+[CLI 使用](docs/usage.md)。JSON 指针格式和路径规则见[配置参考](docs/configuration.md)；
+从已删除的 `-c/--config` 入口迁移时，参阅[配置入口迁移指南](docs/migration-config-pointer.md)。
 
 ## 命令
 

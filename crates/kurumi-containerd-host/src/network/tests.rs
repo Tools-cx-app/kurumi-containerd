@@ -1,5 +1,6 @@
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{PermissionsExt, symlink};
 
+use super::state::{NatLease, NatLeaseOwner, network_state_dir};
 use super::*;
 
 #[test]
