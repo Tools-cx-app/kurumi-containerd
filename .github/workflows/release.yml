@@ -92,7 +92,7 @@ jobs:
           runner: none
       - name: Install cargo-ndk
         if: matrix.platform == 'android'
-        uses: taiki-e/install-action@v2.87.25
+        uses: taiki-e/install-action@v2.87.27
         with:
           tool: cargo-ndk
       - name: Install native package tools
