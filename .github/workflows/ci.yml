@@ -48,7 +48,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install cargo-ndk
-        uses: taiki-e/install-action@v2.87.28
+        uses: taiki-e/install-action@v2.87.29
         with:
           tool: cargo-ndk
 
