@@ -12,6 +12,9 @@
       "rangeStrategy": "bump"
     }
   ],
+  "ignoreDeps": [
+    "taiki-e/install-action"
+  ],
   "skipArtifactsUpdate": true,
   "constraints": {
     "rust": "nightly"
