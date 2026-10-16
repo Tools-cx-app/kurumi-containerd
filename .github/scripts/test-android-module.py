@@ -38,11 +38,33 @@ with tempfile.TemporaryDirectory() as directory:
                    KURUMI_CONTAINERD_HOME=str(data))
         unsupported = work / f"unsupported-{arch}"
         shutil.copytree(MODULE, unsupported)
+        for payload in ("arm64-v8a", "armeabi-v7a", "x86_64", "x86"):
+            binary = unsupported / "binaries" / payload / "kurumi-containerd"
+            binary.parent.mkdir(parents=True)
+            binary.write_text(payload)
         result = run(installer, dict(MODPATH=str(unsupported), ARCH="riscv64", API="21",
                                       BOOTMODE="true", KURUMI_CONTAINERD_HOME=str(data)), check=False)
         assert result.returncode
         result = run(installer, dict(MODPATH=str(unsupported), ARCH=arch, API="20",
-                                      BOOTMODE="true", KURUMI_CONTAINERD_HOME=str(data)), check=False)
+                                       BOOTMODE="true", KURUMI_CONTAINERD_HOME=str(data)), check=False)
+        assert result.returncode
+        linked_data = work / f"linked-data-{arch}"
+        linked_target = work / f"linked-target-{arch}"
+        linked_target.mkdir()
+        linked_data.mkdir()
+        linked_target.chmod(0o755)
+        (linked_data / ".kurumi-containerd").symlink_to(linked_target)
+        result = run(installer, dict(MODPATH=str(unsupported), ARCH=arch, API="21",
+                                      BOOTMODE="true", KURUMI_CONTAINERD_HOME=str(linked_data)), check=False)
+        assert result.returncode
+        assert linked_target.stat().st_mode & 0o777 == 0o755
+        no_timeout = work / f"no-timeout-{arch}"
+        no_timeout.mkdir()
+        for command in ("sh", "chmod", "mkdir", "mv", "rm"):
+            (no_timeout / command).symlink_to(shutil.which(command))
+        result = run(installer, dict(MODPATH=str(unsupported), ARCH=arch, API="21",
+                                      BOOTMODE="true", PATH=str(no_timeout),
+                                      KURUMI_CONTAINERD_HOME=str(work / f"no-timeout-data-{arch}")), check=False)
         assert result.returncode
         run(installer, env)
         assert (module / "bin/kurumi-containerd.bin").read_text() == abi

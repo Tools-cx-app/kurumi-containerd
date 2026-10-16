@@ -9,6 +9,8 @@ case "$ARCH" in
   x86) abi=x86 ;;
   *) abort "Unsupported architecture: $ARCH" ;;
 esac
+timeout_path=$(command -v timeout 2>/dev/null)
+[ -n "$timeout_path" ] && [ -x "$timeout_path" ] || abort "Missing timeout command."
 if [ -d "$MODPATH/binaries" ]; then
   [ -f "$MODPATH/binaries/$abi/kurumi-containerd" ] || abort "Missing binary: $abi"
   mv "$MODPATH/binaries/$abi/kurumi-containerd" "$MODPATH/bin/kurumi-containerd.bin" || abort "Cannot install binary."
@@ -22,6 +24,7 @@ set_perm "$MODPATH/service.sh" 0 0 0755
 data=${KURUMI_CONTAINERD_HOME:-/data/adb/kurumi-containerd}
 umask 077
 [ ! -L "$data" ] || abort "Persistent directory must not be a symlink."
+[ ! -L "$data/.kurumi-containerd" ] || abort "Persistent state directory must not be a symlink."
 mkdir -p "$data/.kurumi-containerd" || abort "Cannot create persistent directory."
 set_perm "$data" 0 0 0700
 set_perm "$data/.kurumi-containerd" 0 0 0700
