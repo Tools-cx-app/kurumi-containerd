@@ -1,0 +1,43 @@
+name: Test
+
+on:
+  push:
+    branches: ["master"]
+    paths:
+      - "crates/**"
+      - "Cargo.*"
+      - ".github/workflows/test.yml"
+  pull_request:
+    branches: ["master"]
+    paths:
+      - "crates/**"
+      - "Cargo.*"
+      - ".github/workflows/test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-workspace-crates: "true"
+          cache-all-crates: "true"
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Run tests
+        run: cargo test --workspace --locked
