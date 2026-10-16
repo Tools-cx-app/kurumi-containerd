@@ -6,12 +6,14 @@ on:
     paths:
       - "crates/**"
       - "Cargo.*"
+      - "android/**"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: ["master"]
     paths:
       - "crates/**"
       - "Cargo.*"
+      - "android/**"
       - ".github/workflows/ci.yml"
   workflow_dispatch:
 
