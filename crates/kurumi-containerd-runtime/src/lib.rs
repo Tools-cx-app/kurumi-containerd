@@ -12,7 +12,8 @@ use kurumi_containerd_config::Config;
 #[cfg(target_os = "android")]
 use crate::error::ErrorContext as _;
 pub use crate::error::{Result, RuntimeError};
-use crate::{container::init::Init, host::rootfs::Rootfs};
+pub use crate::runtime::query::ContainerQuery;
+use crate::{container::init::Init, host::rootfs::Rootfs, runtime::state::store::StateStore};
 pub use crate::{
     container::init::InitSystem,
     runtime::state::{ContainerInfo, ContainerState},
@@ -78,10 +79,8 @@ pub struct Runtime {
     pub(crate) init: Init,
     pub(crate) rootfs: Rootfs,
     pub(crate) workdir: PathBuf,
-    pub(crate) state_dir: PathBuf,
-    pub(crate) recovery_dir: PathBuf,
+    pub(crate) store: StateStore,
     pub(crate) volatile_dir: PathBuf,
-    pub(crate) lock_path: PathBuf,
 }
 
 impl Runtime {
@@ -92,22 +91,22 @@ impl Runtime {
     /// Returns an error on Android when `TMP` is not set.
     pub fn new(config: Config) -> Result<Self> {
         let workdir = runtime_workdir()?;
-        let state_dir = workdir.join("state");
-        let recovery_dir = workdir.join("recovery");
         let mount_dir = workdir.join("mounts");
         let volatile_dir = workdir.join("volatile");
-        let lock_path = workdir.join(format!("{}.lock", config.container.name));
+        let store = StateStore::new(&workdir, &config.container.name);
         let init = Init::new(&config);
-        let rootfs = Rootfs::new(&config, &mount_dir);
+        let rootfs = Rootfs::from_paths(
+            config.container.rootfs.as_deref(),
+            config.container.rootfs_image.as_deref(),
+            &mount_dir.join(&config.container.name),
+        );
         Ok(Self {
             config,
             init,
             rootfs,
             workdir,
-            state_dir,
-            recovery_dir,
+            store,
             volatile_dir,
-            lock_path,
         })
     }
 }

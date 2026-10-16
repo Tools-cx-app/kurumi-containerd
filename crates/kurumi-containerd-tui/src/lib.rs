@@ -2,6 +2,7 @@
 
 mod action;
 mod app;
+mod backend;
 mod registry;
 mod state;
 mod terminal;

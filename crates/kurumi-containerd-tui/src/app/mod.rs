@@ -1,6 +1,6 @@
 use crate::{
     action::{ACTIONS, allowed},
-    registry::{load_entries, refresh},
+    backend::Backend,
     state::UiState,
     terminal::{Screen, terminal_command},
     view::draw,
@@ -28,7 +28,8 @@ pub fn run(exe: &Path) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         bail!("tui requires an interactive terminal");
     }
-    let mut entries = load_entries()?;
+    let backend = Backend::new(exe);
+    let mut entries = backend.load_entries()?;
     let mut state = UiState::new(entries.iter().map(|e| e.pointer.name.clone()).collect());
     let mut output = String::new();
     let mut child: Option<Child> = None;
@@ -47,10 +48,10 @@ pub fn run(exe: &Path) -> Result<()> {
             file.take(1024 * 1024).read_to_end(&mut bytes)?;
             output = format!("Exit: {status}\n{}", String::from_utf8_lossy(&bytes));
             state.output_scroll = 0;
-            refresh(&mut entries);
+            backend.refresh(&mut entries);
         }
         if refreshed.elapsed() >= Duration::from_secs(3) && child.is_none() {
-            refresh(&mut entries);
+            backend.refresh(&mut entries);
             refreshed = Instant::now();
         }
         let terminal_choice = terminal_command();
@@ -85,6 +86,7 @@ pub fn run(exe: &Path) -> Result<()> {
                 &mut entries,
                 &mut output,
                 child.is_some(),
+                &backend,
             );
             if (key.code == KeyCode::Char('q') || key.code == KeyCode::Esc) && child.is_none() {
                 break;
@@ -206,6 +208,7 @@ fn handle_screen(
     entries: &mut Vec<crate::registry::Entry>,
     output: &mut String,
     busy: bool,
+    backend: &Backend<'_>,
 ) {
     let previous = state.selected;
     match code {
@@ -223,7 +226,7 @@ fn handle_screen(
         KeyCode::Right | KeyCode::Char('l') => {
             state.action_index = (state.action_index + 1).min(ACTIONS.len() - 1);
         }
-        KeyCode::Char('r') if !busy => match load_entries() {
+        KeyCode::Char('r') if !busy => match backend.load_entries() {
             Ok(new) => {
                 *entries = new;
                 state.reload(entries.iter().map(|e| e.pointer.name.clone()).collect());

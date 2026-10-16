@@ -26,6 +26,22 @@ pub struct Network {
 }
 
 impl Network {
+    /// Configures host links and rules from narrow network inputs.
+    ///
+    /// # Errors
+    /// Returns namespace, state access, or network command failures.
+    #[allow(clippy::too_many_lines)]
+    pub fn setup_host_with(
+        name: &str,
+        mode: NetworkMode,
+        options: &kurumi_containerd_config::NetworkConfig,
+        init_pid: i32,
+        host_netns: &File,
+        state_dir: &Path,
+    ) -> Result<Self> {
+        Self::setup_host_inner(name, mode, options, init_pid, host_netns, state_dir)
+    }
+
     #[allow(clippy::too_many_lines)]
     /// Configures host links and rules using the supplied state directory.
     ///
@@ -37,19 +53,38 @@ impl Network {
         host_netns: &File,
         state_dir: &Path,
     ) -> Result<Self> {
+        Self::setup_host_inner(
+            &config.container.name,
+            config.container.network,
+            &config.container.network_options,
+            init_pid,
+            host_netns,
+            state_dir,
+        )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn setup_host_inner(
+        name: &str,
+        mode: NetworkMode,
+        options: &kurumi_containerd_config::NetworkConfig,
+        init_pid: i32,
+        host_netns: &File,
+        state_dir: &Path,
+    ) -> Result<Self> {
         tracing::debug!(
-            container = %config.container.name,
-            network_mode = ?config.container.network,
+            container = name,
+            network_mode = ?mode,
             pid = init_pid,
             "setting up host network"
         );
         let mut network = Self::empty(state_dir);
-        if config.container.network == NetworkMode::Host {
+        if mode == NetworkMode::Host {
             return Ok(network);
         }
         setns(host_netns.as_fd(), NamespaceFlags::NETWORK)
             .context("failed to return to host network namespace")?;
-        if config.container.network == NetworkMode::None {
+        if mode == NetworkMode::None {
             return Ok(network);
         }
 
@@ -58,15 +93,14 @@ impl Network {
         let peer_link = format!("dsp{init_pid}");
         network.host_link = Some(host_link.clone());
         network.peer_link = Some(peer_link.clone());
-        let options = &config.container.network_options;
-        let bridge = if config.container.network == NetworkMode::Nat {
+        let bridge = if mode == NetworkMode::Nat {
             &options.bridge
         } else {
             &options.gateway_bridge
         };
 
         let setup = (|| {
-            if config.container.network == NetworkMode::Nat {
+            if mode == NetworkMode::Nat {
                 if !link_exists(bridge) {
                     run("ip", &["link", "add", bridge, "type", "bridge"])?;
                 }
@@ -76,7 +110,7 @@ impl Network {
                     "configured gateway bridge does not exist: {bridge}"
                 );
             }
-            if config.container.network == NetworkMode::Nat {
+            if mode == NetworkMode::Nat {
                 let address = format!("{}/{}", options.gateway, options.prefix);
                 run_allow_exists("ip", &["address", "add", &address, "dev", bridge])?;
             }
@@ -94,7 +128,7 @@ impl Network {
                 &["link", "set", &peer_link, "netns", &init_pid.to_string()],
             )?;
 
-            if config.container.network == NetworkMode::Nat {
+            if mode == NetworkMode::Nat {
                 acquire_nat_lease(state_dir)?;
                 network.nat_lease = true;
                 fs::write("/proc/sys/net/ipv4/ip_forward", "1")?;
@@ -104,7 +138,7 @@ impl Network {
                     options.prefix
                 );
                 network.ensure_rule(&owned_rule(
-                    &config.container.name,
+                    name,
                     init_pid,
                     &[
                         "-t",
@@ -118,12 +152,12 @@ impl Network {
                     ],
                 ))?;
                 network.ensure_rule(&owned_rule(
-                    &config.container.name,
+                    name,
                     init_pid,
                     &["-A", "FORWARD", "-i", bridge, "-j", "ACCEPT"],
                 ))?;
                 network.ensure_rule(&owned_rule(
-                    &config.container.name,
+                    name,
                     init_pid,
                     &[
                         "-A",
@@ -145,7 +179,7 @@ impl Network {
                     };
                     let destination = format!("{}:{}", options.address, port.container);
                     network.ensure_rule(&owned_rule(
-                        &config.container.name,
+                        name,
                         init_pid,
                         &[
                             "-t",
@@ -163,7 +197,7 @@ impl Network {
                         ],
                     ))?;
                     network.ensure_rule(&owned_rule(
-                        &config.container.name,
+                        name,
                         init_pid,
                         &[
                             "-A",
@@ -199,24 +233,41 @@ impl Network {
     /// # Errors
     /// Returns errors when interface or route configuration fails.
     pub fn setup_child(config: &Config, peer_name: &str) -> Result<()> {
+        Self::setup_child_with(
+            &config.container.name,
+            config.container.network,
+            &config.container.network_options,
+            peer_name,
+        )
+    }
+
+    /// Configures interfaces inside the container namespace from narrow inputs.
+    ///
+    /// # Errors
+    /// Returns errors when interface or route configuration fails.
+    pub fn setup_child_with(
+        name: &str,
+        mode: NetworkMode,
+        options: &kurumi_containerd_config::NetworkConfig,
+        peer_name: &str,
+    ) -> Result<()> {
         tracing::debug!(
-            container = %config.container.name,
-            network_mode = ?config.container.network,
+            container = name,
+            network_mode = ?mode,
             peer_name,
             "setting up container network"
         );
-        if config.container.network == NetworkMode::Host {
+        if mode == NetworkMode::Host {
             return Ok(());
         }
         run("ip", &["link", "set", "lo", "up"])?;
         if matches!(
-            config.container.network,
+            mode,
             NetworkMode::Nat | NetworkMode::Gateway | NetworkMode::Dhcp
         ) {
             run("ip", &["link", "set", peer_name, "name", "eth0"])?;
             run("ip", &["link", "set", "eth0", "up"])?;
-            if config.container.network == NetworkMode::Nat {
-                let options = &config.container.network_options;
+            if mode == NetworkMode::Nat {
                 let address = format!("{}/{}", options.address, options.prefix);
                 run("ip", &["address", "add", &address, "dev", "eth0"])?;
                 run(
@@ -239,10 +290,17 @@ impl Network {
     /// # Errors
     /// Returns errors when no client exists or address acquisition fails.
     pub fn setup_dhcp(config: &Config) -> Result<()> {
-        if config.container.network != NetworkMode::Dhcp {
+        Self::setup_dhcp_with(&config.container.name, config.container.network)
+    }
+
+    ///
+    /// # Errors
+    /// Returns an error when the selected DHCP client fails or is unavailable.
+    pub fn setup_dhcp_with(name: &str, mode: NetworkMode) -> Result<()> {
+        if mode != NetworkMode::Dhcp {
             return Ok(());
         }
-        tracing::debug!(container = %config.container.name, "setting up DHCP");
+        tracing::debug!(container = name, "setting up DHCP");
         if command_exists("udhcpc") {
             return run("udhcpc", &["-n", "-q", "-i", "eth0"])
                 .context("DHCP configuration failed with udhcpc");
@@ -262,20 +320,21 @@ impl Network {
     /// # Errors
     /// Returns filesystem errors while preparing resolv.conf.
     pub fn write_dns(config: &Config, rootfs: &Path) -> Result<()> {
+        Self::write_dns_servers(&config.container.network_options.dns, rootfs)
+    }
+
+    ///
+    /// # Errors
+    /// Returns filesystem errors while replacing `etc/resolv.conf`.
+    pub fn write_dns_servers(dns: &[String], rootfs: &Path) -> Result<()> {
         let resolv = rootfs.join("etc/resolv.conf");
         if let Some(parent) = resolv.parent() {
             fs::create_dir_all(parent)?;
         }
-        let content =
-            config
-                .container
-                .network_options
-                .dns
-                .iter()
-                .fold(String::new(), |mut content, dns| {
-                    let _ = writeln!(content, "nameserver {dns}");
-                    content
-                });
+        let content = dns.iter().fold(String::new(), |mut content, dns| {
+            let _ = writeln!(content, "nameserver {dns}");
+            content
+        });
         let temporary = resolv.with_extension("kurumi.tmp");
         fs::write(&temporary, content)
             .with_context(|| format!("failed to write DNS configuration {}", resolv.display()))?;

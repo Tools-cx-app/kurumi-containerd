@@ -47,7 +47,12 @@ impl Runtime {
         let mut status = String::new();
         File::from(network_status).read_to_string(&mut status)?;
         ensure!(!status.is_empty(), "host network setup did not complete");
-        Network::setup_child(&self.config, &status)?;
+        Network::setup_child_with(
+            &self.config.container.name,
+            self.config.container.network,
+            &self.config.container.network_options,
+            &status,
+        )?;
         if init_system == init::InitSystem::Systemd && host_cgroup_v2 {
             unshare(NamespaceFlags::CGROUP).context("failed to create systemd cgroup namespace")?;
         }
@@ -207,8 +212,8 @@ impl Runtime {
         self.mount_binds_inside()?;
         unmount(Path::new("/.old_root"), true).context("failed to detach old root")?;
         fs::remove_dir("/.old_root").ok();
-        Network::setup_dhcp(&self.config)?;
-        Network::write_dns(&self.config, Path::new("/"))?;
+        Network::setup_dhcp_with(&self.config.container.name, self.config.container.network)?;
+        Network::write_dns_servers(&self.config.container.network_options.dns, Path::new("/"))?;
         set_container_hostname(&self.config.container.hostname)?;
 
         fs::create_dir_all("/run/kurumi-containerd")?;

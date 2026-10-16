@@ -13,6 +13,8 @@ use kurumi_containerd_config::Config;
 use kurumi_containerd_helper::fs::{LoopController, LoopDevice, MountFlags, mount, unmount};
 
 mod install;
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Clone)]
 pub struct Rootfs {
@@ -29,12 +31,21 @@ struct PreparedRootfs {
 
 impl Rootfs {
     #[must_use]
-    pub fn new(config: &Config, mount_dir: &Path) -> Self {
+    pub fn from_paths(configured: Option<&Path>, image: Option<&Path>, mountpoint: &Path) -> Self {
         Self {
-            configured: config.container.rootfs.clone(),
-            image: config.container.rootfs_image.clone(),
-            mountpoint: mount_dir.join(&config.container.name),
+            configured: configured.map(Path::to_path_buf),
+            image: image.map(Path::to_path_buf),
+            mountpoint: mountpoint.to_path_buf(),
         }
+    }
+
+    #[must_use]
+    pub fn new(config: &Config, mount_dir: &Path) -> Self {
+        Self::from_paths(
+            config.container.rootfs.as_deref(),
+            config.container.rootfs_image.as_deref(),
+            &mount_dir.join(&config.container.name),
+        )
     }
 
     /// Prepares the rootfs, keeping image mounts alive until the result is dropped.

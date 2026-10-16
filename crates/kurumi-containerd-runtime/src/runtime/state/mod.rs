@@ -10,7 +10,6 @@ use crate::{
     Result, RuntimeError,
     error::{ErrorContext as _, bail, ensure},
 };
-use fs2::FileExt;
 #[cfg(test)]
 use kurumi_containerd_helper::process::parent_pid as current_parent_pid;
 use kurumi_containerd_helper::{
@@ -28,6 +27,7 @@ use crate::{
 };
 
 mod info;
+pub(crate) mod store;
 
 pub use info::ContainerInfo;
 
@@ -56,21 +56,7 @@ impl Runtime {
     ///
     /// Returns an error when the state directory cannot be read.
     pub fn list(&self) -> Result<Vec<ContainerState>> {
-        self.ensure_layout()?;
-        let mut states = Vec::new();
-        for entry in fs::read_dir(self.state_dir())? {
-            let entry = entry?;
-            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Ok(state) = read_state(&entry.path())
-                && (validate_process_identity(&state) || validate_monitor_identity(&state))
-            {
-                states.push(state);
-            }
-        }
-        states.sort_by(|left, right| left.name.cmp(&right.name));
-        Ok(states)
+        self.store.list()
     }
 
     /// Scans procfs for live containers backed by trusted recovery metadata and
@@ -82,9 +68,9 @@ impl Runtime {
     /// written safely.
     pub fn scan(&self) -> Result<Vec<ContainerState>> {
         Self::ensure_root()?;
-        self.ensure_layout()?;
+        self.store.ensure_layout()?;
         let mut candidates: BTreeMap<String, ContainerState> = BTreeMap::new();
-        for entry in fs::read_dir(self.recovery_dir())? {
+        for entry in fs::read_dir(self.store.recovery_dir())? {
             let entry = entry?;
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
@@ -121,7 +107,7 @@ impl Runtime {
             candidates.insert(state.name.clone(), state);
         }
         for state in candidates.values() {
-            self.write_state_paths(state)?;
+            self.store.write_state(state)?;
         }
         Ok(candidates.into_values().collect())
     }
@@ -135,46 +121,15 @@ impl Runtime {
     }
 
     pub(crate) fn ensure_layout(&self) -> Result<()> {
-        ensure_trusted_directory(&self.workdir)?;
-        let state_dir = self.state_dir();
-        fs::create_dir_all(state_dir)
-            .with_context(|| format!("failed to create workdir {}", self.workdir.display()))?;
-        ensure_trusted_directory(state_dir)?;
-        let recovery_dir = self.recovery_dir();
-        fs::create_dir_all(recovery_dir)?;
-        ensure_trusted_directory(recovery_dir)
+        self.store.ensure_layout()
     }
 
-    fn state_dir(&self) -> &Path {
-        &self.state_dir
-    }
     fn state_path(&self) -> PathBuf {
-        self.state_path_for(&self.config.container.name)
-    }
-
-    fn state_path_for(&self, name: &str) -> PathBuf {
-        self.state_dir().join(format!("{name}.json"))
-    }
-
-    fn recovery_dir(&self) -> &Path {
-        &self.recovery_dir
-    }
-
-    fn recovery_path(&self, uuid: Uuid) -> PathBuf {
-        self.recovery_dir().join(format!("{uuid}.json"))
+        self.store.state_path()
     }
 
     pub(crate) fn state(&self) -> Result<Option<ContainerState>> {
-        let path = self.state_path();
-        if !path.exists() {
-            return Ok(None);
-        }
-        let state = read_state(&path)?;
-        if validate_process_identity(&state) || validate_monitor_identity(&state) {
-            Ok(Some(state))
-        } else {
-            Ok(None)
-        }
+        self.store.state()
     }
 
     pub(crate) fn require_state(&self) -> Result<ContainerState> {
@@ -196,55 +151,23 @@ impl Runtime {
     }
 
     pub(crate) fn write_state(&self, state: &ContainerState) -> Result<()> {
-        self.write_state_paths(state)
-    }
-
-    fn write_state_paths(&self, state: &ContainerState) -> Result<()> {
-        write_state_atomic(&self.recovery_path(state.uuid), state)?;
-        write_state_atomic(&self.state_path_for(&state.name), state)
-    }
-
-    fn remove_recovery_state(&self, uuid: Uuid) -> Result<()> {
-        remove_if_exists(&self.recovery_path(uuid))
+        self.store.write_state(state)
     }
 
     pub(crate) fn remove_state_for(&self, state: &ContainerState) -> Result<()> {
-        remove_if_exists(&self.state_path())?;
-        self.remove_recovery_state(state.uuid)
+        self.store.remove_state_for(state)
     }
 
     pub(crate) fn remove_state(&self) -> Result<()> {
-        remove_if_exists(&self.state_path())
+        self.store.remove_state()
     }
 
     pub(crate) fn lock(&self) -> Result<File> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(OPEN_NOFOLLOW | OPEN_CLOEXEC)
-            .open(&self.lock_path)?;
-        file.lock_exclusive()
-            .context("failed to lock container lifecycle")?;
-        Ok(file)
+        self.store.lock()
     }
 
     pub(crate) fn try_lock(&self) -> Result<Option<File>> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(OPEN_NOFOLLOW | OPEN_CLOEXEC)
-            .open(&self.lock_path)?;
-        match file.try_lock_exclusive() {
-            Ok(()) => Ok(Some(file)),
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
-            Err(error) => Err(error).context("failed to try-lock container lifecycle"),
-        }
+        self.store.try_lock()
     }
 
     pub(crate) fn wait_for_monitor_cleanup(&self, state: &ContainerState) -> Result<()> {

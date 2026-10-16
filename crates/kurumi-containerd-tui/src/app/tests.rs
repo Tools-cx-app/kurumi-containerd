@@ -6,6 +6,7 @@ fn screen_focus_scrolls_details_and_output_independently() {
     let mut state = UiState::new(Vec::new());
     let mut entries = Vec::new();
     let mut output = String::new();
+    let backend = Backend::new(Path::new("/bin/true"));
     for key in [
         KeyCode::Tab,
         KeyCode::PageDown,
@@ -13,7 +14,7 @@ fn screen_focus_scrolls_details_and_output_independently() {
         KeyCode::PageDown,
         KeyCode::PageDown,
     ] {
-        handle_screen(key, &mut state, &mut entries, &mut output, false);
+        handle_screen(key, &mut state, &mut entries, &mut output, false, &backend);
     }
     assert_eq!(state.details_scroll, 5);
     assert_eq!(state.output_scroll, 10);
@@ -23,6 +24,7 @@ fn screen_focus_scrolls_details_and_output_independently() {
         &mut entries,
         &mut output,
         false,
+        &backend,
     );
     handle_screen(
         KeyCode::PageUp,
@@ -30,6 +32,7 @@ fn screen_focus_scrolls_details_and_output_independently() {
         &mut entries,
         &mut output,
         false,
+        &backend,
     );
     assert_eq!(state.details_scroll, 0);
     assert_eq!(state.output_scroll, 10);
@@ -40,11 +43,26 @@ fn empty_registry_blocks_container_actions_but_opens_check() {
     let mut state = UiState::new(Vec::new());
     let mut entries = Vec::new();
     let mut output = String::new();
-    handle_screen(KeyCode::Enter, &mut state, &mut entries, &mut output, false);
+    let backend = Backend::new(Path::new("/bin/true"));
+    handle_screen(
+        KeyCode::Enter,
+        &mut state,
+        &mut entries,
+        &mut output,
+        false,
+        &backend,
+    );
     assert!(state.open.is_none());
     assert!(output.contains("No container selected"));
     state.action_index = ACTIONS.len() - 1;
-    handle_screen(KeyCode::Enter, &mut state, &mut entries, &mut output, false);
+    handle_screen(
+        KeyCode::Enter,
+        &mut state,
+        &mut entries,
+        &mut output,
+        false,
+        &backend,
+    );
     assert_eq!(state.open, Some(crate::action::ActionKind::Check));
     let mut child = None;
     let mut file = None;

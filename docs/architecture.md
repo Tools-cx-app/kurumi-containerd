@@ -103,8 +103,18 @@ The host crate's `src/` contains:
 - `cgroup.rs`: cgroup v1/v2 resource limits and hierarchy detection
 - `android.rs`: Android host integration, exposed only on Android targets
 
+Host resource APIs accept the narrow configuration data they use: rootfs owns
+rootfs paths, while network setup receives the container name, network mode and
+network options. Config-taking constructors remain compatibility adapters for
+callers outside the runtime.
+
 Runtime supplies network state paths and shutdown callbacks to host; host does
 not import lifecycle state or init-family policy.
+
+The TUI keeps rendering, input state, and action validation separate from its
+private backend. The backend owns registry loading and refreshes, while action
+execution continues through the CLI subprocess so the existing command and
+output behavior remains unchanged.
 
 ## Nested user namespaces
 

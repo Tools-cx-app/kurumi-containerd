@@ -1,6 +1,6 @@
 use anyhow::Result;
 use kurumi_containerd_config::{Config, ConfigPointer};
-use kurumi_containerd_runtime::{ContainerInfo, Runtime};
+use kurumi_containerd_runtime::{ContainerInfo, ContainerQuery, Runtime};
 
 pub(super) struct Entry {
     pub(super) pointer: ConfigPointer,
@@ -19,7 +19,7 @@ pub(super) fn load_entries() -> Result<Vec<Entry>> {
                     let foreground = config.container.foreground;
                     (
                         Runtime::new(config)
-                            .and_then(|runtime| runtime.info())
+                            .and_then(|runtime| ContainerQuery::info(&runtime))
                             .map_err(anyhow::Error::from),
                         foreground,
                     )
@@ -43,7 +43,7 @@ pub(super) fn refresh(entries: &mut [Entry]) {
             Ok(config) => {
                 entry.foreground = config.container.foreground;
                 entry.info = Runtime::new(config)
-                    .and_then(|runtime| runtime.info())
+                    .and_then(|runtime| ContainerQuery::info(&runtime))
                     .map_err(Into::into);
             }
             Err(error) => entry.info = Err(error.into()),

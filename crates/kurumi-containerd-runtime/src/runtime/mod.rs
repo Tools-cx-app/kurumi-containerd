@@ -4,5 +4,6 @@ mod boot;
 mod execute;
 mod install;
 mod lifecycle;
+pub(crate) mod query;
 pub(crate) mod state;
 mod supervisor;

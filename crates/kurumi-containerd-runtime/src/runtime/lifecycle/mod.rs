@@ -244,7 +244,14 @@ impl Runtime {
             processes.init = Some(init_process);
             let init_process = processes.init.as_ref().expect("init handle was captured");
 
-            let network = Network::setup_host(&self.config, init_pid, &host_netns, &self.workdir)?;
+            let network = Network::setup_host_with(
+                &self.config.container.name,
+                self.config.container.network,
+                &self.config.container.network_options,
+                init_pid,
+                &host_netns,
+                &self.workdir,
+            )?;
             cgroup.attach(init_pid)?;
             write(
                 processes
