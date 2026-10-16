@@ -285,4 +285,5 @@ fn ensure_trusted_parent(target: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/rootfs/install/tests.rs"]
 mod tests;

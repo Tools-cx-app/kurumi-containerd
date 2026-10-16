@@ -464,4 +464,5 @@ impl Drop for GenerationProcesses {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/runtime/lifecycle/tests.rs"]
 mod tests;

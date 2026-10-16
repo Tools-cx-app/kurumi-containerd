@@ -165,4 +165,5 @@ fn variable(key: &str, value: &str) -> Result<CString> {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/container/environment/tests.rs"]
 mod tests;

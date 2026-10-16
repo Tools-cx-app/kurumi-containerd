@@ -331,4 +331,5 @@ pub fn set_file_mode(fd: BorrowedFd<'_>, mode: u32) -> io::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/fs/tests.rs"]
 mod tests;

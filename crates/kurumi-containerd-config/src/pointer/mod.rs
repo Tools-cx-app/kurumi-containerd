@@ -93,4 +93,5 @@ fn path_from_home(home: Option<OsString>) -> Result<PathBuf> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/pointer/tests.rs"]
 mod tests;

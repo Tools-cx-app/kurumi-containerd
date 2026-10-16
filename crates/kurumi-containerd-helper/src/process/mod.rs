@@ -319,4 +319,5 @@ pub fn is_io_error(error: &io::Error) -> bool {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/process/tests.rs"]
 mod tests;

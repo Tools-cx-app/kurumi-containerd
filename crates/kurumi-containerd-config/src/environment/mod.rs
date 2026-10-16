@@ -77,4 +77,5 @@ pub(crate) fn valid_env_key(key: &str) -> bool {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/environment/tests.rs"]
 mod tests;

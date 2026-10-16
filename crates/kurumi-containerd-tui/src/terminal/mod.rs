@@ -51,4 +51,5 @@ impl Drop for Screen {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/terminal/tests.rs"]
 mod tests;

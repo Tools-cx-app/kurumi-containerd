@@ -164,4 +164,5 @@ pub fn set_signal_handler(
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/signal/tests.rs"]
 mod tests;

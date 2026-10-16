@@ -217,4 +217,5 @@ pub(super) fn allowed(k: ActionKind, e: &Entry, terminal: bool) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/action/tests.rs"]
 mod tests;

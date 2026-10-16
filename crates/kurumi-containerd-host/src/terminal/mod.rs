@@ -467,4 +467,5 @@ fn sync_terminal_size(sources: &[BorrowedFd<'_>], target: BorrowedFd<'_>) -> Res
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/terminal/tests.rs"]
 mod tests;

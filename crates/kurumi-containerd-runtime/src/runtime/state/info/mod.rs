@@ -178,4 +178,5 @@ fn format_unit(value: u64, unit: u64, suffix: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/unit/runtime/state/info/tests.rs"]
 mod tests;

@@ -316,4 +316,5 @@ fn cmsg_space(count: usize) -> usize {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/terminal/tests.rs"]
 mod tests;

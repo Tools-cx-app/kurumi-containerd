@@ -219,4 +219,5 @@ fn read_prefix(path: &Path, limit: usize) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/container/init/tests.rs"]
 mod tests;

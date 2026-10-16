@@ -81,4 +81,5 @@ pub(super) fn reset_init_signals() {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/runtime/supervisor/tests.rs"]
 mod tests;

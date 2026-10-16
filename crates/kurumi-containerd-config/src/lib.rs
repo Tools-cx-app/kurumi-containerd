@@ -29,4 +29,5 @@ pub trait Validate {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/tests.rs"]
 mod tests;

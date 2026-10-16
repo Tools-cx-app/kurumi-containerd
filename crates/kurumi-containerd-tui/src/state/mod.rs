@@ -124,4 +124,5 @@ impl UiState {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/state/tests.rs"]
 mod tests;

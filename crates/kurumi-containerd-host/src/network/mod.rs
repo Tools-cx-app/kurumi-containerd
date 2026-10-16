@@ -510,4 +510,5 @@ fn masked_network(address: std::net::Ipv4Addr, prefix: u8) -> std::net::Ipv4Addr
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/network/tests.rs"]
 mod tests;

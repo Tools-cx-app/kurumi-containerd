@@ -497,4 +497,5 @@ fn draw_form(frame: &mut Frame<'_>, state: &UiState, kind: ActionKind, entry: Op
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/view/tests.rs"]
 mod tests;

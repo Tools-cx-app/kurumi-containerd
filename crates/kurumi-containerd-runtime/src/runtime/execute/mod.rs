@@ -374,4 +374,5 @@ fn resolve_container_command(command: &str, environment: &[CString]) -> Option<P
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/runtime/execute/tests.rs"]
 mod tests;

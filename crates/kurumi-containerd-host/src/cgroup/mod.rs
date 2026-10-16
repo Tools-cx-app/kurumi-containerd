@@ -416,4 +416,5 @@ impl Drop for Cgroup {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/cgroup/tests.rs"]
 mod tests;

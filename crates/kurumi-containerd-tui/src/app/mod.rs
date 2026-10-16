@@ -260,4 +260,5 @@ fn handle_screen(
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/app/tests.rs"]
 mod tests;

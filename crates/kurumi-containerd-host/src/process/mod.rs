@@ -123,4 +123,5 @@ pub fn process_start_time(pid: i32) -> Result<u64> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/process/tests.rs"]
 mod tests;

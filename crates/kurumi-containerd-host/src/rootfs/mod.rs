@@ -14,6 +14,7 @@ use kurumi_containerd_helper::fs::{LoopController, LoopDevice, MountFlags, mount
 
 mod install;
 #[cfg(test)]
+#[path = "../../tests/unit/rootfs/tests.rs"]
 mod tests;
 
 #[derive(Debug, Clone)]

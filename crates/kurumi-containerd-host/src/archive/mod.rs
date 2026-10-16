@@ -216,4 +216,5 @@ fn ensure_safe_link(entry: &Path, link: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/archive/tests.rs"]
 mod tests;

@@ -127,4 +127,5 @@ fn probe_namespace(flag: NamespaceFlags) -> bool {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/check/tests.rs"]
 mod tests;

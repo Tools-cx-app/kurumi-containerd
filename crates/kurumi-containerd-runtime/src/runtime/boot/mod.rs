@@ -440,4 +440,5 @@ fn ensure_no_symlink_components(rootfs: &Path, target: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/runtime/boot/tests.rs"]
 mod tests;

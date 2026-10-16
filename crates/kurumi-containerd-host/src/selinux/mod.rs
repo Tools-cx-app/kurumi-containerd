@@ -140,4 +140,5 @@ fn write_selinux_state(path: &Path, state: &SelinuxState) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/selinux/tests.rs"]
 mod tests;

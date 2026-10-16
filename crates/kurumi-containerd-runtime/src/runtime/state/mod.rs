@@ -356,4 +356,5 @@ fn ensure_trusted_directory(path: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/runtime/state/tests.rs"]
 mod tests;

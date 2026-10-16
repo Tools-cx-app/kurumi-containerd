@@ -97,4 +97,5 @@ macro_rules! ensure {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/tests.rs"]
 mod tests;
