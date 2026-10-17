@@ -164,8 +164,9 @@ jobs:
           path: target/${{ matrix.target }}/debug/kurumi-containerd
           if-no-files-found: error
 
-  telegram:
+  artifacts:
     name: Package build artifacts
+
     runs-on: ubuntu-latest
     needs: [android, android-module, linux]
     if: github.event_name != 'pull_request'
@@ -197,78 +198,3 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
-  telegram-release:
-    name: Telegram release artifact (${{ matrix.artifact }})
-    runs-on: ubuntu-latest
-    needs: [android, android-module, linux]
-    if: github.event_name != 'pull_request'
-    env:
-      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-      CHAT_ID: ${{ secrets.CHAT_ID }}
-    strategy:
-      fail-fast: false
-      matrix:
-        artifact:
-          - kurumi-containerd-android-arm64-v8a
-          - kurumi-containerd-android-armeabi-v7a
-          - kurumi-containerd-android-x86_64
-          - kurumi-containerd-android-x86
-          - kurumi-containerd-linux-x86_64-unknown-linux-gnu
-          - kurumi-containerd-linux-aarch64-unknown-linux-gnu
-          - kurumi-containerd-linux-armv7-unknown-linux-gnueabihf
-          - kurumi-containerd-linux-riscv64gc-unknown-linux-gnu
-          - kurumi-containerd-linux-x86_64-unknown-linux-musl
-          - kurumi-containerd-linux-aarch64-unknown-linux-musl
-    steps:
-      - name: Download release binary
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ matrix.artifact }}
-          path: binary
-      - name: Package release binary
-        run: zip -9 "${{ matrix.artifact }}.zip" binary/*
-      - name: Upload release binary to Telegram
-        if: env.BOT_TOKEN != '' && env.CHAT_ID != ''
-        uses: Tools-cx-app/telegram-upload-bot@master
-        with:
-          bot-token: ${{ secrets.BOT_TOKEN }}
-          chat-id: ${{ secrets.CHAT_ID }}
-          files: ./${{ matrix.artifact }}.zip
-
-  telegram-debug:
-    name: Telegram debug artifact (${{ matrix.artifact }})
-    runs-on: ubuntu-latest
-    needs: [android, android-module, linux]
-    if: github.event_name != 'pull_request'
-    env:
-      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-      CHAT_ID: ${{ secrets.CHAT_ID }}
-    strategy:
-      fail-fast: false
-      matrix:
-        artifact:
-          - kurumi-containerd-android-arm64-v8a-debug
-          - kurumi-containerd-android-armeabi-v7a-debug
-          - kurumi-containerd-android-x86_64-debug
-          - kurumi-containerd-android-x86-debug
-          - kurumi-containerd-linux-x86_64-unknown-linux-gnu-debug
-          - kurumi-containerd-linux-aarch64-unknown-linux-gnu-debug
-          - kurumi-containerd-linux-armv7-unknown-linux-gnueabihf-debug
-          - kurumi-containerd-linux-riscv64gc-unknown-linux-gnu-debug
-          - kurumi-containerd-linux-x86_64-unknown-linux-musl-debug
-          - kurumi-containerd-linux-aarch64-unknown-linux-musl-debug
-    steps:
-      - name: Download debug binary
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ matrix.artifact }}
-          path: binary
-      - name: Package debug binary
-        run: zip -9 "${{ matrix.artifact }}.zip" binary/*
-      - name: Upload debug binary to Telegram
-        if: env.BOT_TOKEN != '' && env.CHAT_ID != ''
-        uses: Tools-cx-app/telegram-upload-bot@master
-        with:
-          bot-token: ${{ secrets.BOT_TOKEN }}
-          chat-id: ${{ secrets.CHAT_ID }}
-          files: ./${{ matrix.artifact }}.zip
