@@ -26,7 +26,7 @@ for abi in ABIS:
     payloads[abi] = binary
 args.output.mkdir(parents=True, exist_ok=True)
 destination = args.output / f"kurumi-containerd-{args.version}-android-module.zip"
-with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
     archive.writestr("module.prop", f"id=kurumi-containerd\nname=KurumiContainerd\n"
                      f"version={args.version}\nversionCode={args.version_code}\n"
                      "author=KurumiContainerd contributors\n"
@@ -37,9 +37,9 @@ with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
             info = zipfile.ZipInfo(path.relative_to(module).as_posix())
             mode = path.stat().st_mode & 0o777
             info.external_attr = ((0o100000 | mode) << 16)
-            archive.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
+            archive.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
     for abi, binary in payloads.items():
-        archive.write(binary, f"binaries/{abi}/kurumi-containerd")
-    archive.write(ROOT / "LICENSE", "LICENSE")
-    archive.write(ROOT / "kurumi-containerd.example.toml", "kurumi-containerd.example.toml")
+        archive.write(binary, f"binaries/{abi}/kurumi-containerd", compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+    archive.write(ROOT / "LICENSE", "LICENSE", compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+    archive.write(ROOT / "kurumi-containerd.example.toml", "kurumi-containerd.example.toml", compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 print(destination)
