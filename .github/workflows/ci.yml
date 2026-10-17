@@ -202,10 +202,19 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
-      - name: Upload archive to Telegram
+
+      - name: Upload release archive to Telegram
         if: env.BOT_TOKEN != '' && env.CHAT_ID != ''
         uses: Tools-cx-app/telegram-upload-bot@master
         with:
           bot-token: ${{ secrets.BOT_TOKEN }}
           chat-id: ${{ secrets.CHAT_ID }}
-          files: ./dist/*.zip
+          files: ./dist/kurumi-containerd-all-${{ github.sha }}.zip
+
+      - name: Upload debug archive to Telegram
+        if: env.BOT_TOKEN != '' && env.CHAT_ID != ''
+        uses: Tools-cx-app/telegram-upload-bot@master
+        with:
+          bot-token: ${{ secrets.BOT_TOKEN }}
+          chat-id: ${{ secrets.CHAT_ID }}
+          files: ./dist/kurumi-containerd-all-${{ github.sha }}-debug.zip
