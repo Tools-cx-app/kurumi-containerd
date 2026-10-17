@@ -2,10 +2,17 @@
 set -euo pipefail
 export LC_ALL=C
 
-# Run from the repository root; TARGET, VERSION and PLATFORM come from the workflow.
 : "${TARGET:?}" "${VERSION:?}" "${PLATFORM:?}"
-binary="target/$TARGET/release/kurumi-containerd"
-name="kurumi-containerd-$VERSION-$PLATFORM-$TARGET"
+# PROFILE is debug or release; release keeps the historical artifact names.
+: "${PROFILE:=release}"
+suffix=
+case "$PROFILE" in
+  debug) suffix=-debug ;;
+  release) ;;
+  *) echo "Unsupported build profile: $PROFILE" >&2; exit 1 ;;
+esac
+binary="target/$TARGET/$PROFILE/kurumi-containerd"
+name="kurumi-containerd-$VERSION-$PLATFORM-$TARGET$suffix"
 mkdir -p dist
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -91,7 +98,7 @@ cp -a %{_sourcedir}/payload/. %{buildroot}/
 %doc %attr(0644,root,root) /usr/share/doc/kurumi-containerd/README_CN.md
 %doc %attr(0644,root,root) /usr/share/doc/kurumi-containerd/kurumi-containerd.example.toml
 EOF
-# Cargo already strips the target binary. Host strip/debug tools cannot process every target.
+# Preserve the Cargo output; host strip/debug tools cannot process every target.
 rpmbuild --target "$rpm_arch" --define "_topdir $rpm_top" \
   --define '_build_id_links none' --define 'debug_package %{nil}' \
   --define '__os_install_post %{nil}' -bb "$rpm_top/SPECS/kurumi-containerd.spec"

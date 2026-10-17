@@ -102,19 +102,25 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
-      - name: Build Linux
+      - name: Build Linux debug and release
         if: matrix.platform == 'linux'
-        run: cargo build --workspace --release --target "${{ matrix.target }}"
-      - name: Build Android
+        run: |
+          cargo build --workspace --locked --target "${{ matrix.target }}"
+          cargo build --workspace --release --locked --target "${{ matrix.target }}"
+      - name: Build Android debug and release
         if: matrix.platform == 'android'
-        run: cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --release
-      - name: Package
+        run: |
+          cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --locked
+          cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --release --locked
+      - name: Package debug and release
         env:
           TARGET: ${{ matrix.target }}
           PLATFORM: ${{ matrix.platform }}
           VERSION: ${{ needs.validate.outputs.version }}
-        run: bash .github/scripts/package-release.sh
-      - name: Stage Android module binary
+        run: |
+          PROFILE=debug bash .github/scripts/package-release.sh
+          PROFILE=release bash .github/scripts/package-release.sh
+      - name: Stage Android module release binary
         if: matrix.platform == 'android'
         run: |
           mkdir -p "module-binary/${{ matrix.abi }}"
@@ -127,7 +133,7 @@ jobs:
           name: module-binary-${{ matrix.abi }}
           path: module-binary/*/kurumi-containerd
           if-no-files-found: error
-      - name: Upload release artifacts
+      - name: Upload debug and release artifacts
         uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.target }}

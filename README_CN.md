@@ -60,6 +60,13 @@ cargo build --release
 - musl Linux（x86_64、aarch64）和 Android（CI 中的四种 ABI）：`.tar.xz`。
 - `SHA256SUMS` 包含所有发布包的校验和。
 
+CI 和标签发布均为每个目标上传 debug、release 两种构建。
+release 文件名保持不变，debug 文件名在扩展名前追加 `-debug`。
+debug 构建的诊断日志输出到 stdout，release 构建输出到 stderr。
+两种 Debian/RPM 包使用相同的包名和安装路径，一次只安装其中一种。
+Android root 模块继续使用 release 二进制。
+CI 汇总 artifact 和 Telegram 上传均包含独立的 debug、release ZIP 包。
+
 压缩包包含可执行文件、许可证、README 和示例配置。
 Debian/RPM 包将程序安装到 `/usr/bin`，文档和示例配置安装到
 `/usr/share/doc/kurumi-containerd`。GNU 包要求系统 libc 不低于构建工具链使用的版本；

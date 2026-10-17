@@ -29,11 +29,11 @@ can be captured directly:
 
 ```bash
 pid=$(sudo -H kurumi-containerd pid)
-sudo -H kurumi-containerd --verbose info 2>diagnostics.log
 ```
 
-Diagnostic logs go to stderr. The default level is INFO; `--verbose` (or `-v`)
-also enables DEBUG. Colors are enabled only when stderr is a terminal and
+Diagnostic logs are written to stdout in debug builds and stderr in release
+builds. The default level is INFO; `--verbose` (or `-v`) also enables DEBUG.
+Colors are enabled only when the selected logger stream is a terminal and
 `NO_COLOR` is unset. Failed operations include their error cause chain and exit
 with a nonzero status; `run` and `enter` preserve the command's exit status.
 Closing a pipe reading CLI command results does not produce a panic.

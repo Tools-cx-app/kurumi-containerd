@@ -12,13 +12,33 @@ use kurumi_containerd_host::check::{HostCapabilities, HostCheck};
 use kurumi_containerd_runtime::{ContainerRuntime, Runtime};
 use tracing::level_filters::LevelFilter;
 
+#[cfg(debug_assertions)]
+fn logger_writer() -> io::Stdout {
+    io::stdout()
+}
+
+#[cfg(not(debug_assertions))]
+fn logger_writer() -> io::Stderr {
+    io::stderr()
+}
+
+#[cfg(debug_assertions)]
+fn logger_is_terminal() -> bool {
+    io::stdout().is_terminal()
+}
+
+#[cfg(not(debug_assertions))]
+fn logger_is_terminal() -> bool {
+    io::stderr().is_terminal()
+}
+
 #[derive(Debug, Parser)]
 #[command(version, about = "Privileged Linux container runtime")]
 struct Cli {
     /// Select a configuration entry by its JSON management name.
     #[arg(long)]
     name: Option<String>,
-    /// Include debug diagnostics on stderr.
+    /// Include debug diagnostics on the build-selected logger stream.
     #[arg(short, long, default_value = "false")]
     verbose: bool,
     #[command(subcommand)]
@@ -87,8 +107,8 @@ fn main() -> std::process::ExitCode {
             LevelFilter::INFO
         })
         .with_target(false)
-        .with_writer(io::stderr)
-        .with_ansi(io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none())
+        .with_writer(logger_writer)
+        .with_ansi(logger_is_terminal() && std::env::var_os("NO_COLOR").is_none())
         .init();
     match run(cli) {
         Ok(()) => std::process::ExitCode::SUCCESS,

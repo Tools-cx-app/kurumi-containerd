@@ -64,6 +64,13 @@ as prereleases. Publication waits for all ten build targets to succeed.
 - musl Linux (x86_64, aarch64) and Android (all four CI ABIs): `.tar.xz`.
 - `SHA256SUMS` contains checksums for all release packages.
 
+CI and tagged releases upload both debug and release builds for every target.
+Release filenames are unchanged; debug filenames add `-debug` before the extension.
+Debug builds write diagnostic logs to stdout; release builds use stderr.
+Both Debian/RPM variants install the same package and executable paths; install one
+variant at a time. The Android root module continues to use release binaries.
+The CI combined artifact and Telegram upload include separate debug and release ZIPs.
+
 Archives contain the executable, license, READMEs and example configuration.
 Debian/RPM packages install the executable into `/usr/bin` and documentation
 and the example configuration into `/usr/share/doc/kurumi-containerd`.

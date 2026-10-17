@@ -62,14 +62,23 @@ jobs:
           cache-all-crates: "true"
           save-if: ${{ github.event_name != 'pull_request' }}
 
-      - name: Build
-        run: cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace --release
+      - name: Build debug and release
+        run: |
+          cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace --locked
+          cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace --release --locked
 
-      - name: Upload artifact
+      - name: Upload release artifact
         uses: actions/upload-artifact@v7
         with:
           name: kurumi-containerd-android-${{ matrix.abi }}
           path: target/${{ matrix.target }}/release/kurumi-containerd
+          if-no-files-found: error
+
+      - name: Upload debug artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: kurumi-containerd-android-${{ matrix.abi }}-debug
+          path: target/${{ matrix.target }}/debug/kurumi-containerd
           if-no-files-found: error
 
   android-module:
@@ -136,14 +145,23 @@ jobs:
           cache-all-crates: "true"
           save-if: ${{ github.event_name != 'pull_request' }}
 
-      - name: Build
-        run: cargo build --workspace --release --target ${{ matrix.target }}
+      - name: Build debug and release
+        run: |
+          cargo build --workspace --locked --target ${{ matrix.target }}
+          cargo build --workspace --release --locked --target ${{ matrix.target }}
 
-      - name: Upload artifact
+      - name: Upload release artifact
         uses: actions/upload-artifact@v7
         with:
           name: kurumi-containerd-linux-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/kurumi-containerd
+          if-no-files-found: error
+
+      - name: Upload debug artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: kurumi-containerd-linux-${{ matrix.target }}-debug
+          path: target/${{ matrix.target }}/debug/kurumi-containerd
           if-no-files-found: error
 
   telegram:
@@ -165,11 +183,17 @@ jobs:
           path: artifacts
           merge-multiple: false
 
-      - name: Package all artifacts
+      - name: Package debug and release archives
         run: |
           mkdir -p dist
           cd artifacts
-          zip -r "../dist/kurumi-containerd-all-${GITHUB_SHA}.zip" .
+          for artifact in *; do
+            suffix=
+            if [[ "$artifact" == *-debug ]]; then
+              suffix=-debug
+            fi
+            zip -r "../dist/kurumi-containerd-all-${GITHUB_SHA}${suffix}.zip" "$artifact"
+          done
 
       - name: Upload combined artifact
         uses: actions/upload-artifact@v7
