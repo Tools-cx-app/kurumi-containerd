@@ -15,8 +15,6 @@
   "ignoreDeps": [
     "taiki-e/install-action"
   ],
-  "automerge": true,
-  "automergeType": "pr",
   "skipArtifactsUpdate": true,
   "constraints": {
     "rust": "nightly"
