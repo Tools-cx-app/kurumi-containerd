@@ -105,13 +105,13 @@ jobs:
       - name: Build Linux debug and release
         if: matrix.platform == 'linux'
         run: |
-          cargo build --workspace --locked --target "${{ matrix.target }}"
-          cargo build --workspace --release --locked --target "${{ matrix.target }}"
+          cargo build --workspace --target "${{ matrix.target }}"
+          cargo build --workspace --release--target "${{ matrix.target }}"
       - name: Build Android debug and release
         if: matrix.platform == 'android'
         run: |
-          cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --locked
-          cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --release --locked
+          cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace
+          cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --release
       - name: Package debug and release
         env:
           TARGET: ${{ matrix.target }}

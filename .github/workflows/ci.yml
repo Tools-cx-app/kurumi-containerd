@@ -64,8 +64,8 @@ jobs:
 
       - name: Build debug and release
         run: |
-          cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace --locked
-          cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace --release --locked
+          cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace
+          cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace --release
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v7
@@ -147,8 +147,8 @@ jobs:
 
       - name: Build debug and release
         run: |
-          cargo build --workspace --locked --target ${{ matrix.target }}
-          cargo build --workspace --release --locked --target ${{ matrix.target }}
+          cargo build --workspace --target ${{ matrix.target }}
+          cargo build --workspace --release --target ${{ matrix.target }}
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v7
@@ -197,4 +197,3 @@ jobs:
           name: kurumi-containerd-all
           path: dist/*.zip
           if-no-files-found: error
-

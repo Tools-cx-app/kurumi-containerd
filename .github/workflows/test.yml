@@ -40,4 +40,4 @@ jobs:
           save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Run tests
-        run: cargo test --workspace --locked
+        run: cargo test --workspace
