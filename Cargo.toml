@@ -26,7 +26,7 @@ flate2 = { version = "1.1.10", default-features = false, features = [
 kurumi-containerd-helper = { path = "crates/kurumi-containerd-helper" }
 kurumi-containerd-error = { path = "crates/kurumi-containerd-error" }
 kurumi-containerd-host = { path = "crates/kurumi-containerd-host" }
-libc = "0.2.190"
+libc = "0.2.191"
 mio = { version = "1.2.4", features = ["os-poll", "os-ext"] }
 procfs = { version = "0.18", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -37,10 +37,10 @@ tar = "0.4.46"
 toml = "1.1.8"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-uuid = { version = "1.28.0", features = ["v4", "serde"] }
+uuid = { version = "1.29.0", features = ["v4", "serde"] }
 which = "8.0.6"
 xz2 = "0.1.7"
-zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
+zip = { version = "9.1.3", default-features = false, features = ["deflate"] }
 zstd = { version = "0.14.3", default-features = false }
 
 [workspace.lints.rust]
