@@ -112,9 +112,15 @@ Runtime supplies network state paths and shutdown callbacks to host; host does
 not import lifecycle state or init-family policy.
 
 The TUI keeps rendering, input state, and action validation separate from its
-private backend. The backend owns registry loading and refreshes, while action
-execution continues through the CLI subprocess so the existing command and
-output behavior remains unchanged.
+private backend. `registry` owns only the `Entry` model. The backend loads and
+refreshes configurations without persisting UUIDs, queries runtime status through
+`ContainerQuery`, and routes actions to either a graphical terminal or a captured
+CLI subprocess. `CommandTask` owns the child and its output file together; polling
+returns the exit status and at most 1 MiB of combined stdout/stderr, decoded with
+lossy UTF-8. Temporary-file and polling I/O errors propagate, while spawn failures
+remain recoverable UI feedback. The app owns the single optional task, busy state,
+refresh timing, and feedback; it no longer constructs commands or reads captures.
+The existing CLI arguments and terminal selection behavior remain unchanged.
 
 ## Nested user namespaces
 

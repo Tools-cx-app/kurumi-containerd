@@ -3,19 +3,17 @@
 
 use crate::{
     action::{ACTIONS, allowed},
-    backend::Backend,
+    backend::{Backend, CommandTask, Launch},
     state::UiState,
-    terminal::{Screen, terminal_command},
+    terminal::Screen,
     view::draw,
 };
 use anyhow::{Result, bail};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
-    fs::File,
-    io::{self, IsTerminal, Read, Seek},
+    io::{self, IsTerminal},
     path::Path,
-    process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
 
@@ -25,7 +23,7 @@ use std::{
 /// Returns an error when the terminal, registry, or child process cannot be accessed.
 ///
 /// # Panics
-/// Panics only if the child-process bookkeeping becomes inconsistent.
+/// Panics only if an open form has no action.
 #[allow(clippy::too_many_lines)]
 pub fn run(exe: &Path) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
@@ -35,32 +33,26 @@ pub fn run(exe: &Path) -> Result<()> {
     let mut entries = backend.load_entries()?;
     let mut state = UiState::new(entries.iter().map(|e| e.pointer.name.clone()).collect());
     let mut output = String::new();
-    let mut child: Option<Child> = None;
-    let mut output_file: Option<File> = None;
+    let mut task: Option<CommandTask> = None;
     let mut refreshed = Instant::now();
     let _screen = Screen::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     loop {
-        if let Some(process) = child.as_mut()
-            && process.try_wait()?.is_some()
+        if let Some(command) = task.as_mut()
+            && let Some(result) = command.poll()?
         {
-            let status = child.take().expect("child present").wait()?;
-            let mut file = output_file.take().expect("output file present");
-            file.rewind()?;
-            let mut bytes = Vec::new();
-            file.take(1024 * 1024).read_to_end(&mut bytes)?;
-            output = format!("Exit: {status}\n{}", String::from_utf8_lossy(&bytes));
+            task = None;
+            output = result;
             state.output_scroll = 0;
             backend.refresh(&mut entries);
         }
-        if refreshed.elapsed() >= Duration::from_secs(3) && child.is_none() {
+        if refreshed.elapsed() >= Duration::from_secs(3) && task.is_none() {
             backend.refresh(&mut entries);
             refreshed = Instant::now();
         }
-        let terminal_choice = terminal_command();
-        let can_open = terminal_choice.as_ref().is_ok_and(Option::is_some);
+        let can_open = backend.can_open_terminal();
         terminal.draw(|frame| {
-            draw(frame, &state, &entries, &output, child.is_some(), can_open);
+            draw(frame, &state, &entries, &output, task.is_some(), can_open);
         })?;
         if !event::poll(Duration::from_millis(100))? {
             continue;
@@ -76,9 +68,8 @@ pub fn run(exe: &Path) -> Result<()> {
                 key.code,
                 &mut state,
                 &mut output,
-                &mut child,
-                &mut output_file,
-                exe,
+                &mut task,
+                &backend,
                 &entries,
                 can_open,
             )?;
@@ -88,10 +79,10 @@ pub fn run(exe: &Path) -> Result<()> {
                 &mut state,
                 &mut entries,
                 &mut output,
-                child.is_some(),
+                task.is_some(),
                 &backend,
             );
-            if (key.code == KeyCode::Char('q') || key.code == KeyCode::Esc) && child.is_none() {
+            if (key.code == KeyCode::Char('q') || key.code == KeyCode::Esc) && task.is_none() {
                 break;
             }
         }
@@ -99,14 +90,12 @@ pub fn run(exe: &Path) -> Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn handle_form(
     code: KeyCode,
     state: &mut UiState,
     output: &mut String,
-    child: &mut Option<Child>,
-    file: &mut Option<File>,
-    exe: &Path,
+    task: &mut Option<CommandTask>,
+    backend: &Backend<'_>,
     entries: &[crate::registry::Entry],
     can_open: bool,
 ) -> Result<()> {
@@ -150,51 +139,15 @@ fn handle_form(
                 }
             };
             if let Some(action) = submitted {
-                let args = action.args(selected.map_or("", |entry| entry.pointer.name.as_str()));
-                if action.needs_terminal(selected.is_some_and(|entry| entry.foreground)) {
-                    if let Ok(Some((path, program))) = terminal_command() {
-                        let mut cmd = Command::new(path);
-                        match program {
-                            "xterm" => {
-                                cmd.args(["-hold", "-e"]);
-                            }
-                            "kitty" => {
-                                cmd.args(["--hold", "--"]);
-                            }
-                            _ => {
-                                cmd.args(["--hold", "-e"]);
-                            }
-                        }
-                        let result = cmd
-                            .arg(exe)
-                            .args(args)
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn();
-                        *output = match result {
-                            Ok(_) => "Terminal launched; results appear there".into(),
-                            Err(e) => format!("terminal launch failed: {e}"),
-                        };
-                    } else {
-                        *output = "No graphical terminal available".into();
+                match backend.launch(&action, selected)? {
+                    Launch::Terminal => {
+                        *output = "Terminal launched; results appear there".into();
                     }
-                } else {
-                    let f = tempfile::tempfile()?;
-                    let err = f.try_clone()?;
-                    let mut cmd = Command::new(exe);
-                    cmd.args(args)
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::from(f.try_clone()?))
-                        .stderr(Stdio::from(err));
-                    match cmd.spawn() {
-                        Ok(process) => {
-                            *child = Some(process);
-                            *file = Some(f);
-                            *output = format!("Running {}...", kind.label());
-                        }
-                        Err(error) => *output = format!("command launch failed: {error}"),
+                    Launch::Captured(command) => {
+                        *task = Some(command);
+                        *output = format!("Running {}...", kind.label());
                     }
+                    Launch::Failed(error) => *output = error,
                 }
                 state.output_scroll = 0;
                 state.focus = crate::state::Focus::Output;
@@ -239,7 +192,7 @@ fn handle_screen(
         },
         KeyCode::Enter if !busy => {
             let kind = ACTIONS[state.action_index];
-            let can_open = terminal_command().as_ref().is_ok_and(Option::is_some);
+            let can_open = backend.can_open_terminal();
             let availability = if kind == crate::action::ActionKind::Check {
                 Ok(())
             } else if let Some(entry) = entries.get(state.selected) {

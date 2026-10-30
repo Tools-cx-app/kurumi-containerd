@@ -68,19 +68,26 @@ fn empty_registry_blocks_container_actions_but_opens_check() {
     );
     assert_eq!(state.open, Some(crate::action::ActionKind::Check));
     let mut child = None;
-    let mut file = None;
     handle_form(
         KeyCode::Enter,
         &mut state,
         &mut output,
         &mut child,
-        &mut file,
-        Path::new("/bin/true"),
+        &backend,
         &[],
         false,
     )
     .unwrap();
-    assert!(child.as_mut().unwrap().wait().unwrap().success());
+    let command = child.as_mut().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(output) = command.poll().unwrap() {
+            assert!(output.starts_with("Exit: exit status: 0\n"));
+            break;
+        }
+        assert!(Instant::now() < deadline, "command did not finish");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 #[test]
@@ -89,14 +96,12 @@ fn failed_command_launch_is_reported_without_exiting_manager() {
     state.open(crate::action::ActionKind::Check);
     let mut output = String::new();
     let mut child = None;
-    let mut file = None;
     handle_form(
         KeyCode::Enter,
         &mut state,
         &mut output,
         &mut child,
-        &mut file,
-        Path::new("/nonexistent/kurumi-containerd"),
+        &Backend::new(Path::new("/nonexistent/kurumi-containerd")),
         &[],
         false,
     )
@@ -112,7 +117,6 @@ fn form_preserves_spaces_and_recovers_from_missing_input() {
     state.open(crate::action::ActionKind::Install);
     let mut output = String::new();
     let mut child = None;
-    let mut file = None;
     let entry = crate::registry::Entry {
         pointer: kurumi_containerd_config::ConfigPointer {
             name: "test".into(),
@@ -129,8 +133,7 @@ fn form_preserves_spaces_and_recovers_from_missing_input() {
             &mut state,
             &mut output,
             &mut child,
-            &mut file,
-            Path::new("unused"),
+            &Backend::new(Path::new("unused")),
             std::slice::from_ref(&entry),
             false,
         )
