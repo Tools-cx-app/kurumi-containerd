@@ -37,14 +37,16 @@ that report.
 
 ## Configuration modules
 
-The configuration crate keeps its public API in `lib.rs` and uses two
-implementation modules. Related loading and validation helpers stay together
-to keep navigation local:
+The configuration crate keeps its public API in `lib.rs`. Related loading and
+validation helpers stay together; environment parsing and registry pointers have
+their own cohesive modules:
 
 ```text
 src/
   model.rs   serializable configuration schema and defaults
-  config.rs  loading, path resolution, validation, and environment parsing
+  config.rs  loading, path resolution, and validation
+  environment.rs  environment assignment parsing
+  pointer.rs      configuration registry loading and selection
 ```
 
 Callers import schema types from `kurumi_containerd_config`; the internal module layout
@@ -80,7 +82,9 @@ The main modules are:
 - `runtime/lifecycle.rs`: start, monitor, boot generations, shutdown, and cleanup
 - `runtime/boot.rs`: namespace-internal mounts, pivot, nested sandbox mounts, environment, and init execution
 - `runtime/supervisor.rs`: wait/retry, signal policy, and child supervision helpers
-- `runtime/state.rs`: public state types, secure persistence, metrics, and recovery
+- `runtime/state/mod.rs`: public state types, process identity, and recovery policy
+- `runtime/state/store.rs`: private trusted persistence, paths, and locks
+- `runtime/state/info.rs`: status and resource usage
 - `runtime/execute.rs`: namespace entry, command execution, and interactive login
 - `container/environment.rs`: deterministic init and session environments
 - `container/init.rs`: init-family detection and shutdown protocols
@@ -97,9 +101,9 @@ The host crate's `src/` contains:
 
 - `process.rs`: pidfd handles and procfs process identity helpers
 - `terminal.rs`: PTY allocation, descriptor passing, and console proxying
-- `rootfs.rs` and `rootfs/install.rs`: rootfs preparation and archive installation
+- `rootfs/mod.rs` and `rootfs/install.rs`: rootfs preparation and archive installation
 - `archive.rs`: private archive format detection and extraction
-- `network.rs`: veth, bridges, NAT, forwarding, and rollback
+- `network/mod.rs`: veth, bridges, NAT, forwarding, and rollback
 - `cgroup.rs`: cgroup v1/v2 resource limits and hierarchy detection
 - `android.rs`: Android host integration, exposed only on Android targets
 
@@ -121,6 +125,11 @@ lossy UTF-8. Temporary-file and polling I/O errors propagate, while spawn failur
 remain recoverable UI feedback. The app owns the single optional task, busy state,
 refresh timing, and feedback; it no longer constructs commands or reads captures.
 The existing CLI arguments and terminal selection behavior remain unchanged.
+
+Leaf modules use `<module>.rs`; `mod.rs` is retained only for host `network` and
+`rootfs`, and runtime `container`, `runtime`, and `runtime/state`, which group
+related production submodules. Test files keep their existing locations and
+module visibility through explicit paths where needed.
 
 ## Nested user namespaces
 
