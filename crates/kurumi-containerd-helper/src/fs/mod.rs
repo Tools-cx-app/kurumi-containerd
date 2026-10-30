@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 use std::{
     ffi::CString,
     fs::{File, OpenOptions},

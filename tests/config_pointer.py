@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Tools-cx-app
+# SPDX-License-Identifier: GPL-v3-only
+
 """Unprivileged CLI checks: python3 tests/config_pointer.py <runtime-binary>."""
 
 import json

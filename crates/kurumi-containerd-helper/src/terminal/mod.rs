@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 #[cfg(target_os = "android")]
 use std::{
     fs::OpenOptions,

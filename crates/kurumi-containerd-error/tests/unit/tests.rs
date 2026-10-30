@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 #[test]
 fn context_keeps_io_source() {
     use std::error::Error as _;

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 use std::{fs::File, io, os::fd::AsFd};
 
 use crate::{Result, error::ErrorContext as _};

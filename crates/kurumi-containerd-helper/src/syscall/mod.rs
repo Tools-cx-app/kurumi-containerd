@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 use std::{ffi::CString, io, path::Path};
 
 pub(crate) fn path_cstring(path: &Path) -> io::Result<CString> {

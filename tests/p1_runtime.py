@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Tools-cx-app
+# SPDX-License-Identifier: GPL-v3-only
+
 """Privileged runtime regressions: sudo python3 tests/p1_runtime.py <runtime-binary>."""
 
 import json

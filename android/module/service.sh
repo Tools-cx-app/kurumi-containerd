@@ -1,4 +1,7 @@
 #!/system/bin/sh
+# Copyright (C) 2026 Tools-cx-app
+# SPDX-License-Identifier: GPL-v3-only
+
 MODDIR=${0%/*}
 data=${KURUMI_CONTAINERD_HOME:-/data/adb/kurumi-containerd}
 umask 077

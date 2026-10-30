@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 use std::process::Command;
 
 fn diagnostic_output(output: &std::process::Output) -> &[u8] {

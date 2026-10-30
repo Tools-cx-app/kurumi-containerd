@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 //! Target-aware Linux and Android system call wrappers for `KurumiContainerd`.
 
 #![allow(unsafe_code)]

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 use std::os::unix::fs::{PermissionsExt, symlink};
 
 use super::state::{NatLease, NatLeaseOwner, network_state_dir};

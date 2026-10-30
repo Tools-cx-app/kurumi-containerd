@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 //! Configuration errors and context helpers.
 
 /// A configuration loading or validation failure.

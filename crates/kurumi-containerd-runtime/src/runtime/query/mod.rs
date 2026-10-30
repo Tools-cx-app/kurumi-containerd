@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 use crate::{ContainerInfo, ContainerRuntime, ContainerState, Result};
 
 /// Read-only container capabilities used by status-oriented callers.

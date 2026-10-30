@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 //! Host resources used to construct and supervise a container.
 
 use kurumi_containerd_error as error;

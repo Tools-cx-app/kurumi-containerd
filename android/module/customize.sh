@@ -1,4 +1,7 @@
 #!/system/bin/sh
+# Copyright (C) 2026 Tools-cx-app
+# SPDX-License-Identifier: GPL-v3-only
+
 # Sourced by the manager after default extraction and permission setup.
 [ "$BOOTMODE" = true ] || abort "Install from Magisk, KernelSU or APatch Manager."
 [ "$API" -ge 21 ] || abort "Android API 21 or newer is required."

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Tools-cx-app
+# SPDX-License-Identifier: GPL-v3-only
+
 """Smoke-test packaging with a host ELF binary; requires dpkg-deb and rpm tools."""
 import os
 from pathlib import Path

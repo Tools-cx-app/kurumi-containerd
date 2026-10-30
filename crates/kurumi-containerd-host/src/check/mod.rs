@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 use std::{os::unix::fs::PermissionsExt, path::Path};
 
 use crate::{Result, process::ProcessHandle};

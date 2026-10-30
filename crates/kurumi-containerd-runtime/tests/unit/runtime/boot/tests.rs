@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 use super::{create_mountpoint_file, make_bind_tree_read_only};
 use kurumi_containerd_helper::fs::{MountFlags, mount, unmount};
 use std::{fs, path::Path};

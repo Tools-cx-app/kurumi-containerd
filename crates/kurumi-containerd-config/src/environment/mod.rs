@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tools-cx-app
+// SPDX-License-Identifier: GPL-v3-only
+
 use std::collections::BTreeMap;
 
 use kurumi_containerd_error::{config::ErrorContext as _, config_ensure as ensure};

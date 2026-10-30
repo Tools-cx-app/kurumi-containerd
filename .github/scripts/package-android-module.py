@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Tools-cx-app
+# SPDX-License-Identifier: GPL-v3-only
+
 """Package the four existing Android binaries as a manager-installable module."""
 import argparse
 from pathlib import Path
