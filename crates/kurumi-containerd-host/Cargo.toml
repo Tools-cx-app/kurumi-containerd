@@ -25,7 +25,7 @@ zip.workspace = true
 zstd.workspace = true
 tar.workspace = true
 tempfile.workspace = true
-xattr = "1.6.1"
+xattr = "1.7.0"
 
 [dev-dependencies]
 toml.workspace = true
