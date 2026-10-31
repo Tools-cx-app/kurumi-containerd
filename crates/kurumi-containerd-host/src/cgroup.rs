@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-v3-only
 
 use std::{
-    fs,
-    path::{Path, PathBuf},
+    fs::{self, File},
+    os::fd::AsRawFd,
+    path::{Component, Path, PathBuf},
 };
 
 use crate::{
@@ -12,13 +13,70 @@ use crate::{
 };
 use kurumi_containerd_config::ResourceConfig;
 use kurumi_containerd_helper::fs::{MountFlags, TMPFS_MAGIC, filesystem_type, mount, unmount};
+use procfs::{
+    ProcessCGroup,
+    process::{MountInfo, Process},
+};
 
 pub struct Cgroup {
     paths: Vec<PathBuf>,
     unified: bool,
 }
 
+/// Open container cgroups captured from a running init process.
+pub struct CgroupMembership {
+    directories: Vec<File>,
+}
+
+impl CgroupMembership {
+    /// Joins the captured hierarchies without changing their limits.
+    ///
+    /// # Errors
+    /// Returns errors when creating an execution leaf or writing membership fails.
+    pub fn attach(&self, pid: i32) -> Result<()> {
+        for directory in &self.directories {
+            let container = PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
+            attach_execution_leaf(&container, pid)?;
+        }
+        Ok(())
+    }
+}
+
 impl Cgroup {
+    /// Captures init's actual container cgroups through the monitor's mount view.
+    ///
+    /// The caller must validate both process identities around this capture.
+    ///
+    /// # Errors
+    /// Returns errors for unreadable membership, unavailable mounts, or missing cgroups.
+    pub fn capture_membership(
+        name: &str,
+        init: &Process,
+        monitor: &Process,
+    ) -> Result<CgroupMembership> {
+        let groups = match init.cgroups() {
+            Ok(groups) => groups,
+            Err(procfs::ProcError::NotFound(_)) => {
+                return Ok(CgroupMembership {
+                    directories: Vec::new(),
+                });
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let mounts = monitor.mountinfo()?;
+        let directories = execution_cgroup_paths(name, &groups.0, &mounts.0)?
+            .into_iter()
+            .map(|path| {
+                monitor
+                    .open_relative(Path::new("root").join(path.strip_prefix("/")?))
+                    .with_context(|| {
+                        format!("failed to capture container cgroup {}", path.display())
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(CgroupMembership { directories })
+    }
+
     /// Creates the configured cgroup hierarchy.
     ///
     /// # Errors
@@ -147,15 +205,7 @@ impl Cgroup {
                 "container cgroup is missing: {}",
                 container.display()
             );
-            // Systemd enables subtree controllers, so commands need a leaf cgroup.
-            let leaf = container.join("kurumi-exec");
-            match fs::create_dir(&leaf) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(error) => return Err(error.into()),
-            }
-            fs::write(leaf.join("cgroup.procs"), pid.to_string())
-                .context("failed to attach command to container cgroup")?;
+            attach_execution_leaf(&container, pid)?;
         }
         Ok(())
     }
@@ -181,6 +231,75 @@ impl Cgroup {
     pub fn unified(&self) -> bool {
         self.unified
     }
+}
+
+fn execution_cgroup_paths(
+    name: &str,
+    groups: &[ProcessCGroup],
+    mounts: &[MountInfo],
+) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for group in groups {
+        let membership = Path::new(&group.pathname);
+        let Some(container) = membership.ancestors().find(|path| {
+            path.file_name().is_some_and(|part| part == name)
+                && path
+                    .parent()
+                    .is_some_and(|parent| parent.ends_with("kurumi-containerd"))
+        }) else {
+            continue;
+        };
+        ensure!(
+            membership.is_absolute()
+                && !membership
+                    .components()
+                    .any(|part| matches!(part, Component::ParentDir)),
+            "container cgroup membership has an unsafe path"
+        );
+        let path = mounts
+            .iter()
+            .find_map(|mount| {
+                let matches = if group.controllers.is_empty() {
+                    mount.fs_type == "cgroup2"
+                } else {
+                    mount.fs_type == "cgroup"
+                        && group
+                            .controllers
+                            .iter()
+                            .all(|controller| mount.super_options.contains_key(controller))
+                };
+                matches
+                    .then(|| {
+                        container
+                            .strip_prefix(&mount.root)
+                            .ok()
+                            .map(|relative| mount.mount_point.join(relative))
+                    })
+                    .flatten()
+            })
+            .with_context(|| {
+                format!(
+                    "container cgroup mount is unavailable: {}",
+                    container.display()
+                )
+            })?;
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    Ok(paths)
+}
+
+fn attach_execution_leaf(container: &Path, pid: i32) -> Result<()> {
+    // Systemd enables subtree controllers, so commands need a leaf cgroup.
+    let leaf = container.join("kurumi-exec");
+    match fs::create_dir(&leaf) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    fs::write(leaf.join("cgroup.procs"), pid.to_string())
+        .context("failed to attach command to container cgroup")
 }
 
 fn remove_cgroup_tree(path: &Path) -> std::io::Result<()> {

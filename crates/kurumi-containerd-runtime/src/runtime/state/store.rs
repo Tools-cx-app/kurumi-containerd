@@ -155,6 +155,26 @@ impl StateStore {
         }
     }
 
+    pub(crate) fn request_stop(&self) -> Result<File> {
+        let file = self.open_stop_lock()?;
+        file.lock_exclusive()?;
+        Ok(file)
+    }
+
+    pub(crate) fn stop_requested(&self) -> Result<bool> {
+        let file = self.open_stop_lock()?;
+        match file.try_lock_exclusive() {
+            Ok(()) => Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(true),
+            Err(error) => Err(error).context("failed to check container stop request"),
+        }
+    }
+
+    fn open_stop_lock(&self) -> Result<File> {
+        // A held descriptor represents a pending stop, so crashes leave no stale request.
+        Self::open_lock_file(&self.state_dir.join(format!("{}.stop", self.name)))
+    }
+
     fn open_lock(&self) -> Result<File> {
         Self::open_lock_file(&self.lock_path)
     }

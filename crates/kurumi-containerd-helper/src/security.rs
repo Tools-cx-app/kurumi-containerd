@@ -32,11 +32,6 @@ pub fn syscall_socket() -> libc::c_long {
     libc::SYS_socket
 }
 
-#[cfg(any(
-    target_arch = "x86_64",
-    target_arch = "aarch64",
-    target_arch = "riscv64"
-))]
 pub fn syscall_clone3() -> libc::c_long {
     libc::SYS_clone3
 }

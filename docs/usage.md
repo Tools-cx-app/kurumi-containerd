@@ -187,6 +187,8 @@ container console to the current terminal. In a foreground console,
 
 Stop selects a shutdown protocol from the detected init family and escalates
 after `runtime.stop_timeout_seconds`.
+Custom init programs receive `SIGTERM` first so they can finish their own cleanup;
+programs that do not exit before the timeout receive `SIGKILL`.
 
 ## Nested sandboxing
 
@@ -206,6 +208,10 @@ view can expose host kernel sysctls, this option reduces isolation and should
 be limited to trusted containers.
 
 ## Enter and run
+
+Commands join the running container's actual namespaces and cgroups. Editing its
+network or resource settings in TOML takes effect on the next start; it does not
+change the isolation or limits of commands entered into the current container.
 
 ```bash
 sudo -H kurumi-containerd enter

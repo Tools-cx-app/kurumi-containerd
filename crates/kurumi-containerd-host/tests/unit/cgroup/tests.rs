@@ -1,14 +1,14 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use std::path::PathBuf;
+use std::{fs::File, path::PathBuf};
 
 use kurumi_containerd_config::ResourceConfig;
-use procfs::process::MountInfo;
+use procfs::{FromRead, ProcessCGroups, process::MountInfo};
 
 use super::{
-    Cgroup, Controller, cgroup_required, enable_controllers, parse_cgroup1_roots,
-    requested_controllers, write_limit,
+    Cgroup, CgroupMembership, Controller, cgroup_required, enable_controllers,
+    execution_cgroup_paths, parse_cgroup1_roots, requested_controllers, write_limit,
 };
 
 #[test]
@@ -117,4 +117,89 @@ fn cleanup_continues_after_error() {
 
     assert!(cgroup.remove().is_err());
     assert!(!removable.exists());
+}
+
+fn execution_paths(groups: &str, mounts: &str) -> crate::Result<Vec<PathBuf>> {
+    let groups = ProcessCGroups::from_read(groups.as_bytes()).unwrap();
+    let mounts = mounts
+        .lines()
+        .map(|line| MountInfo::from_line(line).unwrap())
+        .collect::<Vec<_>>();
+    execution_cgroup_paths("demo", &groups.0, &mounts)
+}
+
+#[test]
+fn execution_uses_actual_v2_membership_including_systemd_descendants() {
+    let paths = execution_paths(
+        "0::/kurumi-containerd/demo/init.scope\n",
+        "29 23 0:26 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n",
+    )
+    .unwrap();
+    assert_eq!(
+        paths,
+        vec![PathBuf::from("/sys/fs/cgroup/kurumi-containerd/demo")]
+    );
+    assert_eq!(
+        execution_paths(
+            "0::/user.slice\n",
+            "29 23 0:26 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n",
+        )
+        .unwrap(),
+        Vec::<PathBuf>::new()
+    );
+}
+
+#[test]
+fn execution_retains_every_active_v1_controller_without_resource_configuration() {
+    let paths = execution_paths(
+        "4:cpu,cpuacct:/kurumi-containerd/demo\n3:memory:/kurumi-containerd/demo/services\n2:pids:/user.slice\n0::/user.slice\n",
+        "29 23 0:26 / /sys/fs/cgroup/cpu rw - cgroup cgroup rw,cpu,cpuacct\n30 23 0:27 / /sys/fs/cgroup/memory rw - cgroup cgroup rw,memory\n31 23 0:28 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n",
+    ).unwrap();
+    assert_eq!(
+        paths,
+        vec![
+            PathBuf::from("/sys/fs/cgroup/cpu/kurumi-containerd/demo"),
+            PathBuf::from("/sys/fs/cgroup/memory/kurumi-containerd/demo"),
+        ]
+    );
+}
+
+#[test]
+fn execution_resolves_delegated_mount_roots_and_rejects_missing_hierarchies() {
+    let paths = execution_paths(
+        "0::/kurumi-containerd/demo/init.scope\n",
+        "29 23 0:26 /kurumi-containerd /sys/fs/cgroup/delegated rw - cgroup2 cgroup rw\n",
+    )
+    .unwrap();
+    assert_eq!(paths, vec![PathBuf::from("/sys/fs/cgroup/delegated/demo")]);
+    assert!(execution_paths("0::/kurumi-containerd/demo\n", "").is_err());
+    assert!(execution_paths("0::/kurumi-containerd/demo/../../outside\n", "").is_err());
+    assert_eq!(
+        execution_paths("0::/kurumi-containerd/demo-other\n", "").unwrap(),
+        Vec::<PathBuf>::new()
+    );
+}
+
+#[test]
+fn captured_execution_membership_keeps_limits_and_survives_directory_rename() {
+    let directory = tempfile::tempdir().unwrap();
+    let original = directory.path().join("original");
+    std::fs::create_dir(&original).unwrap();
+    std::fs::write(original.join("memory.max"), "4194304").unwrap();
+    let membership = CgroupMembership {
+        directories: vec![File::open(&original).unwrap()],
+    };
+    let renamed = directory.path().join("renamed");
+    std::fs::rename(original, &renamed).unwrap();
+    membership.attach(42).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(renamed.join("kurumi-exec/cgroup.procs")).unwrap(),
+        "42"
+    );
+    assert_eq!(
+        std::fs::read_to_string(renamed.join("memory.max")).unwrap(),
+        "4194304"
+    );
+    drop(membership);
+    assert!(renamed.is_dir());
 }

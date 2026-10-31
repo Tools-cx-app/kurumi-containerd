@@ -170,8 +170,7 @@ pub(crate) fn request_shutdown(process: &ProcessHandle, system: InitSystem) -> R
         InitSystem::Runit => process.send_signal(Signal::Continue),
         InitSystem::Openrc => process.send_signal(Signal::Power),
         InitSystem::Sysvinit => request_sysv_shutdown(process),
-        InitSystem::Custom => process.send_signal(Signal::Kill),
-        InitSystem::Unknown => process.send_signal(Signal::Terminate),
+        InitSystem::Custom | InitSystem::Unknown => process.send_signal(Signal::Terminate),
     }
 }
 

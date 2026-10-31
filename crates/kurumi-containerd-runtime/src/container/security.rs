@@ -5,18 +5,13 @@ use std::path::Path;
 
 use crate::{Result, error::ErrorContext as _};
 use kurumi_containerd_config::SecurityConfig;
-#[cfg(any(
-    target_arch = "x86_64",
-    target_arch = "aarch64",
-    target_arch = "riscv64"
-))]
-use kurumi_containerd_helper::security::{SECCOMP_ERRNO_NOT_IMPLEMENTED, syscall_clone3};
 use kurumi_containerd_helper::{
     fs::{MountFlags, mount},
     security::{
-        ADDRESS_FAMILY_ALG, FilterInstruction, SECCOMP_ALLOW, SECCOMP_ERRNO_PERMISSION,
-        SECCOMP_KILL_PROCESS, blocked_syscalls, install_seccomp as install_seccomp_filter,
-        namespace_user_flag, syscall_clone, syscall_socket, syscall_unshare,
+        ADDRESS_FAMILY_ALG, FilterInstruction, SECCOMP_ALLOW, SECCOMP_ERRNO_NOT_IMPLEMENTED,
+        SECCOMP_ERRNO_PERMISSION, SECCOMP_KILL_PROCESS, blocked_syscalls,
+        install_seccomp as install_seccomp_filter, namespace_user_flag, syscall_clone,
+        syscall_clone3, syscall_socket, syscall_unshare,
     },
 };
 
@@ -98,8 +93,13 @@ pub fn harden_mounts(config: &SecurityConfig) -> Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
 pub fn install_seccomp(config: &SecurityConfig) -> Result<()> {
+    let mut instructions = seccomp_filter(config)?;
+    install_seccomp_filter(&mut instructions).context("failed to install seccomp filter")
+}
+
+#[allow(clippy::too_many_lines)]
+fn seccomp_filter(config: &SecurityConfig) -> Result<Vec<FilterInstruction>> {
     let blocked = blocked_syscalls();
 
     let mut instructions = vec![
@@ -145,11 +145,6 @@ pub fn install_seccomp(config: &SecurityConfig) -> Result<()> {
         instructions.push(statement(BPF_LD_W_ABS, SECCOMP_DATA_ARG0_OFFSET));
         instructions.push(jump(BPF_JMP_JSET_K, namespace_user_flag(), 0, 1));
         instructions.push(statement(BPF_RET_K, SECCOMP_ERRNO_PERMISSION));
-        #[cfg(any(
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "riscv64"
-        ))]
         instructions.extend([
             statement(BPF_LD_W_ABS, SECCOMP_DATA_NR_OFFSET),
             jump(
@@ -174,7 +169,7 @@ pub fn install_seccomp(config: &SecurityConfig) -> Result<()> {
         statement(BPF_RET_K, SECCOMP_ERRNO_PERMISSION),
     ]);
     instructions.push(statement(BPF_RET_K, SECCOMP_ALLOW));
-    install_seccomp_filter(&mut instructions).context("failed to install seccomp filter")
+    Ok(instructions)
 }
 
 const fn audit_arch() -> u32 {
@@ -209,3 +204,7 @@ const fn jump(code: u16, value: u32, jt: u8, jf: u8) -> FilterInstruction {
         value,
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/container/security/tests.rs"]
+mod tests;

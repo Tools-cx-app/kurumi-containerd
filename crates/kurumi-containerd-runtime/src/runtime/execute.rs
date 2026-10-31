@@ -4,7 +4,7 @@
 use std::{
     collections::BTreeMap,
     ffi::CString,
-    fs,
+    fs::{self, File},
     os::{
         fd::{AsFd, AsRawFd},
         unix::{
@@ -19,7 +19,7 @@ use crate::{
     Result,
     error::{ErrorContext as _, bail, ensure},
 };
-use kurumi_containerd_config::{AndroidConfig, NetworkMode};
+use kurumi_containerd_config::AndroidConfig;
 use kurumi_containerd_helper::{
     process::{
         ForkResult, NamespaceFlags, WaitStatus, chdir, chroot, close_fds_except, current_pid,
@@ -34,7 +34,7 @@ use crate::{
     Runtime,
     container::{environment, security},
     host::{cgroup::Cgroup, terminal},
-    runtime::state::validate_process_identity_for,
+    runtime::state::{validate_monitor_identity_for, validate_process_identity_for},
 };
 
 impl Runtime {
@@ -74,15 +74,19 @@ impl Runtime {
         let root = process
             .open_relative("root")
             .context("failed to open container root")?;
-        let namespaces = ["mnt", "uts", "ipc", "pid"]
-            .into_iter()
-            .chain((self.config.container.network != NetworkMode::Host).then_some("net"))
-            .map(|name| {
-                process
-                    .open_relative(Path::new("ns").join(name))
-                    .map(|file| (name, file))
-            })
-            .collect::<procfs::ProcResult<Vec<_>>>()?;
+        let namespaces = capture_namespaces(&process)?;
+        let monitor =
+            Process::new(state.monitor_pid).context("failed to open container monitor")?;
+        ensure!(
+            validate_monitor_identity_for(&state, &monitor),
+            "container monitor identity changed before cgroup capture"
+        );
+        let cgroups = Cgroup::capture_membership(&state.name, &process, &monitor)?;
+        ensure!(
+            validate_process_identity_for(&state, &process)
+                && validate_monitor_identity_for(&state, &monitor),
+            "container process identity changed during execution resource capture"
+        );
         let terminal_socket = login_user
             .is_some()
             .then(socket_pair)
@@ -121,13 +125,9 @@ impl Runtime {
                     drop(receiver);
                     sender
                 });
-                Cgroup::attach_existing(
-                    &self.config.container.name,
-                    &self.config.container.resources,
-                    state.init_system == crate::InitSystem::Systemd,
-                    current_pid(),
-                )
-                .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
+                cgroups
+                    .attach(current_pid())
+                    .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                 for (name, namespace) in &namespaces {
                     setns(namespace.as_fd(), NamespaceFlags::EMPTY).unwrap_or_else(|error| {
                         exec_failure(&format!("failed to join {name} namespace: {error}"))
@@ -206,6 +206,27 @@ impl Runtime {
             }
         }
     }
+}
+
+fn capture_namespaces(process: &Process) -> Result<Vec<(&'static str, File)>> {
+    let mut namespaces = ["mnt", "uts", "ipc", "pid"]
+        .into_iter()
+        .map(|name| {
+            process
+                .open_relative(Path::new("ns").join(name))
+                .map(|file| (name, file))
+        })
+        .collect::<procfs::ProcResult<Vec<_>>>()?;
+    // Capture what init actually uses, including its cgroup namespace, even if
+    // the TOML network mode has changed since boot. Some kernels lack these namespaces.
+    for name in ["net", "cgroup"] {
+        match process.open_relative(Path::new("ns").join(name)) {
+            Ok(file) => namespaces.push((name, file)),
+            Err(procfs::ProcError::NotFound(_)) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(namespaces)
 }
 
 fn command_status(status: WaitStatus) -> Result<i32> {

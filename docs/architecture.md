@@ -67,6 +67,17 @@ time, and PID namespace inode so stale PIDs are not trusted.
 Stop and restart use the same per-container lifecycle lock. Init signaling and
 waiting use pidfds when available.
 
+A stop operation also holds a separate stop-request lock while waiting for the
+monitor. Internal reboots wait for ordinary lifecycle lock holders and cancel only
+when that stop request is active. Closing its descriptor clears the request even
+if the caller crashes.
+
+Commands capture init's actual network and cgroup namespaces and cgroup membership
+instead of deriving them from the current TOML. Cgroup directories are opened
+through the validated monitor's mount view, preserving access to hierarchies
+bootstrapped in its private namespace. Commands join execution leaves beneath the
+captured container groups without changing resource limits.
+
 ## Runtime modules
 
 The runtime source is grouped by ownership:

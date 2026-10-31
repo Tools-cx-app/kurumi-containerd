@@ -75,3 +75,21 @@ fn preserves_command_exit_status() {
         130
     );
 }
+
+#[test]
+fn captures_actual_network_and_cgroup_namespaces_without_configuration() {
+    let process = Process::myself().unwrap();
+    let namespaces = capture_namespaces(&process).unwrap();
+    for name in ["net", "cgroup"] {
+        if let Ok(expected) = process.open_relative(format!("ns/{name}")) {
+            let (_, captured) = namespaces
+                .iter()
+                .find(|(captured, _)| *captured == name)
+                .unwrap();
+            assert_eq!(
+                captured.metadata().unwrap().ino(),
+                expected.metadata().unwrap().ino()
+            );
+        }
+    }
+}

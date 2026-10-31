@@ -3,7 +3,13 @@
 
 use super::*;
 
-use std::process::{Command, Stdio};
+use std::{
+    io::BufRead,
+    os::unix::process::ExitStatusExt,
+    process::{Command, Stdio},
+    sync::mpsc::{self, RecvTimeoutError},
+    thread,
+};
 
 #[test]
 fn startup_errors_reach_parent_or_require_fallback_logging() {
@@ -74,4 +80,86 @@ fn pid_handshake_failure_reaps_worker_without_init_handle() {
     let _ = worker.kill();
     let _ = worker.wait();
     assert!(reaped, "PID handshake failure left worker unreaped");
+}
+
+#[test]
+fn reboot_waits_for_ordinary_operations_but_yields_to_explicit_stop() {
+    for stop in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::new(directory.path(), "demo");
+        std::fs::create_dir(store.state_dir()).unwrap();
+        let lifecycle = store.lock().unwrap();
+        let stop_request = stop.then(|| store.request_stop().unwrap());
+        let workdir = directory.path().to_path_buf();
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (finished_sender, finished_receiver) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let store = StateStore::new(&workdir, "demo");
+            started_sender.send(()).unwrap();
+            let lock = wait_for_reboot_lock(&store).unwrap();
+            finished_sender.send(lock.is_some()).unwrap();
+        });
+        started_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        let result = finished_receiver.recv_timeout(if stop {
+            Duration::from_secs(2)
+        } else {
+            Duration::from_millis(50)
+        });
+        drop(stop_request);
+        drop(lifecycle);
+        worker.join().unwrap();
+        if stop {
+            assert_eq!(result, Ok(false), "reboot ignored an explicit stop");
+        } else {
+            assert_eq!(
+                result,
+                Err(RecvTimeoutError::Timeout),
+                "lock contention cancelled reboot"
+            );
+            assert!(
+                finished_receiver
+                    .recv_timeout(Duration::from_secs(2))
+                    .unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn custom_init_can_clean_up_before_exit_and_is_killed_only_after_timeout() {
+    for graceful in [false, true] {
+        let mut child = Command::new("sh")
+            .args(["-c", if graceful {
+                "trap 'printf cleaned; exit 0' TERM; printf 'ready\\n'; while :; do read -r line; done"
+            } else {
+                "trap '' TERM; printf 'ready\\n'; while :; do read -r line; done"
+            }])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn().unwrap();
+        let mut output = std::io::BufReader::new(child.stdout.take().unwrap());
+        let mut ready = String::new();
+        output.read_line(&mut ready).unwrap();
+        assert_eq!(ready, "ready\n");
+        let process = ProcessHandle::open(i32::try_from(child.id()).unwrap()).unwrap();
+        let timeout = if graceful {
+            Duration::from_secs(2)
+        } else {
+            Duration::from_millis(50)
+        };
+        let result = shutdown_init(&process, init::InitSystem::Custom, timeout);
+        let _ = child.kill();
+        let status = child.wait().unwrap();
+        result.unwrap();
+        let mut remaining = String::new();
+        output.read_to_string(&mut remaining).unwrap();
+        if graceful {
+            assert!(status.success());
+            assert_eq!(remaining, "cleaned");
+        } else {
+            assert_eq!(status.signal(), Some(Signal::Kill.raw()));
+        }
+    }
 }

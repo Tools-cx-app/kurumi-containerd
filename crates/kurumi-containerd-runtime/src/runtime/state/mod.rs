@@ -175,10 +175,6 @@ impl Runtime {
         self.store.lock()
     }
 
-    pub(crate) fn try_lock(&self) -> Result<Option<File>> {
-        self.store.try_lock()
-    }
-
     pub(crate) fn wait_for_monitor_cleanup(&self, state: &ContainerState) -> Result<()> {
         let monitor = match require_handle(state.monitor_pid) {
             Ok(monitor) => monitor,
@@ -223,9 +219,16 @@ pub(crate) fn validate_process_identity_for(state: &ContainerState, process: &Pr
 }
 
 fn validate_monitor_identity(state: &ContainerState) -> bool {
+    Process::new(state.monitor_pid)
+        .is_ok_and(|process| validate_monitor_identity_for(state, &process))
+}
+
+pub(crate) fn validate_monitor_identity_for(state: &ContainerState, process: &Process) -> bool {
     host_boot_id().is_ok_and(|value| value == state.host_boot_id)
-        && process_start_time(state.monitor_pid)
-            .is_ok_and(|value| value == state.monitor_start_time)
+        && process.pid == state.monitor_pid
+        && process
+            .stat()
+            .is_ok_and(|stat| stat.starttime == state.monitor_start_time)
 }
 
 pub(crate) fn namespace_inode(pid: i32, namespace: &str) -> Result<u64> {

@@ -42,7 +42,7 @@ use crate::{
         },
         terminal,
     },
-    runtime::state::{namespace_inode, validate_process_identity},
+    runtime::state::{namespace_inode, store::StateStore, validate_process_identity},
 };
 
 impl Runtime {
@@ -345,7 +345,7 @@ impl Runtime {
                 bail!("generation worker exited without a verified init result");
             }
             if generation_result[0] == b'R' {
-                let Some(reboot_lock) = self.try_lock()? else {
+                let Some(reboot_lock) = wait_for_reboot_lock(&self.store)? else {
                     self.remove_state_for(&state)?;
                     cgroup.remove()?;
                     return Ok(());
@@ -378,6 +378,7 @@ impl Runtime {
         Self::ensure_root()?;
         let _lock = self.lock()?;
         let state = self.state_for_stop()?;
+        let _stop_request = self.store.request_stop()?;
         if !validate_process_identity(&state) {
             return self.wait_for_monitor_cleanup(&state);
         }
@@ -392,14 +393,11 @@ impl Runtime {
         } else {
             state.init_system
         };
-        init::request_shutdown(&process, init_system)?;
-        if process.wait_for_exit(Duration::from_secs(
-            self.config.runtime.stop_timeout_seconds,
-        ))? {
-            return self.wait_for_monitor_cleanup(&state);
-        }
-        process.send_signal(Signal::Kill)?;
-        let _ = process.wait_for_exit(Duration::from_secs(5))?;
+        shutdown_init(
+            &process,
+            init_system,
+            Duration::from_secs(self.config.runtime.stop_timeout_seconds),
+        )?;
         self.wait_for_monitor_cleanup(&state)
     }
 
@@ -412,6 +410,31 @@ impl Runtime {
         self.stop()?;
         self.start(foreground)
     }
+}
+
+fn wait_for_reboot_lock(store: &StateStore) -> Result<Option<File>> {
+    loop {
+        if let Some(lock) = store.try_lock()? {
+            return Ok(Some(lock));
+        }
+        if store.stop_requested()? {
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn shutdown_init(
+    process: &ProcessHandle,
+    system: init::InitSystem,
+    timeout: Duration,
+) -> Result<()> {
+    init::request_shutdown(process, system)?;
+    if !process.wait_for_exit(timeout)? {
+        process.send_signal(Signal::Kill)?;
+        let _ = process.wait_for_exit(Duration::from_secs(5))?;
+    }
+    Ok(())
 }
 
 fn report_startup_error(startup: Option<&mut OwnedFd>, message: &str) -> bool {

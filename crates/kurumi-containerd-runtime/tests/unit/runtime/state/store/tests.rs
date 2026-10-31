@@ -205,3 +205,25 @@ fn state_update_lock_rejects_symlinks() {
     assert!(store.write_state(&state).is_err());
     assert_eq!(fs::read_to_string(target).unwrap(), "keep");
 }
+
+#[test]
+fn stop_request_is_distinct_from_lifecycle_contention_and_expires_on_release() {
+    let (_directory, store, _state) = fixture();
+    let _lifecycle = store.lock().unwrap();
+    assert!(!store.stop_requested().unwrap());
+    let request = store.request_stop().unwrap();
+    assert!(store.stop_requested().unwrap());
+    drop(request);
+    assert!(!store.stop_requested().unwrap());
+}
+
+#[test]
+fn stop_request_lock_rejects_symlinks() {
+    let (directory, store, _state) = fixture();
+    let target = directory.path().join("untouched");
+    fs::write(&target, "keep").unwrap();
+    std::os::unix::fs::symlink(&target, store.state_dir().join("demo.stop")).unwrap();
+    assert!(store.request_stop().is_err());
+    assert!(store.stop_requested().is_err());
+    assert_eq!(fs::read_to_string(target).unwrap(), "keep");
+}
