@@ -34,7 +34,7 @@ pub(crate) mod store;
 
 pub use info::ContainerInfo;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContainerState {
     pub name: String,
     pub init_pid: i32,
@@ -72,22 +72,25 @@ impl Runtime {
     pub fn scan(&self) -> Result<Vec<ContainerState>> {
         Self::ensure_root()?;
         self.store.ensure_layout()?;
-        let mut candidates: BTreeMap<String, ContainerState> = BTreeMap::new();
+        let mut candidates: BTreeMap<String, (ContainerState, ContainerState)> = BTreeMap::new();
         for entry in fs::read_dir(self.store.recovery_dir())? {
             let entry = entry?;
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let Ok(mut state) = read_state(&entry.path()) else {
+            let Ok(original) = read_state(&entry.path()) else {
                 continue;
             };
-            if !valid_state_name(&state.name) {
+            if !valid_state_name(&original.name)
+                || entry.path() != self.store.recovery_path(original.uuid)
+            {
                 continue;
             }
+            let mut state = original.clone();
             if host_boot_id().ok().as_deref() != Some(&state.host_boot_id)
                 || !validate_monitor_identity(&state)
             {
-                remove_if_exists(&entry.path())?;
+                self.store.remove_recovery_if_unchanged(&original)?;
                 continue;
             }
             let Some(init_pid) = find_generation_init(&state)? else {
@@ -100,19 +103,22 @@ impl Runtime {
             if handle.pid().as_raw() != init_pid || !validate_process_identity(&state) {
                 continue;
             }
-            if let Some(existing) = candidates.get(&state.name) {
+            if let Some((_, existing)) = candidates.get(&state.name) {
                 ensure!(
                     existing.uuid == state.uuid,
                     "multiple live recovery records claim container '{}'",
                     state.name
                 );
             }
-            candidates.insert(state.name.clone(), state);
+            candidates.insert(state.name.clone(), (original, state));
         }
-        for state in candidates.values() {
-            self.store.write_state(state)?;
+        let mut recovered = Vec::new();
+        for (original, state) in candidates.into_values() {
+            if self.store.restore_state_if_unchanged(&original, &state)? {
+                recovered.push(state);
+            }
         }
-        Ok(candidates.into_values().collect())
+        Ok(recovered)
     }
 
     pub(crate) fn ensure_root() -> Result<()> {

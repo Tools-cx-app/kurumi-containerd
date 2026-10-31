@@ -155,6 +155,12 @@ permissions. State updates use no-follow opens, random temporary files, fsync,
 and atomic rename. Recovery requires both a protected host record and matching
 markers under `/run/kurumi-containerd` inside the container.
 
+State publication, removal, and recovery commits share a per-container persistence
+lock in the state directory. Recovery compares the original record again while
+holding that lock and discards candidates changed or removed by lifecycle work.
+This lock is separate from the lifecycle lock, so scans performed during install
+or backup do not re-enter that lock or interfere with reboot coordination.
+
 The runtime installs a classic-BPF seccomp filter, but container root retains
 its capabilities and privileged container mechanisms still share the host
 kernel. The design does not claim a hostile-workload security boundary.

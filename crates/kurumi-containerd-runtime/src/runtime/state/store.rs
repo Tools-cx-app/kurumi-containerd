@@ -9,7 +9,7 @@ use std::{
 
 use fs2::FileExt;
 
-use crate::{Result, error::ErrorContext as _};
+use crate::{Result, RuntimeError, error::ErrorContext as _};
 use kurumi_containerd_helper::fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW};
 
 use super::{
@@ -93,14 +93,49 @@ impl StateStore {
     }
 
     pub(crate) fn write_state(&self, state: &ContainerState) -> Result<()> {
+        let _lock = self.lock_updates(&state.name)?;
+        self.write_state_locked(state)
+    }
+
+    fn write_state_locked(&self, state: &ContainerState) -> Result<()> {
         write_state_atomic(&self.recovery_path(state.uuid), state)?;
         write_state_atomic(&self.state_path_for(&state.name), state)
     }
 
+    pub(crate) fn restore_state_if_unchanged(
+        &self,
+        original: &ContainerState,
+        recovered: &ContainerState,
+    ) -> Result<bool> {
+        let _lock = self.lock_updates(&original.name)?;
+        if read_optional_state(&self.recovery_path(original.uuid))?.as_ref() != Some(original) {
+            return Ok(false);
+        }
+        // A different record for this name may have been published under a new UUID.
+        if read_optional_state(&self.state_path_for(&original.name))?
+            .is_some_and(|current| current != *original && current != *recovered)
+        {
+            return Ok(false);
+        }
+        self.write_state_locked(recovered)?;
+        Ok(true)
+    }
+
+    pub(crate) fn remove_recovery_if_unchanged(&self, original: &ContainerState) -> Result<()> {
+        let _lock = self.lock_updates(&original.name)?;
+        let path = self.recovery_path(original.uuid);
+        if read_optional_state(&path)?.as_ref() == Some(original) {
+            remove_if_exists(&path)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn remove_state(&self) -> Result<()> {
+        let _lock = self.lock_updates(&self.name)?;
         remove_if_exists(&self.state_path())
     }
     pub(crate) fn remove_state_for(&self, state: &ContainerState) -> Result<()> {
+        let _lock = self.lock_updates(&self.name)?;
         remove_if_exists(&self.state_path())?;
         remove_if_exists(&self.recovery_path(state.uuid))
     }
@@ -121,6 +156,18 @@ impl StateStore {
     }
 
     fn open_lock(&self) -> Result<File> {
+        Self::open_lock_file(&self.lock_path)
+    }
+
+    fn lock_updates(&self, name: &str) -> Result<File> {
+        // Recovery can run while install/backup holds the lifecycle lock. Keep
+        // persistence transactions separate, and never acquire lifecycle locks here.
+        let file = Self::open_lock_file(&self.state_dir.join(format!("{name}.lock")))?;
+        file.lock_exclusive()?;
+        Ok(file)
+    }
+
+    fn open_lock_file(path: &Path) -> Result<File> {
         Ok(OpenOptions::new()
             .read(true)
             .write(true)
@@ -128,7 +175,15 @@ impl StateStore {
             .truncate(false)
             .mode(0o600)
             .custom_flags(OPEN_NOFOLLOW | OPEN_CLOEXEC)
-            .open(&self.lock_path)?)
+            .open(path)?)
+    }
+}
+
+fn read_optional_state(path: &Path) -> Result<Option<ContainerState>> {
+    match read_state(path) {
+        Ok(state) => Ok(Some(state)),
+        Err(RuntimeError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
