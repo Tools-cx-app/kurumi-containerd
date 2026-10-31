@@ -15,6 +15,7 @@ Linux namespace、挂载、cgroup、网络及持久化 TOML 配置管理轻量�
 
 - 目录、ext4 镜像、btrfs 镜像和块设备 rootfs
 - 从本地 tar/ZIP 归档安装目录 rootfs 或稀疏 ext4 镜像
+- CLI/TUI 导出停止容器的 rootfs，支持 `.zst`、`.xz`、`.zip`、`.tar`
 - Mount、PID、UTS、IPC 以及可选的 Network namespace
 - Host、隔离、NAT 和已有网桥网络模式
 - cgroup v1/v2 内存、CPU 和进程数限制
@@ -104,11 +105,18 @@ sudo -H ./target/release/kurumi-containerd stop
 [CLI 使用](docs/usage.md)。JSON 指针格式和路径规则见[配置参考](docs/configuration.md)；
 从已删除的 `-c/--config` 入口迁移时，参阅[配置入口迁移指南](docs/migration-config-pointer.md)。
 
+备份示例：`sudo -H ./target/release/kurumi-containerd backup debian ./debian.zst`。
+先停止容器；`debian` 是 JSON `name`，不要求等于 TOML 的 `container.name`。
+TUI 选择容器后使用 Backup 输入输出路径；备份不包含 TOML/注册表，ZIP 有元数据限制，
+详见[备份与恢复说明](docs/usage.md#back-up-a-container)。
+
 ## 命令
 
 ```text
 install ARCHIVE [--size SIZE] [--force]
                         从本地归档安装 rootfs
+backup CONTAINER_ID OUTPUT
+                        以 config.json 的 name 选择容器并备份 rootfs
 start [--foreground]   启动配置中的容器
 stop                   优雅停止容器
 restart [--foreground] 重启容器

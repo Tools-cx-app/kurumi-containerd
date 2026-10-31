@@ -61,6 +61,13 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Back up a stopped container's rootfs, selecting its JSON registry name.
+    Backup {
+        /// Container ID: the exact name in $HOME/.kurumi-containerd/config.json.
+        container_id: String,
+        /// New archive path ending in .zst, .xz, .zip or .tar.
+        output: PathBuf,
+    },
     /// Start the configured container.
     Start {
         /// Attach the container console to this terminal.
@@ -138,6 +145,16 @@ fn run(cli: Cli) -> Result<()> {
     }
     tracing::debug!(name = cli.name.as_deref(), "loading configuration registry");
     let pointers = ConfigPointer::load_home()?;
+    if let Commands::Backup {
+        container_id,
+        output,
+    } = &cli.command
+    {
+        if cli.name.is_some() {
+            bail!("backup selects its container by CONTAINER_ID; do not supply --name");
+        }
+        return backup(&pointers, container_id, output);
+    }
     let config_path = &ConfigPointer::select(&pointers, cli.name.as_deref())?.file;
     if let Commands::Install {
         archive,
@@ -145,25 +162,7 @@ fn run(cli: Cli) -> Result<()> {
         force,
     } = &cli.command
     {
-        let config = Config::load_for_install(config_path)?;
-        let target = config
-            .container
-            .rootfs
-            .as_ref()
-            .or(config.container.rootfs_image.as_ref())
-            .context("rootfs target is not configured")?
-            .clone();
-        let runtime = Runtime::new(config)?;
-        ContainerRuntime::install(&runtime, archive, *size, *force)?;
-        output::write(|out| {
-            writeln!(
-                out,
-                "Rootfs installed: {} -> {}",
-                archive.display(),
-                target.display()
-            )
-        })?;
-        return Ok(());
+        return install(config_path, archive, *size, *force);
     }
     let config = Config::load_persistent(config_path)?;
     let container_name = config.container.name.clone();
@@ -228,7 +227,49 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Check => unreachable!("check is handled before loading configuration"),
         Commands::Tui => unreachable!("tui is handled before selecting a configuration"),
         Commands::Install { .. } => unreachable!("install is handled before loading configuration"),
+        Commands::Backup { .. } => unreachable!("backup is handled before loading configuration"),
     }
+    Ok(())
+}
+
+fn backup(pointers: &[ConfigPointer], container_id: &str, output: &std::path::Path) -> Result<()> {
+    let pointer = ConfigPointer::select(pointers, Some(container_id))?;
+    let runtime = Runtime::new(Config::load(&pointer.file)?)?;
+    ContainerRuntime::backup(&runtime, output)?;
+    output::write(|out| {
+        writeln!(
+            out,
+            "Container {container_id} backed up: {}",
+            output.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn install(
+    config_path: &std::path::Path,
+    archive: &std::path::Path,
+    size: Option<u64>,
+    force: bool,
+) -> Result<()> {
+    let config = Config::load_for_install(config_path)?;
+    let target = config
+        .container
+        .rootfs
+        .as_ref()
+        .or(config.container.rootfs_image.as_ref())
+        .context("rootfs target is not configured")?
+        .clone();
+    let runtime = Runtime::new(config)?;
+    ContainerRuntime::install(&runtime, archive, size, force)?;
+    output::write(|out| {
+        writeln!(
+            out,
+            "Rootfs installed: {} -> {}",
+            archive.display(),
+            target.display()
+        )
+    })?;
     Ok(())
 }
 

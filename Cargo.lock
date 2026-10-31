@@ -786,6 +786,7 @@ dependencies = [
  "toml",
  "tracing",
  "uuid",
+ "xattr",
  "xz2",
  "zip",
  "zstd",

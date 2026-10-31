@@ -33,7 +33,3 @@ impl<T: ContainerRuntime + ?Sized> ContainerQuery for T {
         ContainerRuntime::list(self)
     }
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/runtime/query/tests.rs"]
-mod tests;

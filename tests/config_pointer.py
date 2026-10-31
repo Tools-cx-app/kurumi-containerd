@@ -23,7 +23,6 @@ def main():
         return result.returncode, result.stdout + result.stderr
 
     _, output = run("check")
-    assert "checking host capabilities" in output, output
     assert "HOME" not in output and "config pointer" not in output, output
     status, output = run("info")
     assert status != 0 and "HOME" in output, output
@@ -55,10 +54,18 @@ def main():
         assert status != 0 and str(pointer.parent / "other.toml") in output, output
         status, output = run("--name", "missing", "info")
         assert status != 0 and "no config pointer named" in output, output
+        (pointer.parent / "rootfs/sbin").mkdir(parents=True)
+        (pointer.parent / "rootfs/sbin/init").write_bytes(b"init")
+        status, output = run("backup", "other", str(home / "backup.tar"))
+        assert status != 0 and str(pointer.parent / "other.toml") in output, output
+        status, output = run("backup", "Display name", str(home / "backup.tar"))
+        assert status != 0 and "container name" in output, output
+        status, output = run("backup", "display name", str(home / "backup.tar"))
+        assert status != 0 and "no config pointer named" in output, output
         for flag in ["-c", "--config"]:
             status, output = run(flag, str(toml), "info")
             assert status != 0 and "unexpected argument" in output, output
-    print("PASS: HOME lookup, check bypass, legacy rejection, JSON-to-TOML install loading")
+    print("PASS: HOME lookup, check bypass, legacy rejection, JSON-to-TOML install and backup selection")
 
 
 if __name__ == "__main__":

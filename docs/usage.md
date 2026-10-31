@@ -1,9 +1,10 @@
 # CLI usage
 
-KurumiContainerd manages one configured container per invocation. To select a
-different TOML, select its entry in `$HOME/.kurumi-containerd/config.json` using
-`--name NAME`. Single-entry lists are selected automatically; multiple entries
-require an exact, case-sensitive name before the command.
+KurumiContainerd manages one configured container per invocation. Most commands
+select an entry in `$HOME/.kurumi-containerd/config.json` using `--name NAME`.
+Single-entry lists are selected automatically; multiple entries require an exact,
+case-sensitive name before the command. `backup CONTAINER_ID OUTPUT` instead
+selects the JSON `name` directly through its required positional container ID.
 
 ## Invocation
 
@@ -67,12 +68,13 @@ and `q` exits when no command is in progress. Status refreshes periodically.
 Validation errors appear in the dialog, and confirmation identifies the target.
 Check host is also available when the registry is empty.
 
-The manager exposes install, start/stop/restart (including foreground modes),
+The manager exposes install, backup, start/stop/restart (including foreground modes),
 enter, run, info, pid, show, scan and check. Each operation invokes the same
-CLI executable, so `sudo -H` and `--name` select the same HOME and entry as
-ordinary commands. `run` accepts an executable and separate argument fields;
-it does not interpret shell quoting or pipes. Captured output is limited to
-the first 1 MiB in the manager.
+CLI executable and HOME registry. Select a stopped container, choose Backup,
+and enter a new output path ending in `.zst`, `.xz`, `.zip` or `.tar`; the selected
+JSON `name` supplies its container ID. `run` accepts an executable and separate
+argument fields; it does not interpret shell quoting or pipes. Captured output
+is limited to the first 1 MiB in the manager.
 
 Interactive and foreground commands open a separate graphical terminal on
 Linux. The manager detects `xterm`, `kitty` or `alacritty`, in that order;
@@ -114,6 +116,61 @@ must not be wrapped in an extra distribution directory. ZIP cannot preserve
 UID/GID and device nodes reliably; tar is recommended for system rootfs
 archives. `--size` is required for image targets and rejected for directory
 targets.
+
+## Back up a container
+
+```bash
+sudo -H kurumi-containerd --name debian stop
+sudo -H kurumi-containerd backup debian ./debian.zst
+```
+
+`CONTAINER_ID` is the exact, case-sensitive `name` from the HOME JSON registry,
+not the TOML `container.name`, UUID, or PID. This works with multiple registry
+entries without `--name`; combining `--name` with backup is rejected. Neither
+the TOML name nor its UUID is changed by backup.
+
+The output suffix selects the format:
+
+| Suffix | Contents |
+| --- | --- |
+| `.zst`, `.tar.zst` | Zstandard-compressed tar |
+| `.xz`, `.tar.xz` | XZ-compressed tar |
+| `.zip` | ZIP |
+| `.tar` | Uncompressed tar |
+
+Backup requires root and a stopped container. It exports the configured rootfs
+directory or the filesystem inside its image, not a raw image, TOML, registry,
+runtime state, bind-mount sources, or discarded volatile OverlayFS changes.
+Image sources require the same loop-device and mount support as startup.
+The lifecycle lock prevents starting this container during export; avoid external
+writes to the source while backing up.
+
+The output directory must already exist outside the rootfs. Existing paths,
+including symlinks, are never overwritten. Archives are streamed to a private
+temporary file with mode `0600` and published only after successful completion;
+ordinary failures remove the partial file. Unmount any mounted rootfs subtrees
+first. Kernel filesystems and special files (devices, sockets, FIFOs) are rejected
+rather than silently skipped.
+
+Tar and its compressed variants preserve ownership, permissions, timestamps,
+hardlinks, symlinks, and extended attributes. ZIP preserves ordinary permissions
+and safe relative symlinks but loses ownership, timestamps, xattrs, special
+permission bits and hardlink identity; a warning is emitted. ZIP rejects absolute
+or escaping symlinks and non-UTF-8 or ambiguous paths rather than changing them.
+Prefer `.zst`, `.xz`, or `.tar` for system rootfs backups.
+
+Restore rootfs contents through `install` after selecting the destination TOML:
+
+```bash
+sudo -H kurumi-containerd --name restored install ./debian.zst
+```
+
+Image targets still need `--size`; existing targets still need `--force`.
+The current installer restores tar xattrs on regular files only, and its PAX
+reader does not restore attribute values containing newlines. For directory or
+symlink xattrs, or newline-containing values, use an external tar implementation
+with xattr restoration enabled (for example GNU tar `--xattrs --xattrs-include='*'`).
+Keep the TOML and registry separately if needed; backup does not package them.
 
 ## Lifecycle
 

@@ -100,6 +100,20 @@ impl Rootfs {
             mounted: true,
         })
     }
+
+    /// Exports a stopped rootfs as tar, compressed tar (`.xz`/`.zst`), or ZIP.
+    ///
+    /// ZIP preserves executable permissions and safe relative symlinks, but not
+    /// ownership, timestamps, xattrs, special mode bits, or hardlink identity.
+    /// Tar retains xattrs; install currently restores them only on regular files.
+    ///
+    /// # Errors
+    /// Returns errors for unsafe destinations, mounted subtrees, unsupported file
+    /// types or metadata, and preparation or archive I/O failures.
+    pub fn backup(&self, output: &Path) -> Result<()> {
+        let prepared = self.prepare()?;
+        crate::archive::backup(prepared.as_ref(), output)
+    }
 }
 
 impl AsRef<Path> for PreparedRootfs {

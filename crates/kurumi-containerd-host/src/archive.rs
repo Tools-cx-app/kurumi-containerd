@@ -22,6 +22,9 @@ use xz2::read::XzDecoder;
 use zip::ZipArchive;
 use zstd::stream::read::Decoder as ZstdDecoder;
 
+mod backup;
+pub(crate) use backup::backup;
+
 const GZIP_MAGIC: &[u8] = &[0x1f, 0x8b];
 const XZ_MAGIC: &[u8] = &[0xfd, b'7', b'z', b'X', b'Z', 0x00];
 const ZSTD_MAGIC: &[u8] = &[0x28, 0xb5, 0x2f, 0xfd];

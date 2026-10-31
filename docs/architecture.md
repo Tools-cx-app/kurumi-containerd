@@ -86,6 +86,7 @@ The main modules are:
 - `runtime/state/store.rs`: private trusted persistence, paths, and locks
 - `runtime/state/info.rs`: status and resource usage
 - `runtime/execute.rs`: namespace entry, command execution, and interactive login
+- `runtime/backup.rs`: root checks, lifecycle locking, and stopped-only rootfs export
 - `container/environment.rs`: deterministic init and session environments
 - `container/init.rs`: init-family detection and shutdown protocols
 - `container/security.rs`: seccomp and protected kernel views
@@ -101,8 +102,8 @@ The host crate's `src/` contains:
 
 - `process.rs`: pidfd handles and procfs process identity helpers
 - `terminal.rs`: PTY allocation, descriptor passing, and console proxying
-- `rootfs/mod.rs` and `rootfs/install.rs`: rootfs preparation and archive installation
-- `archive.rs`: private archive format detection and extraction
+- `rootfs/mod.rs` and `rootfs/install.rs`: rootfs preparation, backup, and archive installation
+- `archive.rs` and `archive/backup.rs`: private archive extraction and streaming export
 - `network/mod.rs`: veth, bridges, NAT, forwarding, and rollback
 - `cgroup.rs`: cgroup v1/v2 resource limits and hierarchy detection
 - `android.rs`: Android host integration, exposed only on Android targets

@@ -38,6 +38,9 @@ fn required_inputs_are_checked_before_dispatch() {
     assert!(state.submit().is_err());
     state.open(ActionKind::Run);
     assert!(state.submit().is_err());
+    state.open(ActionKind::Backup);
+    state.fields[0] = "   ".into();
+    assert!(state.submit().is_err());
 }
 
 #[test]

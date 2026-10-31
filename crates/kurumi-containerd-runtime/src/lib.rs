@@ -29,6 +29,11 @@ pub trait ContainerRuntime {
     /// # Errors
     /// Returns an error when installation or target validation fails.
     fn install(&self, archive: &Path, size: Option<u64>, force: bool) -> Result<()>;
+    /// Exports the stopped container's rootfs to a new local archive.
+    ///
+    /// # Errors
+    /// Returns an error when the container is running or export fails.
+    fn backup(&self, output: &Path) -> Result<()>;
     /// Starts the configured container.
     ///
     /// # Errors
@@ -117,6 +122,10 @@ impl Runtime {
 impl ContainerRuntime for Runtime {
     fn install(&self, archive: &Path, size: Option<u64>, force: bool) -> Result<()> {
         Runtime::install(self, archive, size, force)
+    }
+
+    fn backup(&self, output: &Path) -> Result<()> {
+        Runtime::backup(self, output)
     }
 
     fn start(&self, foreground_override: bool) -> Result<ContainerState> {

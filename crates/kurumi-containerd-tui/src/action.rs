@@ -12,6 +12,9 @@ pub(super) enum Action {
         size: Option<String>,
         force: bool,
     },
+    Backup {
+        output: PathBuf,
+    },
     Start(bool),
     Stop,
     Restart(bool),
@@ -25,7 +28,7 @@ pub(super) enum Action {
 }
 impl Action {
     pub(super) fn args(&self, name: &str) -> Vec<OsString> {
-        let mut a = if matches!(self, Self::Check) {
+        let mut a = if matches!(self, Self::Check | Self::Backup { .. }) {
             vec![]
         } else {
             vec!["--name".into(), name.into()]
@@ -43,6 +46,9 @@ impl Action {
                 if *force {
                     a.push("--force".into());
                 }
+            }
+            Self::Backup { output } => {
+                a.extend(["backup".into(), name.into(), output.as_os_str().to_owned()]);
             }
             Self::Start(f) | Self::Restart(f) => {
                 a.push(if matches!(self, Self::Start(_)) {
@@ -79,6 +85,7 @@ impl Action {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ActionKind {
     Install,
+    Backup,
     Start,
     ForegroundStart,
     Stop,
@@ -92,8 +99,9 @@ pub(super) enum ActionKind {
     Scan,
     Check,
 }
-pub(super) const ACTIONS: [ActionKind; 13] = [
+pub(super) const ACTIONS: [ActionKind; 14] = [
     ActionKind::Install,
+    ActionKind::Backup,
     ActionKind::Start,
     ActionKind::ForegroundStart,
     ActionKind::Stop,
@@ -111,6 +119,7 @@ impl ActionKind {
     pub(super) fn label(self) -> &'static str {
         match self {
             Self::Install => "Install",
+            Self::Backup => "Backup",
             Self::Start => "Start",
             Self::ForegroundStart => "Start foreground",
             Self::Stop => "Stop",
@@ -128,6 +137,7 @@ impl ActionKind {
     pub(super) fn fields(self) -> &'static [&'static str] {
         match self {
             Self::Install => &["Archive path", "Image size (optional)"],
+            Self::Backup => &["Output path (.zst/.xz/.zip/.tar)"],
             Self::Enter => &["User (default root)"],
             Self::Run => &["Executable", "Argument 1 (Tab to add another)"],
             _ => &[],
@@ -149,6 +159,14 @@ impl ActionKind {
                     archive: f[0].trim().into(),
                     size: (!f[1].trim().is_empty()).then(|| f[1].trim().into()),
                     force,
+                }
+            }
+            Self::Backup => {
+                if f[0].trim().is_empty() {
+                    bail!("output path is required")
+                }
+                Action::Backup {
+                    output: f[0].trim().into(),
                 }
             }
             Self::Start => Action::Start(false),
@@ -193,7 +211,7 @@ pub(super) fn allowed(k: ActionKind, e: &Entry, terminal: bool) -> Result<()> {
         .active;
     if matches!(
         k,
-        ActionKind::Start | ActionKind::ForegroundStart | ActionKind::Install
+        ActionKind::Start | ActionKind::ForegroundStart | ActionKind::Install | ActionKind::Backup
     ) && active
     {
         bail!("stop the container first")

@@ -18,6 +18,7 @@ resources when compiled for and executed on Android.
 
 - Directory, ext4 image, btrfs image, and block-device root filesystems
 - Local tar/ZIP rootfs installation into directories or sparse ext4 images
+- CLI/TUI rootfs backup for stopped containers in `.zst`, `.xz`, `.zip`, or `.tar`
 - Mount, PID, UTS, IPC, and optional network namespaces
 - Host, isolated, NAT, and existing-bridge networking
 - cgroup v1 and v2 memory, CPU, and process limits
@@ -114,11 +115,19 @@ The configuration pointer format and path rules are documented in
 [Configuration](docs/configuration.md). For migration from the removed
 `-c/--config` entry points, see the [migration guide](docs/migration-config-pointer.md).
 
+Back up a stopped container with
+`sudo -H ./target/release/kurumi-containerd backup debian ./debian.zst`, or select
+Backup in the TUI. The ID is the JSON `name`, not the TOML name or UUID.
+See [backup and restore](docs/usage.md#back-up-a-container) for metadata limits
+and configuration files that must be saved separately.
+
 ## Commands
 
 ```text
 install ARCHIVE [--size SIZE] [--force]
                         Install a local rootfs archive
+backup CONTAINER_ID OUTPUT
+                        Back up rootfs by its config.json name
 start [--foreground]   Start the configured container
 stop                   Gracefully stop it
 restart [--foreground] Stop and start it

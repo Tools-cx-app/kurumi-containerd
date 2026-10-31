@@ -24,9 +24,10 @@ xz2.workspace = true
 zip.workspace = true
 zstd.workspace = true
 tar.workspace = true
+tempfile.workspace = true
+xattr = "1.6.1"
 
 [dev-dependencies]
-tempfile.workspace = true
 toml.workspace = true
 
 [lints]

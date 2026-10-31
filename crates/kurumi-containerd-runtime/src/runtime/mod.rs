@@ -3,6 +3,7 @@
 
 //! Runtime orchestration, execution, and persistent state.
 
+mod backup;
 mod boot;
 mod execute;
 mod install;
