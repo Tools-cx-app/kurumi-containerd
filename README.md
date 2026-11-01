@@ -54,6 +54,43 @@ cargo build --release
 
 The binary is written to `target/release/kurumi-containerd`.
 
+## Benchmarks
+
+Run the benchmarks without root:
+
+```bash
+cargo bench -p kurumi-containerd-host --bench archive --locked
+cargo bench -p kurumi-containerd-config --bench config --locked
+```
+
+The archive suite measures directory rootfs installation (format detection,
+decompression, extraction and commit) for tar, gzip, xz, zstd and ZIP, plus backup
+and compression for tar, xz, zstd and ZIP through the production `Rootfs` APIs.
+It uses two deterministic workloads: 256 files of 4 KiB and four files of 1 MiB,
+mixing text with pseudo-random bytes. Throughput counts uncompressed file bytes.
+Archive generation and byte-for-byte round-trip checks happen outside the timed
+loops. Each iteration uses a fresh destination; temporary directory setup and
+cleanup are excluded. Production staging, metadata handling and backup `fsync`
+remain timed. Slow archive cases use 10 samples.
+
+Criterion measures TOML parsing, environment parsing (8, 64 and 512 entries),
+configuration loading, and container path resolution with direct paths and symlinks.
+Temporary rootfs and configuration fixtures are prepared outside the timed loops.
+Filesystem benchmarks use warm caches and do not measure container startup or
+image mounting. Results are saved under `target/criterion/` using Cargo's default
+optimized bench profile.
+The separate [Benchmarks workflow](.github/workflows/benchmarks.yml) runs these
+two suites as parallel jobs and uploads `benchmark-results-archive` and
+`benchmark-results-config` artifacts.
+
+To compare changes on the same host:
+
+```bash
+cargo bench -p kurumi-containerd-host --bench archive --locked -- --save-baseline before
+# Make the change, then compare against the saved baseline.
+cargo bench -p kurumi-containerd-host --bench archive --locked -- --baseline before
+```
+
 ## Releases
 
 Push a version tag matching `[workspace.package].version` in `Cargo.toml`

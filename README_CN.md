@@ -51,6 +51,37 @@ cargo build --release
 
 生成的二进制位于 `target/release/kurumi-containerd`。
 
+## 基准测试
+
+无需 root 即可运行基准测试：
+
+```bash
+cargo bench -p kurumi-containerd-host --bench archive --locked
+cargo bench -p kurumi-containerd-config --bench config --locked
+```
+
+归档基准通过实际 `Rootfs` 接口测量 tar、gzip、xz、zstd、ZIP 的目录 rootfs 安装
+（格式识别、解压、文件提取、提交），以及 tar、xz、zstd、ZIP 的备份压缩。
+数据集分别为 256 个 4 KiB 文件和 4 个 1 MiB 文件，使用确定性的文本与伪随机字节混合，
+吞吐量按未压缩的文件字节数计算。归档生成和逐字节往返校验在计时之外执行。
+每轮使用全新的目标位置，临时目录准备和清理不计时；生产路径中的暂存、元数据处理
+和备份 `fsync` 计入耗时。较慢的归档用例采用 10 个样本。
+
+使用 Criterion 测量 TOML 解析、环境变量解析（8、64、512 项）、完整配置加载，
+以及普通路径、绝对和相对符号链接的容器路径解析。临时 rootfs 和配置文件均在
+计时循环之外准备。文件系统测试使用预热后的缓存，不测量容器启动或镜像挂载。
+使用 Cargo 默认的优化 bench profile，结果保存在 `target/criterion/`。
+独立的 [Benchmarks workflow](.github/workflows/benchmarks.yml) 以两个并行 job 运行，
+分别上传 `benchmark-results-archive` 和 `benchmark-results-config` artifact。
+
+在同一台主机上对比修改前后的性能：
+
+```bash
+cargo bench -p kurumi-containerd-host --bench archive --locked -- --save-baseline before
+# 修改代码后，与保存的基线对比。
+cargo bench -p kurumi-containerd-host --bench archive --locked -- --baseline before
+```
+
 ## 自动发布
 
 推送与 `Cargo.toml` 中 `[workspace.package].version` 一致的版本标签

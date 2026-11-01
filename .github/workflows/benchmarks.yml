@@ -1,0 +1,64 @@
+# Copyright (C) 2026 Tools-cx-app
+# SPDX-License-Identifier: GPL-v3-only
+
+name: Benchmarks
+
+on:
+  push:
+    branches: ["master"]
+    paths:
+      - "crates/**"
+      - "Cargo.*"
+      - "kurumi-containerd.example.toml"
+      - ".github/workflows/benchmarks.yml"
+  pull_request:
+    branches: ["master"]
+    paths:
+      - "crates/**"
+      - "Cargo.*"
+      - "kurumi-containerd.example.toml"
+      - ".github/workflows/benchmarks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmarks:
+    name: ${{ matrix.bench }} benchmarks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: kurumi-containerd-host
+            bench: archive
+          - package: kurumi-containerd-config
+            bench: config
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: benchmarks-${{ matrix.bench }}
+          cache-workspace-crates: "true"
+          cache-all-crates: "true"
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Run benchmarks
+        run: cargo bench -p ${{ matrix.package }} --bench ${{ matrix.bench }} --locked
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-results-${{ matrix.bench }}
+          path: target/criterion/
+          if-no-files-found: error
