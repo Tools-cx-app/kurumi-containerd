@@ -4,9 +4,13 @@
 use super::*;
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
     time::{Duration, Instant},
 };
+
+const COMMAND_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/backend-command.sh"
+);
 
 fn complete(task: &mut CommandTask) -> String {
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -19,29 +23,25 @@ fn complete(task: &mut CommandTask) -> String {
     }
 }
 
+fn captured(exe: &Path, action: &Action) -> CommandTask {
+    match Backend::new(exe).launch(action, None).unwrap() {
+        Launch::Captured(task) => task,
+        Launch::Failed(error) => panic!("expected captured command: {error}"),
+        Launch::Terminal => panic!("expected captured command, got terminal"),
+    }
+}
+
 #[test]
 fn captures_exit_status_for_success_and_failure() {
     for (exe, code) in [("/bin/true", 0), ("/bin/false", 1)] {
-        let Launch::Captured(mut task) = Backend::new(Path::new(exe))
-            .launch(&Action::Check, None)
-            .unwrap()
-        else {
-            panic!("expected captured command")
-        };
+        let mut task = captured(Path::new(exe), &Action::Check);
         assert_eq!(complete(&mut task), format!("Exit: exit status: {code}\n"));
     }
 }
 
 #[test]
 fn captures_both_streams_lossily_and_bounds_large_output() {
-    let dir = tempfile::tempdir().unwrap();
-    let exe = dir.path().join("command");
-    fs::write(&exe, "#!/bin/sh\nprintf 'stdout\\n'\nprintf 'stderr\\n' >&2\nprintf '\\377'\nhead -c 1048576 /dev/zero\nprintf 'not captured'\n").unwrap();
-    fs::set_permissions(&exe, fs::Permissions::from_mode(0o700)).unwrap();
-    let Launch::Captured(mut task) = Backend::new(&exe).launch(&Action::Check, None).unwrap()
-    else {
-        panic!("expected captured command")
-    };
+    let mut task = captured(Path::new(COMMAND_FIXTURE), &Action::Check);
     let result = complete(&mut task);
     let (status, body) = result.split_once('\n').unwrap();
     assert_eq!(status, "Exit: exit status: 0");
@@ -54,21 +54,13 @@ fn captures_both_streams_lossily_and_bounds_large_output() {
 #[test]
 fn polling_running_command_does_not_block() {
     let dir = tempfile::tempdir().unwrap();
-    let exe = dir.path().join("command");
     let release = dir.path().join("release");
-    fs::write(
-        &exe,
-        format!(
-            "#!/bin/sh\nwhile [ ! -f '{}' ]; do sleep 0.01; done\nprintf done\n",
-            release.display()
-        ),
-    )
-    .unwrap();
-    fs::set_permissions(&exe, fs::Permissions::from_mode(0o700)).unwrap();
-    let Launch::Captured(mut task) = Backend::new(&exe).launch(&Action::Check, None).unwrap()
-    else {
-        panic!("expected captured command")
-    };
+    let mut task = captured(
+        Path::new(COMMAND_FIXTURE),
+        &Action::Backup {
+            output: release.clone(),
+        },
+    );
     assert!(task.poll().unwrap().is_none());
     fs::write(release, "").unwrap();
     assert_eq!(complete(&mut task), "Exit: exit status: 0\ndone");
