@@ -82,6 +82,7 @@ optimized bench profile.
 The separate [Benchmarks workflow](.github/workflows/benchmarks.yml) runs these
 two suites as parallel jobs and uploads `benchmark-results-archive` and
 `benchmark-results-config` artifacts.
+Each job also writes mean timings and throughput directly to the Actions Summary.
 
 To compare changes on the same host:
 

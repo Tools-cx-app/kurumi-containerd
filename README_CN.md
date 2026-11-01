@@ -73,6 +73,7 @@ cargo bench -p kurumi-containerd-config --bench config --locked
 使用 Cargo 默认的优化 bench profile，结果保存在 `target/criterion/`。
 独立的 [Benchmarks workflow](.github/workflows/benchmarks.yml) 以两个并行 job 运行，
 分别上传 `benchmark-results-archive` 和 `benchmark-results-config` artifact。
+各 job 还会将平均耗时和吞吐量直接写入 Actions Summary。
 
 在同一台主机上对比修改前后的性能：
 

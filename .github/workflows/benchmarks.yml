@@ -30,6 +30,9 @@ jobs:
   benchmarks:
     name: ${{ matrix.bench }} benchmarks
     runs-on: ubuntu-latest
+    env:
+      BENCH_SUITE: ${{ matrix.bench }}
+      CRITERION_HOME: ${{ github.workspace }}/benchmark-results/${{ matrix.bench }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,9 +59,45 @@ jobs:
       - name: Run benchmarks
         run: cargo bench -p ${{ matrix.package }} --bench ${{ matrix.bench }} --locked
 
+      - name: Write benchmark summary
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          reports = sorted(Path(os.environ["CRITERION_HOME"]).glob("**/new/benchmark.json"))
+          if not reports:
+              raise SystemExit("No Criterion benchmark results found")
+
+          lines = [
+              f"## {os.environ['BENCH_SUITE']} benchmarks",
+              "",
+              "| Benchmark | Mean time | Throughput |",
+              "| --- | ---: | ---: |",
+          ]
+          for report in reports:
+              benchmark = json.loads(report.read_text(encoding="utf-8"))
+              estimates = json.loads(report.with_name("estimates.json").read_text(encoding="utf-8"))
+              nanoseconds = estimates["mean"]["point_estimate"]
+              for unit, scale in [("s", 1e9), ("ms", 1e6), ("µs", 1e3), ("ns", 1)]:
+                  if nanoseconds >= scale or unit == "ns":
+                      timing = f"{nanoseconds / scale:.3f} {unit}"
+                      break
+              throughput = benchmark.get("throughput") or {}
+              rate = "—"
+              if "Bytes" in throughput:
+                  rate = f"{throughput['Bytes'] * 1e9 / nanoseconds / 1024**2:.2f} MiB/s"
+              name = benchmark["full_id"].replace("|", r"\|")
+              lines.append(f"| `{name}` | {timing} | {rate} |")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("\n".join(lines) + "\n")
+          PY
+
       - name: Upload benchmark results
         uses: actions/upload-artifact@v7
         with:
           name: benchmark-results-${{ matrix.bench }}
-          path: target/criterion/
+          path: ${{ env.CRITERION_HOME }}/
           if-no-files-found: error
