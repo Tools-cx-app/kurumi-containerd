@@ -4,6 +4,47 @@
 use super::*;
 
 #[test]
+fn container_info_output_preserves_running_and_inactive_details() {
+    let mut container = ContainerInfo {
+        name: "test".into(),
+        active: true,
+        init_pid: Some(123),
+        monitor_pid: Some(122),
+        rootfs: "/rootfs".into(),
+        uuid: None,
+        init_system: Some(kurumi_containerd_runtime::InitSystem::Systemd),
+        generation: Some(1),
+        uptime_seconds: Some(3_723),
+        memory_kb: Some(1_536),
+        processes: Some(4),
+    };
+    let mut out = Vec::new();
+    info(&mut out, &container).unwrap();
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "Name: test\nActive: active (running) for 1h 02m 03s\nMain PID: 123 (systemd)\nMonitor PID: 122\nTasks: 4\nMemory: 1.5 MiB\nGeneration: 1\nRootfs: /rootfs\nUUID: unassigned\n"
+    );
+    container.active = false;
+    let mut out = Vec::new();
+    info(&mut out, &container).unwrap();
+    assert_eq!(
+        out,
+        b"Name: test\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned\n"
+    );
+    let mut full = &mut [][..];
+    assert!(info(&mut full, &container).is_err());
+}
+
+#[test]
+fn info_units_cover_duration_and_memory_boundaries() {
+    assert_eq!(format_duration(0), "0s");
+    assert_eq!(format_duration(62), "1m 02s");
+    assert_eq!(format_duration(93_784), "1d 02h 03m 04s");
+    assert_eq!(format_memory(512), "512 KiB");
+    assert_eq!(format_memory(1_572_864), "1.5 GiB");
+}
+
+#[test]
 fn pid_is_numeric_and_foreground_reports_completion() {
     let mut out = Vec::new();
     pid(&mut out, 1234).unwrap();

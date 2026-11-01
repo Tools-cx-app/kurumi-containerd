@@ -27,7 +27,7 @@ flate2 = { version = "1.1.10", default-features = false, features = [
   "rust_backend",
 ] }
 kurumi-containerd-helper = { path = "crates/kurumi-containerd-helper" }
-kurumi-containerd-error = { path = "crates/kurumi-containerd-error" }
+kurumi-containerd-error = { path = "crates/kurumi-containerd-error", default-features = false }
 kurumi-containerd-host = { path = "crates/kurumi-containerd-host" }
 libc = "0.2.191"
 mio = { version = "1.2.4", features = ["os-poll", "os-ext"] }

@@ -10,7 +10,7 @@ license.workspace = true
 [dependencies]
 kurumi-containerd-config = { path = "../kurumi-containerd-config" }
 fs2.workspace = true
-kurumi-containerd-error.workspace = true
+kurumi-containerd-error = { workspace = true, features = ["runtime"] }
 kurumi-containerd-host.workspace = true
 kurumi-containerd-helper.workspace = true
 libc.workspace = true

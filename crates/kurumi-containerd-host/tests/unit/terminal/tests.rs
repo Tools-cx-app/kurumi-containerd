@@ -4,6 +4,27 @@
 use super::*;
 
 #[test]
+fn terminal_poll_preserves_interests_and_hangup() {
+    let (master, output) = socket_pair().unwrap();
+    let (input, stdin) = socket_pair().unwrap();
+    write(&input, b"input").unwrap();
+
+    assert_eq!(
+        poll_terminal(master.as_fd(), stdin.as_fd(), true, true).unwrap(),
+        (false, true, true)
+    );
+    assert_eq!(
+        poll_terminal(master.as_fd(), stdin.as_fd(), false, true).unwrap(),
+        (false, false, true)
+    );
+    drop(output);
+    assert_eq!(
+        poll_terminal(master.as_fd(), stdin.as_fd(), false, false).unwrap(),
+        (true, false, false)
+    );
+}
+
+#[test]
 fn proxy_input_delegates_shutdown_and_preserves_input() {
     let calls = std::cell::Cell::new(0);
     let shutdown = || {

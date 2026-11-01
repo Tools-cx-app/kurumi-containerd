@@ -8,6 +8,42 @@ use ratatui::{Terminal, backend::TestBackend};
 use std::path::PathBuf;
 use uuid::Uuid;
 
+#[test]
+fn details_preserve_running_and_inactive_container_fields() {
+    let mut info = ContainerInfo {
+        name: "test".into(),
+        active: true,
+        init_pid: Some(123),
+        monitor_pid: Some(122),
+        rootfs: "/rootfs".into(),
+        uuid: Some(Uuid::nil()),
+        init_system: Some(kurumi_containerd_runtime::InitSystem::Systemd),
+        generation: Some(1),
+        uptime_seconds: Some(93_784),
+        memory_kb: Some(1_572_864),
+        processes: Some(4),
+    };
+    assert_eq!(
+        info_lines(&info).join("\n"),
+        "Name: test\nActive: active (running) for 1d 02h 03m 04s\nMain PID: 123 (systemd)\nMonitor PID: 122\nTasks: 4\nMemory: 1.5 GiB\nGeneration: 1\nRootfs: /rootfs\nUUID: 00000000-0000-0000-0000-000000000000"
+    );
+    info.active = false;
+    info.uuid = None;
+    assert_eq!(
+        info_lines(&info).join("\n"),
+        "Name: test\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned"
+    );
+}
+
+#[test]
+fn detail_units_cover_short_durations_and_small_memory() {
+    assert_eq!(format_duration(0), "0s");
+    assert_eq!(format_duration(62), "1m 02s");
+    assert_eq!(format_duration(3_723), "1h 02m 03s");
+    assert_eq!(format_memory(512), "512 KiB");
+    assert_eq!(format_memory(1_536), "1.5 MiB");
+}
+
 fn render(width: u16, height: u16, state: &UiState, entries: &[Entry]) -> String {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal

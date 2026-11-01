@@ -6,6 +6,7 @@ use crate::{
     registry::Entry,
     state::{Focus, UiState},
 };
+use kurumi_containerd_runtime::ContainerInfo;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -239,7 +240,7 @@ pub(super) fn draw(
                     "Config: {}",
                     entry.pointer.file.display()
                 )))
-                .chain(info.display_lines())
+                .chain(info_lines(info))
                 .collect::<Vec<_>>()
                 .join("\n"),
             Err(error) => format!("Config: {}\nError: {error:#}", entry.pointer.file.display()),
@@ -497,6 +498,73 @@ fn draw_form(frame: &mut Frame<'_>, state: &UiState, kind: ActionKind, entry: Op
         .style(Style::default().fg(warning_color(state.confirming))),
         rows[3],
     );
+}
+
+fn info_lines(info: &ContainerInfo) -> Vec<String> {
+    let mut lines = vec![format!("Name: {}", info.name)];
+    if info.active {
+        lines.extend([
+            format!(
+                "Active: active (running) for {}",
+                format_duration(info.uptime_seconds.unwrap_or_default())
+            ),
+            format!(
+                "Main PID: {} ({})",
+                info.init_pid.unwrap_or_default(),
+                info.init_system.unwrap_or_default()
+            ),
+            format!("Monitor PID: {}", info.monitor_pid.unwrap_or_default()),
+            format!("Tasks: {}", info.processes.unwrap_or_default()),
+            format!(
+                "Memory: {}",
+                format_memory(info.memory_kb.unwrap_or_default())
+            ),
+            format!("Generation: {}", info.generation.unwrap_or_default()),
+        ]);
+    } else {
+        lines.push("Active: inactive (dead)".to_owned());
+    }
+    lines.extend([
+        format!("Rootfs: {}", info.rootfs.display()),
+        format!(
+            "UUID: {}",
+            info.uuid
+                .map_or_else(|| "unassigned".to_owned(), |uuid| uuid.to_string())
+        ),
+    ]);
+    lines
+}
+
+fn format_duration(seconds: u64) -> String {
+    let days = seconds / 86_400;
+    let hours = seconds % 86_400 / 3_600;
+    let minutes = seconds % 3_600 / 60;
+    let seconds = seconds % 60;
+    if days > 0 {
+        format!("{days}d {hours:02}h {minutes:02}m {seconds:02}s")
+    } else if hours > 0 {
+        format!("{hours}h {minutes:02}m {seconds:02}s")
+    } else if minutes > 0 {
+        format!("{minutes}m {seconds:02}s")
+    } else {
+        format!("{seconds}s")
+    }
+}
+
+fn format_memory(kibibytes: u64) -> String {
+    if kibibytes >= 1024 * 1024 {
+        format_unit(kibibytes, 1024 * 1024, "GiB")
+    } else if kibibytes >= 1024 {
+        format_unit(kibibytes, 1024, "MiB")
+    } else {
+        format!("{kibibytes} KiB")
+    }
+}
+
+fn format_unit(value: u64, unit: u64, suffix: &str) -> String {
+    let whole = value / unit;
+    let decimal = value % unit * 10 / unit;
+    format!("{whole}.{decimal} {suffix}")
 }
 
 #[cfg(test)]

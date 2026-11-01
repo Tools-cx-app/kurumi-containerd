@@ -15,6 +15,37 @@ use crate::syscall::cvt;
 
 pub const OPEN_NOCTTY: i32 = libc::O_NOCTTY;
 
+bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct PollEvents: libc::c_short {
+        const READABLE = libc::POLLIN;
+        const WRITABLE = libc::POLLOUT;
+        const HANGUP = libc::POLLHUP;
+        const ERROR = libc::POLLERR;
+        const INVALID = libc::POLLNVAL;
+    }
+}
+
+/// Waits for descriptor events; negative timeouts wait indefinitely.
+/// Interrupted waits are returned to the caller without retrying.
+pub fn poll<const N: usize>(
+    descriptors: [(BorrowedFd<'_>, PollEvents); N],
+    timeout_ms: libc::c_int,
+) -> io::Result<[PollEvents; N]> {
+    let mut descriptors = descriptors.map(|(fd, events)| libc::pollfd {
+        fd: fd.as_raw_fd(),
+        events: events.bits(),
+        revents: 0,
+    });
+    let count = N
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "too many descriptors to poll"))?;
+    // SAFETY: the array holds `count` initialized, writable pollfd values;
+    // the borrowed descriptors remain live for this call.
+    cvt(unsafe { libc::poll(descriptors.as_mut_ptr(), count, timeout_ms) })?;
+    Ok(descriptors.map(|fd| PollEvents::from_bits_retain(fd.revents)))
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
 pub struct WindowSize {

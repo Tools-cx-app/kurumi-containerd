@@ -7,12 +7,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["runtime"]
+runtime = ["dep:procfs", "dep:serde_json", "dep:zip"]
+
 [dependencies]
 thiserror.workspace = true
-procfs.workspace = true
-serde_json.workspace = true
+procfs = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 toml.workspace = true
-zip.workspace = true
+zip = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

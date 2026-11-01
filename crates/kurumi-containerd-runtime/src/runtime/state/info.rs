@@ -36,6 +36,8 @@ impl std::fmt::Display for ContainerInfo {
 }
 
 impl ContainerInfo {
+    /// Legacy text presentation; new frontends should format the fields directly.
+    // shortcut: preserve the public text API until a breaking release can remove it.
     #[must_use]
     pub fn display_lines(&self) -> Vec<String> {
         let mut lines = vec![format!("Name: {}", self.name)];

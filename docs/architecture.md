@@ -17,7 +17,7 @@ The `kurumi-containerd` package produces the command-line binary. The library
 crates provide internal implementation boundaries.
 
 Dependencies flow in one direction: the CLI uses TUI, runtime, configuration,
-and helper; TUI uses runtime and configuration; runtime uses host, configuration,
+and host; TUI uses runtime and configuration; runtime uses host, configuration,
 helper, and error; host uses
 configuration, helper, and error; configuration uses error. Error and helper
 do not depend on other workspace crates.
@@ -27,6 +27,18 @@ variants and source chains. Configuration and runtime re-export their existing
 error APIs. Host and runtime share `RuntimeError`, so policy callbacks cross
 the crate boundary without error conversion. The helper retains its low-level
 I/O errors.
+
+The error crate's default `runtime` feature includes runtime errors, context,
+macros, and optional procfs/JSON/ZIP error dependencies. Configuration errors
+remain available without that feature. The workspace disables error's default
+features; configuration inherits that dependency, while host and runtime explicitly
+enable `runtime`. Building configuration alone therefore does not pull procfs or
+ZIP through the shared error crate. Consumers using runtime errors with
+`default-features = false` must explicitly enable `runtime`.
+
+CLI output and the TUI view format structured `ContainerInfo` fields themselves.
+Runtime retains its existing `Display` and `display_lines` APIs for compatibility;
+new presentation behavior belongs in the consuming frontend.
 
 Configuration exposes a `Validate` trait for the existing mutating validation
 flow. Runtime exposes a `ContainerRuntime` trait for all user-facing container
@@ -123,6 +135,12 @@ Host resource APIs accept the narrow configuration data they use: rootfs owns
 rootfs paths, while network setup receives the container name, network mode and
 network options. Config-taking constructors remain compatibility adapters for
 callers outside the runtime.
+
+The terminal proxy delegates descriptor polling to helper's safe `terminal::poll`
+wrapper, which uses target-native `pollfd`, event flags, and a checked `nfds_t`
+count. Helper returns events and interrupted waits; host retains the 100 ms wait,
+interruption retry, input buffering, shutdown callbacks, and background PTY drain
+policy.
 
 Runtime supplies network state paths and shutdown callbacks to host; host does
 not import lifecycle state or init-family policy.

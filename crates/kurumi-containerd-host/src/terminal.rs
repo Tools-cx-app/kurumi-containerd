@@ -20,9 +20,9 @@ use kurumi_containerd_helper::{
     },
     signal::{Signal, SignalActionFlags, SignalHandler, SignalNumber, set_signal_handler},
     terminal::{
-        PtyPair, TerminalSettings, WindowSize, is_terminal, make_raw, open_pty, pty_number,
-        receive_fds, send_fds, set_controlling_terminal, set_nonblocking, set_terminal_settings,
-        set_terminal_size, socket_pair, terminal_settings, terminal_size,
+        PollEvents, PtyPair, TerminalSettings, WindowSize, is_terminal, make_raw, open_pty, poll,
+        pty_number, receive_fds, send_fds, set_controlling_terminal, set_nonblocking,
+        set_terminal_settings, set_terminal_size, socket_pair, terminal_settings, terminal_size,
     },
 };
 
@@ -360,41 +360,34 @@ fn proxy_input<'a>(input: &'a [u8], shutdown: Option<&dyn Fn() -> Result<()>>) -
     Ok(input)
 }
 
-#[allow(unsafe_code)]
 fn poll_terminal(
     master: BorrowedFd<'_>,
     stdin: BorrowedFd<'_>,
     stdin_open: bool,
     write_pending: bool,
 ) -> Result<(bool, bool, bool)> {
-    let mut descriptors = [
-        libc::pollfd {
-            fd: master.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        },
-        libc::pollfd {
-            fd: stdin.as_raw_fd(),
-            events: if stdin_open { libc::POLLIN } else { 0 },
-            revents: 0,
-        },
-    ];
-    if write_pending {
-        descriptors[0].events |= libc::POLLOUT;
-    }
+    let output_events = if write_pending {
+        PollEvents::READABLE | PollEvents::WRITABLE
+    } else {
+        PollEvents::READABLE
+    };
+    let input_events = if stdin_open {
+        PollEvents::READABLE
+    } else {
+        PollEvents::empty()
+    };
     loop {
-        // SAFETY: descriptors points to two initialized pollfd values.
-        let result = unsafe { libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, 100) };
-        if result >= 0 {
-            return Ok((
-                descriptors[0].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0,
-                descriptors[1].revents & libc::POLLIN != 0,
-                descriptors[0].revents & libc::POLLOUT != 0,
-            ));
-        }
-        let error = std::io::Error::last_os_error();
-        if !is_interrupted(&error) {
-            return Err(error).context("failed to poll terminal proxy");
+        match poll([(master, output_events), (stdin, input_events)], 100) {
+            Ok([output, input]) => {
+                return Ok((
+                    output
+                        .intersects(PollEvents::READABLE | PollEvents::HANGUP | PollEvents::ERROR),
+                    input.contains(PollEvents::READABLE),
+                    output.contains(PollEvents::WRITABLE),
+                ));
+            }
+            Err(error) if is_interrupted(&error) => {}
+            Err(error) => return Err(error).context("failed to poll terminal proxy"),
         }
     }
 }
