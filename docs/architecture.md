@@ -5,7 +5,7 @@ KurumiContainerd is a Cargo workspace with seven crates:
 ```text
 crates/
   kurumi-containerd-cli/      command parsing and output
-  kurumi-containerd-config/   strict TOML schema, path resolution, and validation
+  kurumi-containerd-config/   strict JSON schema, path resolution, and validation
   kurumi-containerd-error/    shared error types, result aliases, and context
   kurumi-containerd-helper/   target-aware Linux and Android syscall wrappers
   kurumi-containerd-host/     host resources and platform integration
@@ -85,7 +85,7 @@ when that stop request is active. Closing its descriptor clears the request even
 if the caller crashes.
 
 Commands capture init's actual network and cgroup namespaces and cgroup membership
-instead of deriving them from the current TOML. Cgroup directories are opened
+instead of deriving them from the current JSON configuration. Cgroup directories are opened
 through the validated monitor's mount view, preserving access to hierarchies
 bootstrapped in its private namespace. Commands join execution leaves beneath the
 captured container groups without changing resource limits.

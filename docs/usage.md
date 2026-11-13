@@ -4,7 +4,7 @@ KurumiContainerd manages one configured container per invocation. Most commands
 select an entry in `$HOME/.kurumi-containerd/config.json` using `--name NAME`.
 Single-entry lists are selected automatically; multiple entries require an exact,
 case-sensitive name before the command. `backup CONTAINER_ID OUTPUT` instead
-selects the JSON `name` directly through its required positional container ID.
+selects the JSON `container.name` directly through its required positional container ID.
 
 ## Invocation
 
@@ -13,8 +13,7 @@ kurumi-containerd [--name NAME] [--verbose] COMMAND
 ```
 
 The process reads `$HOME/.kurumi-containerd/config.json`, containing a nonempty
-list of entries with unique management `name` values and `file` paths pointing
-to TOML files. See [configuration](configuration.md)
+list of complete configurations with unique `container.name` values. See [configuration](configuration.md)
 for the JSON format and the [migration guide](migration-config-pointer.md) for
 upgrading existing commands. `check` is the only command that does not load a
 configuration. The examples below use `sudo -H`: create the JSON under root's HOME.
@@ -72,7 +71,7 @@ The manager exposes install, backup, start/stop/restart (including foreground mo
 enter, run, info, pid, show, scan and check. Each operation invokes the same
 CLI executable and HOME registry. Select a stopped container, choose Backup,
 and enter a new output path ending in `.zst`, `.xz`, `.zip` or `.tar`; the selected
-JSON `name` supplies its container ID. `run` accepts an executable and separate
+JSON `container.name` supplies its container ID. `run` accepts an executable and separate
 argument fields; it does not interpret shell quoting or pipes. Captured output
 is limited to the first 1 MiB in the manager.
 
@@ -82,7 +81,7 @@ set `KURUMI_CONTAINERD_TERMINAL` to one of those executable names or its
 path to override detection. The terminal remains open after the command so
 its result can be read; close it when finished. On headless Linux or Android,
 these actions are unavailable, while noninteractive management remains in
-the TUI. A TOML configuration with `container.foreground = true` also routes
+the TUI. A JSON entry with `container.foreground` set to `true` also routes
 ordinary start and restart through the separate terminal.
 
 ## Install a local rootfs
@@ -99,7 +98,7 @@ sudo -H kurumi-containerd install ./debian-rootfs.tar.zst
 ```
 
 For `container.rootfs_image`, provide the logical size of the new sparse ext4
-image. First point JSON `file` to your image-target TOML. Binary suffixes such as
+image. Set `container.rootfs_image` in the selected JSON entry. Binary suffixes such as
 `M`, `G`, `MiB`, and `GiB` are accepted:
 
 ```bash
@@ -124,10 +123,9 @@ sudo -H kurumi-containerd --name debian stop
 sudo -H kurumi-containerd backup debian ./debian.zst
 ```
 
-`CONTAINER_ID` is the exact, case-sensitive `name` from the HOME JSON registry,
-not the TOML `container.name`, UUID, or PID. This works with multiple registry
+`CONTAINER_ID` is the exact, case-sensitive `container.name` in config.json. This works with multiple registry
 entries without `--name`; combining `--name` with backup is rejected. Neither
-the TOML name nor its UUID is changed by backup.
+the container name nor its UUID is changed by backup.
 
 The output suffix selects the format:
 
@@ -139,7 +137,7 @@ The output suffix selects the format:
 | `.tar` | Uncompressed tar |
 
 Backup requires root and a stopped container. It exports the configured rootfs
-directory or the filesystem inside its image, not a raw image, TOML, registry,
+directory or the filesystem inside its image, not a raw image, config.json,
 runtime state, bind-mount sources, or discarded volatile OverlayFS changes.
 Image sources require the same loop-device and mount support as startup.
 The lifecycle lock prevents starting this container during export; avoid external
@@ -159,7 +157,7 @@ permission bits and hardlink identity; a warning is emitted. ZIP rejects absolut
 or escaping symlinks and non-UTF-8 or ambiguous paths rather than changing them.
 Prefer `.zst`, `.xz`, or `.tar` for system rootfs backups.
 
-Restore rootfs contents through `install` after selecting the destination TOML:
+Restore rootfs contents through `install` after selecting the destination JSON entry:
 
 ```bash
 sudo -H kurumi-containerd --name restored install ./debian.zst
@@ -170,7 +168,7 @@ The current installer restores tar xattrs on regular files only, and its PAX
 reader does not restore attribute values containing newlines. For directory or
 symlink xattrs, or newline-containing values, use an external tar implementation
 with xattr restoration enabled (for example GNU tar `--xattrs --xattrs-include='*'`).
-Keep the TOML and registry separately if needed; backup does not package them.
+Save config.json separately; backup does not package it.
 
 ## Lifecycle
 
@@ -195,9 +193,14 @@ programs that do not exit before the timeout receive `SIGKILL`.
 Set the following option when the container must run a workload that creates
 unprivileged user namespaces:
 
-```toml
-[container.security]
-allow_user_namespaces = true
+```json
+{
+  "container": {
+    "security": {
+      "allow_user_namespaces": true
+    }
+  }
+}
 ```
 
 This is useful for Docker userns-remap, Podman, Flatpak, and Bubblewrap. The
@@ -210,7 +213,7 @@ be limited to trusted containers.
 ## Enter and run
 
 Commands join the running container's actual namespaces and cgroups. Editing its
-network or resource settings in TOML takes effect on the next start; it does not
+network or resource settings in config.json takes effect on the next start; it does not
 change the isolation or limits of commands entered into the current container.
 
 ```bash

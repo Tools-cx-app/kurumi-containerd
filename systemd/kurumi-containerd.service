@@ -4,7 +4,8 @@ After=local-fs.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/kurumi-containerd --config /etc/kurumi-containerd/kurumi-containerd.toml start
+Environment=HOME=/root
+ExecStart=/usr/bin/kurumi-containerd --name debian start --foreground
 Restart=on-failure
 
 [Install]

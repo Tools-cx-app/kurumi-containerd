@@ -3,14 +3,14 @@
 ## Workspace boundaries
 
 - `KurumiContainerd` is a privileged Linux/Android container runtime, not an Android app or a security sandbox. Runtime operations generally require root and a prepared rootfs; unit tests do not.
-- The workspace has seven packages: `kurumi-containerd` (`crates/kurumi-containerd-cli`, binary entrypoint), `kurumi-containerd-tui` (terminal manager), `kurumi-containerd-config` (strict TOML loading/validation), `kurumi-containerd-error` (shared errors and context), `kurumi-containerd-host` (host resources), `kurumi-containerd-runtime` (lifecycle and isolation), and `kurumi-containerd-helper` (target-aware syscall wrappers).
+- The workspace has seven packages: `kurumi-containerd` (`crates/kurumi-containerd-cli`, binary entrypoint), `kurumi-containerd-tui` (terminal manager), `kurumi-containerd-config` (strict JSON loading/validation), `kurumi-containerd-error` (shared errors and context), `kurumi-containerd-host` (host resources), `kurumi-containerd-runtime` (lifecycle and isolation), and `kurumi-containerd-helper` (target-aware syscall wrappers).
 - In `kurumi-containerd-runtime`, `runtime/` orchestrates lifecycle/state/exec and `container/` applies in-container policy. Runtime read-only callers use `runtime/query/ContainerQuery`; trusted state paths, locks, and persistence are owned by the private `runtime/state/store/StateStore`, while process identity and recovery policy remain in `runtime/state/`. Host resources live in `kurumi-containerd-host`. Keep raw Linux/Android syscall wrappers in `kurumi-containerd-helper`; its crate-level unsafe/clippy allowances are intentional.
 
 ## Code ownership
 
 - Put raw syscalls, libc/FFI details, file-descriptor primitives, and Linux/Android or architecture-specific wrappers in `kurumi-containerd-helper`. Keep policy, lifecycle decisions, and user-facing output out of this crate.
 - Changes to `kurumi-containerd-helper` must preserve the target kernel ABI: use ABI-correct libc types, constants, structure layouts, and calling conventions under the appropriate target/architecture gates. Keep `unsafe` blocks minimal, document their safety invariants, validate pointers, lengths, ownership, and return values at the safe wrapper boundary, and do not expose an API as safe unless callers cannot violate those invariants.
-- Put TOML schema, parsing, path resolution, defaults, and configuration validation in `kurumi-containerd-config`. It must not depend on runtime or host state.
+- Put JSON schema, parsing, path resolution, defaults, and configuration validation in `kurumi-containerd-config`. It must not depend on runtime or host state.
 - Put container lifecycle and isolation policy in `kurumi-containerd-runtime`: orchestration/state/exec in `runtime/` and behavior applied inside the container in `container/`. Put host-owned resources in `kurumi-containerd-host`; it must not depend on runtime. Call `kurumi-containerd-helper` rather than duplicating unsafe syscall code.
 - Keep Host resource APIs narrow: `Rootfs` receives rootfs paths, and `Network` core setup receives the container name, `NetworkMode`, and `NetworkConfig`; `Config`-taking methods are compatibility adapters. Do not pass the complete configuration object into a resource that only needs part of it.
 - Put shared `ConfigError`, `RuntimeError`, result aliases, context extensions, and error macros in `kurumi-containerd-error`. It must not depend on other workspace crates. Config and runtime re-export their existing error types for compatibility.
@@ -39,7 +39,7 @@
 
 ## Runtime constraints
 
-- Config is strict TOML. Relative host paths resolve from the config file, while init/mount/device paths are container paths. `Config::load_persistent` may atomically rewrite the source TOML to add a missing UUID; use `Config::load` in tests that must not mutate it.
+- Config is strict JSON. Relative host paths resolve from the config file, while init/mount/device paths are container paths. `Config::load_persistent` may atomically rewrite the source JSON to add a missing UUID; use `Config::load` in tests that must not mutate it.
 - Changes to persisted state or recovery must preserve the trust model split between `runtime/state/mod.rs` and `runtime/state/store.rs`: restrictive ownership/permissions, no-follow access, atomic replacement, and PID identity checks. A numeric PID alone is not trusted. `StateStore` is a concrete private owner, not a generic storage trait; do not bypass it with direct state/lock paths.
 - Before configuring cgroup v2 limits, enable the requested controllers in both the hierarchy root and the `kurumi-containerd` parent's `cgroup.subtree_control`. Preserve already-enabled controllers and report unavailable controllers explicitly.
 - Keep consuming PTY output while monitoring background containers, even when discarding it; an unread master can block init or services once its buffer fills. Bind `/dev/console` after mounting the container's `/dev` tmpfs and before detaching `/.old_root`, which supplies the host PTY path.

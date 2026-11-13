@@ -69,17 +69,17 @@ fn polling_running_command_does_not_block() {
 #[test]
 fn invalid_and_install_only_entries_preserve_source_and_refresh() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("container.toml");
+    let file = dir.path().join("config.json");
     fs::write(&file, "invalid = [").unwrap();
-    let mut entries = [load_entry(ConfigPointer {
-        name: "display".into(),
-        file: file.clone(),
+    let mut entries = [load_entry(ConfigEntry {
+        name: "tui-decoupling-test".into(),
+        path: file.clone(),
     })];
     assert!(entries[0].info.is_err());
     assert!(!entries[0].install_ready);
     assert_eq!(fs::read_to_string(&file).unwrap(), "invalid = [");
 
-    let source = "[runtime]\n[container]\nname = 'tui-decoupling-test'\nrootfs = 'missing-rootfs'\nforeground = true\n";
+    let source = r#"[{"runtime": {}, "container": {"name": "tui-decoupling-test", "rootfs": "missing-rootfs", "foreground": true}}]"#;
     fs::write(&file, source).unwrap();
     let backend = Backend::new(Path::new("unused"));
     backend.refresh(&mut entries);

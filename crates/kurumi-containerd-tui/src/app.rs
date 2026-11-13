@@ -31,7 +31,7 @@ pub fn run(exe: &Path) -> Result<()> {
     }
     let backend = Backend::new(exe);
     let mut entries = backend.load_entries()?;
-    let mut state = UiState::new(entries.iter().map(|e| e.pointer.name.clone()).collect());
+    let mut state = UiState::new(entries.iter().map(|e| e.config.name.clone()).collect());
     let mut output = String::new();
     let mut task: Option<CommandTask> = None;
     let mut refreshed = Instant::now();
@@ -185,7 +185,7 @@ fn handle_screen(
         KeyCode::Char('r') if !busy => match backend.load_entries() {
             Ok(new) => {
                 *entries = new;
-                state.reload(entries.iter().map(|e| e.pointer.name.clone()).collect());
+                state.reload(entries.iter().map(|e| e.config.name.clone()).collect());
                 *output = "Registry reloaded".into();
             }
             Err(e) => *output = format!("{e:#}"),

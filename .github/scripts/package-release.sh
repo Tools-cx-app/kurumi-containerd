@@ -22,7 +22,7 @@ trap 'rm -rf "$work"' EXIT
 archive="$work/$name"
 mkdir -p "$archive"
 install -m 0755 "$binary" "$archive/kurumi-containerd"
-install -m 0644 LICENSE README.md README_CN.md kurumi-containerd.example.toml "$archive/"
+install -m 0644 LICENSE README.md README_CN.md config.example.json "$archive/"
 tar --owner=0 --group=0 -C "$work" -cJf "dist/$name.tar.xz" "$name"
 tar -tJf "dist/$name.tar.xz" | grep -Fx "$name/kurumi-containerd"
 
@@ -41,7 +41,7 @@ package_version=${package_version//-/.}
 payload="$work/payload"
 mkdir -p "$payload/usr/bin" "$payload/usr/share/doc/kurumi-containerd"
 install -m 0755 "$binary" "$payload/usr/bin/kurumi-containerd"
-install -m 0644 LICENSE README.md README_CN.md kurumi-containerd.example.toml \
+install -m 0644 LICENSE README.md README_CN.md config.example.json \
   "$payload/usr/share/doc/kurumi-containerd/"
 
 # Read the target ELF rather than executing a cross-built binary on the runner.
@@ -99,7 +99,7 @@ cp -a %{_sourcedir}/payload/. %{buildroot}/
 %license %attr(0644,root,root) /usr/share/doc/kurumi-containerd/LICENSE
 %doc %attr(0644,root,root) /usr/share/doc/kurumi-containerd/README.md
 %doc %attr(0644,root,root) /usr/share/doc/kurumi-containerd/README_CN.md
-%doc %attr(0644,root,root) /usr/share/doc/kurumi-containerd/kurumi-containerd.example.toml
+%doc %attr(0644,root,root) /usr/share/doc/kurumi-containerd/config.example.json
 EOF
 # Preserve the Cargo output; host strip/debug tools cannot process every target.
 rpmbuild --target "$rpm_arch" --define "_topdir $rpm_top" \

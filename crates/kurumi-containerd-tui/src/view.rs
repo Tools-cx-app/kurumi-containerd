@@ -189,7 +189,7 @@ pub(super) fn draw(
             };
             if spacious && !narrow {
                 ListItem::new(vec![
-                    Line::styled(&entry.pointer.name, Style::default().bold()),
+                    Line::styled(&entry.config.name, Style::default().bold()),
                     Line::from(vec![
                         Span::styled(format!("● {status}"), Style::default().fg(color)),
                         Span::raw("  "),
@@ -207,7 +207,7 @@ pub(super) fn draw(
             } else {
                 ListItem::new(Line::from(vec![
                     Span::styled(format!("{status:7} "), Style::default().fg(color).bold()),
-                    Span::raw(&entry.pointer.name),
+                    Span::raw(&entry.config.name),
                 ]))
             }
         })
@@ -235,15 +235,11 @@ pub(super) fn draw(
                 .into()
         },
         |entry| match &entry.info {
-            Ok(info) => std::iter::once(format!("Management: {}", entry.pointer.name))
-                .chain(std::iter::once(format!(
-                    "Config: {}",
-                    entry.pointer.file.display()
-                )))
+            Ok(info) => std::iter::once(format!("Config: {}", entry.config.path.display()))
                 .chain(info_lines(info))
                 .collect::<Vec<_>>()
                 .join("\n"),
-            Err(error) => format!("Config: {}\nError: {error:#}", entry.pointer.file.display()),
+            Err(error) => format!("Config: {}\nError: {error:#}", entry.config.path.display()),
         },
     );
     let details: Vec<_> = details
@@ -435,7 +431,7 @@ fn draw_form(frame: &mut Frame<'_>, state: &UiState, kind: ActionKind, entry: Op
     frame.render_widget(
         Paragraph::new(format!(
             "Target: {}",
-            entry.map_or("Host", |entry| entry.pointer.name.as_str())
+            entry.map_or("Host", |entry| entry.config.name.as_str())
         ))
         .style(Style::default().fg(ACCENT).bold()),
         rows[0],

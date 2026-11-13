@@ -9,14 +9,14 @@ on:
     paths:
       - "crates/**"
       - "Cargo.*"
-      - "kurumi-containerd.example.toml"
+      - "config.example.json"
       - ".github/workflows/benchmarks.yml"
   pull_request:
     branches: ["master"]
     paths:
       - "crates/**"
       - "Cargo.*"
-      - "kurumi-containerd.example.toml"
+      - "config.example.json"
       - ".github/workflows/benchmarks.yml"
   workflow_dispatch:
 

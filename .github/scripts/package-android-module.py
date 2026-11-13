@@ -44,5 +44,5 @@ with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as
     for abi, binary in payloads.items():
         archive.write(binary, f"binaries/{abi}/kurumi-containerd", compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
     archive.write(ROOT / "LICENSE", "LICENSE", compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
-    archive.write(ROOT / "kurumi-containerd.example.toml", "kurumi-containerd.example.toml", compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+    archive.write(ROOT / "config.example.json", "config.example.json", compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 print(destination)

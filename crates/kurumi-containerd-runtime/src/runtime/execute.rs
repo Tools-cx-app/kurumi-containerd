@@ -218,7 +218,7 @@ fn capture_namespaces(process: &Process) -> Result<Vec<(&'static str, File)>> {
         })
         .collect::<procfs::ProcResult<Vec<_>>>()?;
     // Capture what init actually uses, including its cgroup namespace, even if
-    // the TOML network mode has changed since boot. Some kernels lack these namespaces.
+    // the configured network mode has changed since boot. Some kernels lack these namespaces.
     for name in ["net", "cgroup"] {
         match process.open_relative(Path::new("ns").join(name)) {
             Ok(file) => namespaces.push((name, file)),

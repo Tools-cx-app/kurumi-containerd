@@ -1,7 +1,7 @@
 # KurumiContainerd
 
 KurumiContainerd 是一个使用 Rust 编写的特权 Linux 容器运行时和命令行工具。它通过
-Linux namespace、挂载、cgroup、网络及持久化 TOML 配置管理轻量级系统容器。
+Linux namespace、挂载、cgroup、网络及持久化 JSON 配置管理轻量级系统容器。
 
 项目名中的 **Kurumi** 是日语“胡桃”（くるみ）的罗马字，后缀
 **Containerd** 表明它是一个容器运行时项目。
@@ -67,7 +67,7 @@ cargo bench -p kurumi-containerd-config --bench config --locked
 每轮使用全新的目标位置，临时目录准备和清理不计时；生产路径中的暂存、元数据处理
 和备份 `fsync` 计入耗时。较慢的归档用例采用 10 个样本。
 
-使用 Criterion 测量 TOML 解析、环境变量解析（8、64、512 项）、完整配置加载，
+使用 Criterion 测量 JSON 解析、环境变量解析（8、64、512 项）、完整配置加载，
 以及普通路径、绝对和相对符号链接的容器路径解析。临时 rootfs 和配置文件均在
 计时循环之外准备。文件系统测试使用预热后的缓存，不测量容器启动或镜像挂载。
 使用 Cargo 默认的优化 bench profile，结果保存在 `target/criterion/`。
@@ -108,18 +108,16 @@ Debian/RPM 包将程序安装到 `/usr/bin`，文档和示例配置安装到
 ## 快速开始
 
 ```bash
-cp kurumi-containerd.example.toml kurumi-containerd.toml
-$EDITOR kurumi-containerd.toml
 sudo -H sh -c 'mkdir -p "$HOME/.kurumi-containerd" && exec vi "$HOME/.kurumi-containerd/config.json"'
 ```
 
-将下面的 `file` 替换为 TOML 的实际绝对路径并保存：
+参考 [config.example.json](config.example.json)，将所有配置写入这个文件，并修改 rootfs 路径：
 
 ```json
 [
   {
-    "name": "debian",
-    "file": "/absolute/path/to/kurumi-containerd.toml"
+    "runtime": {},
+    "container": {"name": "debian", "rootfs": "/srv/kurumi/debian/rootfs"}
   }
 ]
 ```
@@ -134,12 +132,12 @@ sudo -H ./target/release/kurumi-containerd stop
 
 使用 `sudo -H ./target/release/kurumi-containerd tui` 可打开 ratatui 管理界面，
 浏览所有已登记容器并执行现有 CLI 命令。按键、配置选择和终端要求见
-[CLI 使用](docs/usage.md)。JSON 指针格式和路径规则见[配置参考](docs/configuration.md)；
+[CLI 使用](docs/usage.md)。JSON 配置格式和路径规则见[配置参考](docs/configuration.md)；
 从已删除的 `-c/--config` 入口迁移时，参阅[配置入口迁移指南](docs/migration-config-pointer.md)。
 
 备份示例：`sudo -H ./target/release/kurumi-containerd backup debian ./debian.zst`。
-先停止容器；`debian` 是 JSON `name`，不要求等于 TOML 的 `container.name`。
-TUI 选择容器后使用 Backup 输入输出路径；备份不包含 TOML/注册表，ZIP 有元数据限制，
+先停止容器；`debian` 统一使用 JSON 中的 `container.name`，与运行时、TUI 一致。
+TUI 选择容器后使用 Backup 输入输出路径；备份不包含 config.json，ZIP 有元数据限制，
 详见[备份与恢复说明](docs/usage.md#back-up-a-container)。
 
 ## 命令

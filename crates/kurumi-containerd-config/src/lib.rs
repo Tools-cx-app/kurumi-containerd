@@ -6,8 +6,8 @@
 mod config;
 mod environment;
 mod model;
-mod pointer;
-pub use pointer::ConfigPointer;
+mod registry;
+pub use registry::ConfigEntry;
 
 pub use config::resolve_container_path;
 pub use config::{ConfigError, Result};

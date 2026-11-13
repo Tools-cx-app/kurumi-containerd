@@ -118,9 +118,9 @@ fn form_preserves_spaces_and_recovers_from_missing_input() {
     let mut output = String::new();
     let mut child = None;
     let entry = crate::registry::Entry {
-        pointer: kurumi_containerd_config::ConfigPointer {
+        config: kurumi_containerd_config::ConfigEntry {
             name: "test".into(),
-            file: "container.toml".into(),
+            path: "config.json".into(),
         },
         info: Err(anyhow::anyhow!("rootfs not installed")),
         foreground: false,

@@ -15,10 +15,10 @@ fn loads_init_absolute_symlink_inside_rootfs() {
     fs::write(dir.path().join("rootfs/container-test-init"), "init").unwrap();
     std::os::unix::fs::symlink("/container-test-init", dir.path().join("rootfs/sbin/init"))
         .unwrap();
-    let path = dir.path().join("container.toml");
+    let path = dir.path().join("config.json");
     fs::write(
         &path,
-        "[runtime]\n[container]\nname='test'\nrootfs='rootfs'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs": "rootfs"}}]"#,
     )
     .unwrap();
     assert!(Config::load(&path).is_ok());
@@ -36,31 +36,31 @@ fn container_path_rejects_escape_and_symlink_loop() {
 }
 
 #[test]
-fn loads_toml_and_resolves_relative_host_paths() {
+fn loads_json_and_resolves_relative_host_paths() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("rootfs/sbin")).unwrap();
     fs::write(dir.path().join("rootfs/sbin/init"), "").unwrap();
     fs::write(
-        dir.path().join("container.toml"),
-        "[runtime]\n\n[container]\nname = 'test-1'\nrootfs = 'rootfs'\n",
+        dir.path().join("config.json"),
+        r#"[{"runtime": {}, "container": {"name": "test-1", "rootfs": "rootfs"}}]"#,
     )
     .unwrap();
 
-    let config = Config::load(&dir.path().join("container.toml")).unwrap();
+    let config = Config::load(&dir.path().join("config.json")).unwrap();
     assert_eq!(config.container.hostname, "test-1");
     assert_eq!(config.container.rootfs, Some(dir.path().join("rootfs")));
 }
 
 #[test]
-fn malformed_toml_keeps_parse_source() {
+fn malformed_json_keeps_parse_source() {
     use std::error::Error as _;
 
     let dir = tempdir().unwrap();
-    let path = dir.path().join("broken.toml");
+    let path = dir.path().join("broken.json");
     fs::write(&path, "[container\n").unwrap();
     let error = Config::load(&path).unwrap_err();
-    assert!(matches!(&error, ConfigError::TomlParse { .. }));
-    assert!(error.to_string().contains("failed to parse TOML config"));
+    assert!(matches!(&error, ConfigError::Context { .. }));
+    assert!(error.to_string().contains("failed to parse JSON config"));
     assert!(error.source().is_some());
 }
 
@@ -85,17 +85,18 @@ fn config_can_be_validated_through_trait() {
 
 #[test]
 fn rejects_removed_workdir_setting() {
-    let source = "[runtime]\nworkdir = '/tmp'\n[container]\nname = 'test'\nrootfs = '/tmp'\n";
-    assert!(toml::from_str::<Config>(source).is_err());
+    let source =
+        r#"[{"runtime": {"workdir": "/tmp"}, "container": {"name": "test", "rootfs": "/tmp"}}]"#;
+    assert!(serde_json::from_str::<Vec<Config>>(source).is_err());
 }
 
 #[test]
 fn loads_missing_directory_for_install() {
     let dir = tempdir().unwrap();
-    let path = dir.path().join("container.toml");
+    let path = dir.path().join("config.json");
     fs::write(
         &path,
-        "[runtime]\n\n[container]\nname = 'test'\nrootfs = 'rootfs'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs": "rootfs"}}]"#,
     )
     .unwrap();
 
@@ -107,10 +108,10 @@ fn loads_missing_directory_for_install() {
 #[test]
 fn loads_missing_image_for_install() {
     let dir = tempdir().unwrap();
-    let path = dir.path().join("container.toml");
+    let path = dir.path().join("config.json");
     fs::write(
         &path,
-        "[runtime]\n\n[container]\nname = 'test'\nrootfs_image = 'rootfs.img'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs_image": "rootfs.img"}}]"#,
     )
     .unwrap();
 
@@ -125,10 +126,10 @@ fn loads_missing_image_for_install() {
 #[test]
 fn install_target_rejects_parent_traversal() {
     let dir = tempdir().unwrap();
-    let path = dir.path().join("container.toml");
+    let path = dir.path().join("config.json");
     fs::write(
         &path,
-        "[runtime]\n\n[container]\nname = 'test'\nrootfs = '../rootfs'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs": "../rootfs"}}]"#,
     )
     .unwrap();
 
@@ -152,10 +153,10 @@ fn persists_stable_uuid_when_missing() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("rootfs/sbin")).unwrap();
     fs::write(dir.path().join("rootfs/sbin/init"), "").unwrap();
-    let path = dir.path().join("container.toml");
+    let path = dir.path().join("config.json");
     fs::write(
         &path,
-        "[runtime]\n\n[container]\nname = 'test'\nrootfs = 'rootfs'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs": "rootfs"}}]"#,
     )
     .unwrap();
 
@@ -171,10 +172,10 @@ fn persistent_load_preserves_permissions() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("rootfs/sbin")).unwrap();
     fs::write(dir.path().join("rootfs/sbin/init"), "").unwrap();
-    let path = dir.path().join("container.toml");
+    let path = dir.path().join("config.json");
     fs::write(
         &path,
-        "[runtime]\n\n[container]\nname = 'test'\nrootfs = 'rootfs'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs": "rootfs"}}]"#,
     )
     .unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
@@ -192,13 +193,13 @@ fn persistent_load_preserves_config_symlink() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("rootfs/sbin")).unwrap();
     fs::write(dir.path().join("rootfs/sbin/init"), "").unwrap();
-    let target = dir.path().join("container.target.toml");
+    let target = dir.path().join("config.target.json");
     fs::write(
         &target,
-        "[runtime]\n\n[container]\nname = 'test'\nrootfs = 'rootfs'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs": "rootfs"}}]"#,
     )
     .unwrap();
-    let path = dir.path().join("container.toml");
+    let path = dir.path().join("config.json");
     std::os::unix::fs::symlink(&target, &path).unwrap();
 
     Config::load_persistent(&path).unwrap();
@@ -212,10 +213,10 @@ fn concurrent_persistent_loads_share_uuid() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("rootfs/sbin")).unwrap();
     fs::write(dir.path().join("rootfs/sbin/init"), "").unwrap();
-    let path = Arc::new(dir.path().join("container.toml"));
+    let path = Arc::new(dir.path().join("config.json"));
     fs::write(
         path.as_ref(),
-        "[runtime]\n\n[container]\nname = 'test'\nrootfs = 'rootfs'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs": "rootfs"}}]"#,
     )
     .unwrap();
     let loads = (0..2)
@@ -299,10 +300,10 @@ fn loads_environment_file_before_inline_overrides() {
         "LANG=en_US.UTF-8\nFILE_ONLY=yes\n",
     )
     .unwrap();
-    let path = dir.path().join("container.toml");
+    let path = dir.path().join("config.json");
     fs::write(
         &path,
-        "[runtime]\n\n[container]\nname = 'test'\nrootfs = 'rootfs'\nenvironment_file = 'container.env'\n\n[container.environment]\nLANG = 'C.UTF-8'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs": "rootfs", "environment_file": "container.env", "environment": {"LANG": "C.UTF-8"}}}]"#,
     )
     .unwrap();
 
@@ -310,7 +311,7 @@ fn loads_environment_file_before_inline_overrides() {
     assert_eq!(config.container.environment["LANG"], "C.UTF-8");
     assert_eq!(config.container.environment["FILE_ONLY"], "yes");
     let persisted = fs::read_to_string(path).unwrap();
-    assert!(persisted.contains("environment_file = \"container.env\""));
+    assert!(persisted.contains("environment_file"));
     assert!(!persisted.contains("FILE_ONLY"));
 }
 
@@ -385,10 +386,10 @@ fn test_config() -> (tempfile::TempDir, Config) {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("rootfs/sbin")).unwrap();
     fs::write(dir.path().join("rootfs/sbin/init"), "").unwrap();
-    let path = dir.path().join("container.toml");
+    let path = dir.path().join("config.json");
     fs::write(
         &path,
-        "[runtime]\n\n[container]\nname = 'test'\nrootfs = 'rootfs'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs": "rootfs"}}]"#,
     )
     .unwrap();
     let config = Config::load(&path).unwrap();

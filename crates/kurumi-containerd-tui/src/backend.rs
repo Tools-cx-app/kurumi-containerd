@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-v3-only
 
 use anyhow::Result;
-use kurumi_containerd_config::{Config, ConfigPointer};
+use kurumi_containerd_config::ConfigEntry;
 use kurumi_containerd_runtime::{ContainerQuery, Runtime};
 use std::{
     fs::File,
@@ -53,7 +53,7 @@ impl<'a> Backend<'a> {
 
     #[allow(clippy::unused_self)]
     pub(super) fn load_entries(&self) -> Result<Vec<Entry>> {
-        Ok(ConfigPointer::load_home()?
+        Ok(ConfigEntry::load_home()?
             .into_iter()
             .map(load_entry)
             .collect())
@@ -72,7 +72,7 @@ impl<'a> Backend<'a> {
     }
 
     pub(super) fn launch(&self, action: &Action, selected: Option<&Entry>) -> Result<Launch> {
-        let args = action.args(selected.map_or("", |entry| entry.pointer.name.as_str()));
+        let args = action.args(selected.map_or("", |entry| entry.config.name.as_str()));
         if action.needs_terminal(selected.is_some_and(|entry| entry.foreground)) {
             let Ok(Some((path, program))) = terminal_command() else {
                 return Ok(Launch::Failed("No graphical terminal available".into()));
@@ -115,9 +115,9 @@ impl<'a> Backend<'a> {
     }
 }
 
-fn load_entry(pointer: ConfigPointer) -> Entry {
-    let install_ready = Config::load_for_install(&pointer.file).is_ok();
-    let (info, foreground) = match Config::load(&pointer.file) {
+fn load_entry(config: ConfigEntry) -> Entry {
+    let install_ready = config.load_for_install().is_ok();
+    let (info, foreground) = match config.load_config() {
         Ok(config) => {
             let foreground = config.container.foreground;
             (
@@ -130,7 +130,7 @@ fn load_entry(pointer: ConfigPointer) -> Entry {
         Err(error) => (Err(error.into()), false),
     };
     Entry {
-        pointer,
+        config,
         info,
         foreground,
         install_ready,
@@ -138,8 +138,8 @@ fn load_entry(pointer: ConfigPointer) -> Entry {
 }
 
 fn refresh_entry(entry: &mut Entry) {
-    entry.install_ready = Config::load_for_install(&entry.pointer.file).is_ok();
-    match Config::load(&entry.pointer.file) {
+    entry.install_ready = entry.config.load_for_install().is_ok();
+    match entry.config.load_config() {
         Ok(config) => {
             entry.foreground = config.container.foreground;
             entry.info = Runtime::new(config)

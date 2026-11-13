@@ -4,7 +4,7 @@
 use super::*;
 
 #[test]
-fn install_uses_selected_management_name_and_exact_arguments() {
+fn install_uses_selected_container_name_and_exact_arguments() {
     let action = Action::Install {
         archive: "rootfs.tar".into(),
         size: Some("8G".into()),
@@ -41,12 +41,12 @@ fn configured_foreground_start_uses_separate_terminal() {
 #[test]
 fn backup_requires_successful_inactive_info() {
     let mut entry = Entry {
-        pointer: kurumi_containerd_config::ConfigPointer {
+        config: kurumi_containerd_config::ConfigEntry {
             name: "test".into(),
-            file: "container.toml".into(),
+            path: "config.json".into(),
         },
         info: Ok(kurumi_containerd_runtime::ContainerInfo {
-            name: "runtime-name".into(),
+            name: "test".into(),
             active: false,
             init_pid: None,
             monitor_pid: None,

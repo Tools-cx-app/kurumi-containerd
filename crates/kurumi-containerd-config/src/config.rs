@@ -22,14 +22,14 @@ use kurumi_containerd_error::{
 };
 
 impl Config {
-    /// Loads, resolves, and validates a TOML configuration.
+    /// Loads, resolves, and validates a JSON configuration.
     ///
     /// # Errors
     ///
     /// Returns an error when the file cannot be read or parsed, a host path
     /// cannot be resolved, or a configuration invariant is violated.
     pub fn load(path: &Path) -> Result<Self> {
-        Self::load_with(path, false)
+        Self::load_selected(path, None, false)
     }
 
     /// Loads configuration for installing a rootfs into a target that may not
@@ -40,16 +40,18 @@ impl Config {
     /// Returns an error when the configuration is invalid or a target parent
     /// cannot be resolved.
     pub fn load_for_install(path: &Path) -> Result<Self> {
-        Self::load_with(path, true)
+        Self::load_selected(path, None, true)
     }
 
-    fn load_with(path: &Path, installing: bool) -> Result<Self> {
-        let source = fs::read_to_string(path)
-            .with_context(|| format!("failed to read config {}", path.display()))?;
+    pub(crate) fn load_selected(path: &Path, name: Option<&str>, installing: bool) -> Result<Self> {
+        let mut document = crate::registry::read_document(path)?;
+        let index = crate::registry::select_document(&document, name)?;
         let mut config: Self =
-            toml::from_str(&source).map_err(|source| ConfigError::TomlParse {
-                context: format!("failed to parse TOML config {}", path.display()),
-                source,
+            serde_json::from_value(document.swap_remove(index)).map_err(|source| {
+                ConfigError::Context {
+                    context: format!("failed to parse JSON config {}", path.display()),
+                    source: Box::new(source),
+                }
             })?;
         config.resolve_paths(path, installing)?;
         config.validate_inner(!installing)?;
@@ -58,13 +60,17 @@ impl Config {
 
     /// Loads a configuration and persists an external identity when it does
     /// not already have one. The write is atomic so a killed CLI cannot leave
-    /// a partially written TOML file.
+    /// a partially written JSON file.
     ///
     /// # Errors
     ///
     /// Returns an error when the source configuration is invalid or the
-    /// persistent TOML rewrite cannot be committed.
+    /// persistent JSON rewrite cannot be committed.
     pub fn load_persistent(path: &Path) -> Result<Self> {
+        Self::load_persistent_selected(path, None)
+    }
+
+    pub(crate) fn load_persistent_selected(path: &Path, name: Option<&str>) -> Result<Self> {
         let persistent_path = path
             .canonicalize()
             .with_context(|| format!("failed to resolve config {}", path.display()))?;
@@ -86,24 +92,17 @@ impl Config {
             .with_context(|| format!("failed to open config lock {}", lock_path.display()))?;
         lock.lock_exclusive()
             .context("failed to lock persistent config")?;
-        let config = Self::load(path)?;
+        let config = Self::load_selected(path, name, false)?;
         if config.container.uuid.is_none() {
-            let source = fs::read_to_string(&persistent_path)
-                .with_context(|| format!("failed to read config {}", path.display()))?;
-            let mut document: toml::Value =
-                toml::from_str(&source).map_err(|source| ConfigError::TomlParse {
-                    context: format!("failed to parse TOML config {}", path.display()),
-                    source,
+            let mut document = crate::registry::read_document(&persistent_path)?;
+            let index = crate::registry::select_document(&document, name)?;
+            document[index]["container"]["uuid"] =
+                serde_json::Value::String(Uuid::new_v4().to_string());
+            let encoded =
+                serde_json::to_string_pretty(&document).map_err(|source| ConfigError::Context {
+                    context: "failed to serialize persistent JSON config".to_owned(),
+                    source: Box::new(source),
                 })?;
-            let container = document
-                .get_mut("container")
-                .and_then(toml::Value::as_table_mut)
-                .context("TOML config has no container table")?;
-            container.insert(
-                "uuid".to_owned(),
-                toml::Value::String(Uuid::new_v4().to_string()),
-            );
-            let encoded = toml::to_string_pretty(&document)?;
             let temporary = persistent_path.with_extension(format!("{}.tmp", Uuid::new_v4()));
             let metadata = fs::metadata(&persistent_path)?;
             let result = (|| {
@@ -132,7 +131,7 @@ impl Config {
                 fs::remove_file(&temporary).ok();
             }
             result?;
-            return Self::load(path);
+            return Self::load_selected(path, name, false);
         }
         Ok(config)
     }

@@ -87,21 +87,17 @@ def run_case(binary, directory, mode):
         (root / "usr/lib/systemd/systemd").write_bytes(b"systemd detection marker")
         init_path = "/sbin/init"
     name = f"p1-review-{os.getpid()}-{mode}"
-    config = directory / f"{mode}.toml"
-    source = (
-        f'[runtime]\n[container]\nname="{name}"\nrootfs="{root}"\n'
-        f'init="{init_path}"\n[container.environment]\nMODE="{mode}"\n'
-    )
+    container = {"name": name, "rootfs": str(root), "init": init_path,
+                 "environment": {"MODE": mode}}
     if mode == "cgroup":
-        source += (
-            "[container.resources]\nmemory_bytes=67108864\npids=32\n"
-            "cpu_quota=10000\ncpu_period=100000\n"
-        )
-    config.write_text(source)
+        container["resources"] = {"memory_bytes": 67108864, "pids": 32,
+                                  "cpu_quota": 10000, "cpu_period": 100000}
     home = directory / f"{mode}-home"
-    pointer_dir = home / ".kurumi-containerd"
-    pointer_dir.mkdir(parents=True)
-    (pointer_dir / "config.json").write_text(json.dumps([{"name": name, "file": str(config)}]))
+    config_dir = home / ".kurumi-containerd"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.json").write_text(json.dumps([
+        {"runtime": {}, "container": container}
+    ]))
     environment = dict(os.environ, HOME=str(home))
     command = [binary]
     try:

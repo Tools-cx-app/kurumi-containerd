@@ -16,7 +16,7 @@ TARGET = {"x86_64": "x86_64", "aarch64": "aarch64"}[platform.machine()] + "-unkn
 
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
-    for source in ("LICENSE", "README.md", "README_CN.md", "kurumi-containerd.example.toml"):
+    for source in ("LICENSE", "README.md", "README_CN.md", "config.example.json"):
         shutil.copy2(ROOT / source, work / source)
     for version in ("0.2.1", "0.2.2-rc.1"):
         for profile in ("debug", "release"):
@@ -37,10 +37,12 @@ with tempfile.TemporaryDirectory() as directory:
                 entry = archive.getmember(f"{name}/kurumi-containerd")
                 assert entry.mode == 0o755 and entry.uid == entry.gid == 0
                 assert archive.extractfile(entry).read() == binary.read_bytes()
+                assert archive.extractfile(f"{name}/config.example.json").read() == (ROOT / "config.example.json").read_bytes()
             deb = work / "dist" / f"{name}.deb"
             extracted = work / f"extracted-{version}-{profile}"
             subprocess.run(["dpkg-deb", "-x", str(deb), str(extracted)], check=True)
             assert (extracted / "usr/bin/kurumi-containerd").read_bytes() == binary.read_bytes()
+            assert (extracted / "usr/share/doc/kurumi-containerd/config.example.json").read_bytes() == (ROOT / "config.example.json").read_bytes()
             rpm = work / "dist" / f"{name}.rpm"
             listing = subprocess.check_output(["rpm", "-qpl", str(rpm)], text=True)
             assert "/usr/bin/kurumi-containerd\n" in listing

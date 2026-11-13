@@ -23,49 +23,47 @@ def main():
         return result.returncode, result.stdout + result.stderr
 
     _, output = run("check")
-    assert "HOME" not in output and "config pointer" not in output, output
+    assert "HOME" not in output and "config.json" not in output, output
     status, output = run("info")
     assert status != 0 and "HOME" in output, output
 
-    with tempfile.TemporaryDirectory(prefix="kurumi-pointer-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="kurumi-json-") as temporary:
         home = Path(temporary)
         environment["HOME"] = str(home)
         environment["KURUMI_CONTAINERD_CONFIG"] = str(home / "obsolete.toml")
-        pointer = home / ".kurumi-containerd" / "config.json"
+        path = home / ".kurumi-containerd" / "config.json"
         status, output = run("info")
-        assert status != 0 and str(pointer) in output, output
+        assert status != 0 and str(path) in output, output
         assert "obsolete.toml" not in output, output
-        pointer.parent.mkdir()
-        pointer.write_text(json.dumps([{"name": "Display name", "file": "container.toml"}]))
-        toml = pointer.parent / "container.toml"
-        status, output = run("install", str(home / "missing.tar"))
-        assert status != 0 and str(toml) in output, output
-        # Fail during TOML validation, before privileged runtime operations.
-        toml.write_text("[runtime]\n[container]\nname='bad/name'\nrootfs='rootfs'\n")
+        path.parent.mkdir()
+        path.write_text(json.dumps([{"name": "old", "file": "old.toml"}]))
+        status, output = run("info")
+        assert status != 0 and "container.name" in output, output
+
+        entries = [{"runtime": {}, "container": {"name": "bad/name", "rootfs": "rootfs"}}]
+        path.write_text(json.dumps(entries))
         status, output = run("install", str(home / "missing.tar"))
         assert status != 0 and "container name" in output, output
-        pointer.write_text(json.dumps([
-            {"name": "Display name", "file": "container.toml"},
-            {"name": "other", "file": "other.toml"},
-        ]))
+        entries[0]["container"]["name"] = "debian"
+        entries.append({"runtime": {}, "container": {"name": "other", "rootfs": "other-rootfs"}})
+        path.write_text(json.dumps(entries))
         status, output = run("info")
         assert status != 0 and "--name" in output, output
-        status, output = run("--name", "other", "install", str(home / "missing.tar"))
-        assert status != 0 and str(pointer.parent / "other.toml") in output, output
+        status, output = run("--name", "other", "info")
+        assert status != 0 and str(path.parent / "other-rootfs") in output, output
         status, output = run("--name", "missing", "info")
-        assert status != 0 and "no config pointer named" in output, output
-        (pointer.parent / "rootfs/sbin").mkdir(parents=True)
-        (pointer.parent / "rootfs/sbin/init").write_bytes(b"init")
+        assert status != 0 and "no container named" in output, output
         status, output = run("backup", "other", str(home / "backup.tar"))
-        assert status != 0 and str(pointer.parent / "other.toml") in output, output
-        status, output = run("backup", "Display name", str(home / "backup.tar"))
-        assert status != 0 and "container name" in output, output
-        status, output = run("backup", "display name", str(home / "backup.tar"))
-        assert status != 0 and "no config pointer named" in output, output
+        assert status != 0 and str(path.parent / "other-rootfs") in output, output
+        status, output = run("backup", "Other", str(home / "backup.tar"))
+        assert status != 0 and "no container named" in output, output
+        status, output = run("--name", "debian", "backup", "other", str(home / "backup.tar"))
+        assert status != 0 and "do not supply --name" in output, output
+        assert path.read_text() == json.dumps(entries), "read-only commands rewrote JSON"
         for flag in ["-c", "--config"]:
-            status, output = run(flag, str(toml), "info")
+            status, output = run(flag, "old.toml", "info")
             assert status != 0 and "unexpected argument" in output, output
-    print("PASS: HOME lookup, check bypass, legacy rejection, JSON-to-TOML install and backup selection")
+    print("PASS: HOME lookup, check bypass, legacy rejection, unified JSON name and backup selection")
 
 
 if __name__ == "__main__":

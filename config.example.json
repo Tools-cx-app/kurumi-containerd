@@ -1,0 +1,51 @@
+[
+  {
+    "runtime": {
+      "stop_timeout_seconds": 15
+    },
+    "container": {
+      "name": "debian-dev",
+      "rootfs": "./rootfs",
+      "hostname": "debian-dev",
+      "init": "/sbin/init",
+      "foreground": false,
+      "volatile": false,
+      "network": "host",
+      "network_options": {
+        "address": "172.28.0.2",
+        "gateway": "172.28.0.1",
+        "prefix": 16,
+        "bridge": "kurumi-br0",
+        "gateway_bridge": "",
+        "dns": [
+          "1.1.1.1",
+          "8.8.8.8"
+        ]
+      },
+      "android": {
+        "storage": false,
+        "gpu": false,
+        "binder": false,
+        "termux_x11": false,
+        "virgl": false,
+        "pulse_audio": false,
+        "selinux_permissive": false
+      },
+      "resources": {},
+      "security": {
+        "read_only_sys": true,
+        "allow_user_namespaces": false
+      },
+      "environment": {
+        "LANG": "C.UTF-8"
+      },
+      "mounts": [
+        {
+          "source": "./shared",
+          "target": "/mnt/shared",
+          "read_only": false
+        }
+      ]
+    }
+  }
+]

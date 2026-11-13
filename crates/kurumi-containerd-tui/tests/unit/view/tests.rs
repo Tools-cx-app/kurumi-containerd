@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-v3-only
 
 use super::*;
-use kurumi_containerd_config::ConfigPointer;
+use kurumi_containerd_config::ConfigEntry;
 use kurumi_containerd_runtime::ContainerInfo;
 use ratatui::{Terminal, backend::TestBackend};
 use std::path::PathBuf;
@@ -148,9 +148,9 @@ fn selected_action_and_form_error_are_visible() {
 #[test]
 fn confirmation_identifies_target_container() {
     let entry = Entry {
-        pointer: ConfigPointer {
+        config: ConfigEntry {
             name: "production".into(),
-            file: "container.toml".into(),
+            path: "config.json".into(),
         },
         info: Err(anyhow::anyhow!("unavailable")),
         foreground: false,
@@ -167,9 +167,9 @@ fn confirmation_identifies_target_container() {
 #[test]
 fn narrow_details_wrap_long_container_info() {
     let entry = Entry {
-        pointer: ConfigPointer {
+        config: ConfigEntry {
             name: "small-screen".into(),
-            file: PathBuf::from("/config/container.toml"),
+            path: PathBuf::from("/config/config.json"),
         },
         info: Ok(ContainerInfo {
             name: "small-screen".into(),

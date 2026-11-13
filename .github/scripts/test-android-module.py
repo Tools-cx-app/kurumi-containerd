@@ -124,4 +124,5 @@ with tempfile.TemporaryDirectory() as directory:
         for abi in ("arm64-v8a", "armeabi-v7a", "x86_64", "x86"):
             assert archive.read(f"binaries/{abi}/kurumi-containerd") == abi.encode()
         assert "service.sh" in archive.namelist()
+        assert archive.read("config.example.json") == (ROOT / "config.example.json").read_bytes()
     print("Android module smoke tests passed")

@@ -120,10 +120,10 @@ fn injects_environment_key_from_config() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("rootfs/sbin")).unwrap();
     fs::write(dir.path().join("rootfs/sbin/init"), "").unwrap();
-    let path = dir.path().join("kurumi-containerd.toml");
+    let path = dir.path().join("config.json");
     fs::write(
         &path,
-        "[runtime]\n[container]\nname='test'\nrootfs='rootfs'\n[container.environment]\nMY_KEY='my-value'\n",
+        r#"[{"runtime": {}, "container": {"name": "test", "rootfs": "rootfs", "environment": {"MY_KEY": "my-value"}}}]"#,
     )
     .unwrap();
 

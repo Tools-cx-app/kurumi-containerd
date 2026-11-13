@@ -16,7 +16,7 @@ then reboot. The module keeps persistent data in:
 └── boot.log
 ```
 
-Create the registry and point each entry at a TOML file. The same command is
+Create config.json with each container's complete settings (see [configuration](configuration.md)). The same command is
 available from a root shell:
 
 ```sh
@@ -26,7 +26,7 @@ export HOME=/data/adb/kurumi-containerd
 
 ## Boot startup
 
-Put one registry `name` per line in `autostart.txt`. Blank lines and lines
+Put one JSON `container.name` per line in `autostart.txt`. Blank lines and lines
 starting with `#` are ignored:
 
 ```text
@@ -37,7 +37,7 @@ alpine
 After `sys.boot_completed=1`, the module starts each selected container in
 background mode. A running container is skipped, and an error is logged while
 the next entry continues. Each attempt is limited to 120 seconds. Configure
-each selected TOML with `container.foreground = false`. Review failures in
+each selected JSON entry with `container.foreground` set to `false`. Review failures in
 `/data/adb/kurumi-containerd/boot.log`.
 
 The command wrapper sets `HOME` to the persistent directory. The

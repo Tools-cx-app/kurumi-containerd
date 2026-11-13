@@ -10,7 +10,7 @@ mod output;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use kurumi_containerd_config::{Config, ConfigPointer};
+use kurumi_containerd_config::ConfigEntry;
 use kurumi_containerd_host::check::{HostCapabilities, HostCheck};
 use kurumi_containerd_runtime::{ContainerRuntime, Runtime};
 use tracing::level_filters::LevelFilter;
@@ -38,7 +38,7 @@ fn logger_is_terminal() -> bool {
 #[derive(Debug, Parser)]
 #[command(version, about = "Privileged Linux container runtime")]
 struct Cli {
-    /// Select a configuration entry by its JSON management name.
+    /// Select a configuration entry by its container name.
     #[arg(long)]
     name: Option<String>,
     /// Include debug diagnostics on the build-selected logger stream.
@@ -61,7 +61,7 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// Back up a stopped container's rootfs, selecting its JSON registry name.
+    /// Back up a stopped container's rootfs, selecting its container name.
     Backup {
         /// Container ID: the exact name in $HOME/.kurumi-containerd/config.json.
         container_id: String,
@@ -144,7 +144,7 @@ fn run(cli: Cli) -> Result<()> {
         return kurumi_containerd_tui::run(&std::env::current_exe()?);
     }
     tracing::debug!(name = cli.name.as_deref(), "loading configuration registry");
-    let pointers = ConfigPointer::load_home()?;
+    let entries = ConfigEntry::load_home()?;
     if let Commands::Backup {
         container_id,
         output,
@@ -153,18 +153,18 @@ fn run(cli: Cli) -> Result<()> {
         if cli.name.is_some() {
             bail!("backup selects its container by CONTAINER_ID; do not supply --name");
         }
-        return backup(&pointers, container_id, output);
+        return backup(&entries, container_id, output);
     }
-    let config_path = &ConfigPointer::select(&pointers, cli.name.as_deref())?.file;
+    let entry = ConfigEntry::select(&entries, cli.name.as_deref())?;
     if let Commands::Install {
         archive,
         size,
         force,
     } = &cli.command
     {
-        return install(config_path, archive, *size, *force);
+        return install(entry, archive, *size, *force);
     }
-    let config = Config::load_persistent(config_path)?;
+    let config = entry.load_persistent()?;
     let container_name = config.container.name.clone();
     let configured_foreground = config.container.foreground;
     let runtime = Runtime::new(config)?;
@@ -232,9 +232,9 @@ fn run(cli: Cli) -> Result<()> {
     Ok(())
 }
 
-fn backup(pointers: &[ConfigPointer], container_id: &str, output: &std::path::Path) -> Result<()> {
-    let pointer = ConfigPointer::select(pointers, Some(container_id))?;
-    let runtime = Runtime::new(Config::load(&pointer.file)?)?;
+fn backup(entries: &[ConfigEntry], container_id: &str, output: &std::path::Path) -> Result<()> {
+    let entry = ConfigEntry::select(entries, Some(container_id))?;
+    let runtime = Runtime::new(entry.load_config()?)?;
     ContainerRuntime::backup(&runtime, output)?;
     output::write(|out| {
         writeln!(
@@ -247,12 +247,12 @@ fn backup(pointers: &[ConfigPointer], container_id: &str, output: &std::path::Pa
 }
 
 fn install(
-    config_path: &std::path::Path,
+    entry: &ConfigEntry,
     archive: &std::path::Path,
     size: Option<u64>,
     force: bool,
 ) -> Result<()> {
-    let config = Config::load_for_install(config_path)?;
+    let config = entry.load_for_install()?;
     let target = config
         .container
         .rootfs

@@ -1,47 +1,49 @@
 # Configuration
 
-## Configuration pointer
+## JSON configuration
 
-The CLI reads `$HOME/.kurumi-containerd/config.json` from the running process's
-environment. HOME must be a nonempty absolute path. With `sudo -H`, create this
-file under the target user's HOME, normally root's, rather than your login HOME.
+The CLI and TUI read all container settings directly from
+`$HOME/.kurumi-containerd/config.json` using the running process's HOME.
+HOME must be an absolute path. With `sudo -H`, use the target user's HOME,
+normally root's.
+
+Start from [config.example.json](../config.example.json), or this minimal file:
 
 ```json
 [
-  {
-    "name": "debian",
-    "file": "/srv/kurumi/debian/kurumi-containerd.toml"
-  }
+  {"runtime": {}, "container": {"name": "debian", "rootfs": "/srv/kurumi/debian/rootfs"}}
 ]
 ```
 
-The top level is a nonempty list. Each entry has required nonblank strings and
-rejects unknown fields. Names must be unique (case-sensitive exact matching).
-A single entry is selected automatically; multiple entries require `--name NAME`
-before the command. `name` is for display and selection and never overrides TOML `container.name`.
-`file` selects one TOML file; relative paths resolve from the JSON directory.
-Neither `~` nor environment variables in `file` are expanded. Missing or invalid
-configuration produces an error, with no automatic creation or fallback.
-`check` does not read HOME or configuration. Missing UUIDs are still persisted
-in the TOML, not in this JSON.
+The top level must be a nonempty list. Each entry contains `runtime` and
+`container` objects. Unknown fields and invalid values are rejected.
+`container.name` is the single name used for selection, TUI display, runtime
+identity, and backup. Names must be unique with case-sensitive matching.
+One entry is selected automatically; multiple entries require `--name NAME`
+before the command. There is no outer `name` or `file` field or TOML indirection.
 
-See the [migration guide](migration-config-pointer.md) to replace the old CLI
-configuration entry points without moving or converting your TOML.
+Relative host paths (`rootfs`, `rootfs_image`, mount sources, and
+`environment_file`) resolve from the directory containing `config.json`.
+Use absolute paths when migrating an existing configuration. Paths do not
+expand `~` or environment variables. Init, mount targets, and device paths
+are paths inside the container.
 
-## TOML configuration
+Missing or invalid configuration produces an error, without automatic creation
+or fallback. `check` does not read HOME or configuration. Missing UUIDs are
+written atomically to the selected JSON entry, preserving other entries, file
+ownership, permissions, and a symlink to the configuration. Read-only TUI refresh
+and backup do not persist UUIDs. See the [migration guide](migration-config-pointer.md).
 
-KurumiContainerd uses strict TOML for container settings. Unknown fields and invalid values are rejected.
-Start from [kurumi-containerd.example.toml](../kurumi-containerd.example.toml).
-
-Host paths may be absolute or relative to the TOML file. Container paths such
-as `init`, mount targets, and device paths are always paths inside the
-container.
+The examples below show object fragments to merge into the selected entry.
 
 ## Runtime
 
-```toml
-[runtime]
-stop_timeout_seconds = 15
+```json
+{
+  "runtime": {
+    "stop_timeout_seconds": 15
+  }
+}
 ```
 
 Runtime-owned files are stored in `/run/kurumi-containerd` on Linux and
@@ -50,19 +52,22 @@ be group/world writable, and must not be a symlink.
 
 ## Container
 
-```toml
-[container]
-name = "debian-dev"
-rootfs = "./rootfs"
-hostname = "debian-dev"
-init = "/sbin/init"
-foreground = false
-volatile = false
-network = "host"
+```json
+{
+  "container": {
+    "name": "debian-dev",
+    "rootfs": "./rootfs",
+    "hostname": "debian-dev",
+    "init": "/sbin/init",
+    "foreground": false,
+    "volatile": false,
+    "network": "host"
+  }
+}
 ```
 
 Configure exactly one of `rootfs` or `rootfs_image`. A missing `uuid` is
-generated on first use and atomically written back to the TOML file.
+generated on first use and atomically written back to the JSON file.
 `volatile = true` places writable OverlayFS layers on tmpfs.
 
 The `install` command creates a missing `rootfs` directory from a local
@@ -76,19 +81,29 @@ Names may contain ASCII letters, digits, `.`, `_`, and `-`. The values
 
 Network modes are `host`, `none`, `nat`, `gateway`, and `dhcp`.
 
-```toml
-[container.network_options]
-address = "172.28.0.2"
-gateway = "172.28.0.1"
-prefix = 16
-bridge = "kurumi-br0"
-gateway_bridge = ""
-dns = ["1.1.1.1", "8.8.8.8"]
-
-[[container.network_options.ports]]
-host = 8080
-container = 80
-protocol = "tcp"
+```json
+{
+  "container": {
+    "network_options": {
+      "address": "172.28.0.2",
+      "gateway": "172.28.0.1",
+      "prefix": 16,
+      "bridge": "kurumi-br0",
+      "gateway_bridge": "",
+      "dns": [
+        "1.1.1.1",
+        "8.8.8.8"
+      ],
+      "ports": [
+        {
+          "host": 8080,
+          "container": 80,
+          "protocol": "tcp"
+        }
+      ]
+    }
+  }
+}
 ```
 
 NAT and bridge setup currently use fixed host `ip` and `iptables`
@@ -97,25 +112,34 @@ named by `gateway_bridge`. It does not create or manage that bridge.
 `dhcp` uses the same existing bridge and runs the first DHCP client found in
 the container rootfs: `udhcpc`, `dhclient`, or `dhcpcd`.
 
-```toml
-network = "dhcp"
-
-[container.network_options]
-gateway_bridge = "br0"
+```json
+{
+  "container": {
+    "network": "dhcp",
+    "network_options": {
+      "gateway_bridge": "br0"
+    }
+  }
+}
 ```
 
 ## Resources and security
 
-```toml
-[container.resources]
-memory_bytes = 536870912
-cpu_quota = 100000
-cpu_period = 100000
-pids = 512
-
-[container.security]
-read_only_sys = true
-allow_user_namespaces = false
+```json
+{
+  "container": {
+    "resources": {
+      "memory_bytes": 536870912,
+      "cpu_quota": 100000,
+      "cpu_period": 100000,
+      "pids": 512
+    },
+    "security": {
+      "read_only_sys": true,
+      "allow_user_namespaces": false
+    }
+  }
+}
 ```
 
 Resource limits use cgroup v2 when available and otherwise fall back to cgroup
@@ -134,17 +158,22 @@ container isolation. Enable it only for trusted workloads.
 
 ## Environment and mounts
 
-```toml
-[container]
-environment_file = "./container.env"
-
-[container.environment]
-LANG = "C.UTF-8"
-
-[[container.mounts]]
-source = "./shared"
-target = "/mnt/shared"
-read_only = false
+```json
+{
+  "container": {
+    "environment_file": "./container.env",
+    "environment": {
+      "LANG": "C.UTF-8"
+    },
+    "mounts": [
+      {
+        "source": "./shared",
+        "target": "/mnt/shared",
+        "read_only": false
+      }
+    ]
+  }
+}
 ```
 
 Environment files accept `KEY=VALUE`, optional `export`, comments, quoted
@@ -154,7 +183,7 @@ without parent traversal.
 
 ## Android host integration
 
-The optional `[container.android]` table controls selected storage, GPU,
+The optional `container.android` object controls selected storage, GPU,
 Binder, Termux:X11, VirGL, PulseAudio, and SELinux integration when KurumiContainerd is
 built for Android. These options fail closed on unsupported hosts. They are
 runtime features and do not require or provide an Android application.

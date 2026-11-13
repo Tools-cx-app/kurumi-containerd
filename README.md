@@ -2,7 +2,7 @@
 
 KurumiContainerd is a privileged Linux container runtime and command-line tool written
 in Rust. It manages lightweight system containers with Linux namespaces,
-mounts, cgroups, networking, and a persistent TOML configuration.
+mounts, cgroups, networking, and a persistent JSON configuration.
 
 The name comes from **Kurumi**, the Japanese romanization of 胡桃
 (“walnut”), combined with **containerd** to reflect the project's purpose.
@@ -73,7 +73,7 @@ loops. Each iteration uses a fresh destination; temporary directory setup and
 cleanup are excluded. Production staging, metadata handling and backup `fsync`
 remain timed. Slow archive cases use 10 samples.
 
-Criterion measures TOML parsing, environment parsing (8, 64 and 512 entries),
+Criterion measures JSON parsing, environment parsing (8, 64 and 512 entries),
 configuration loading, and container path resolution with direct paths and symlinks.
 Temporary rootfs and configuration fixtures are prepared outside the timed loops.
 Filesystem benchmarks use warm caches and do not measure container startup or
@@ -121,18 +121,16 @@ use the musl archives when a portable Linux binary is needed.
 Create a configuration from the example and update the rootfs path:
 
 ```bash
-cp kurumi-containerd.example.toml kurumi-containerd.toml
-$EDITOR kurumi-containerd.toml
 sudo -H sh -c 'mkdir -p "$HOME/.kurumi-containerd" && exec vi "$HOME/.kurumi-containerd/config.json"'
 ```
 
-Save the following JSON, replacing `file` with the absolute path to your TOML:
+Save all settings in this file, using [config.example.json](config.example.json) as a reference. Set your rootfs path:
 
 ```json
 [
   {
-    "name": "debian",
-    "file": "/absolute/path/to/kurumi-containerd.toml"
+    "runtime": {},
+    "container": {"name": "debian", "rootfs": "/srv/kurumi/debian/rootfs"}
   }
 ]
 ```
@@ -149,13 +147,13 @@ For interactive management of all registered containers, run
 `sudo -H ./target/release/kurumi-containerd tui`. See [CLI usage](docs/usage.md)
 for command details, configuration selection, and terminal requirements.
 
-The configuration pointer format and path rules are documented in
+The JSON configuration format and path rules are documented in
 [Configuration](docs/configuration.md). For migration from the removed
 `-c/--config` entry points, see the [migration guide](docs/migration-config-pointer.md).
 
 Back up a stopped container with
 `sudo -H ./target/release/kurumi-containerd backup debian ./debian.zst`, or select
-Backup in the TUI. The ID is the JSON `name`, not the TOML name or UUID.
+Backup in the TUI. The ID is the same `container.name` used by the runtime and TUI.
 See [backup and restore](docs/usage.md#back-up-a-container) for metadata limits
 and configuration files that must be saved separately.
 

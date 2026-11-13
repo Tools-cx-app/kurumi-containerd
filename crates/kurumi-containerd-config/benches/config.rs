@@ -9,15 +9,12 @@ use kurumi_containerd_config::{Config, parse_environment, resolve_container_path
 const CONFIGS: [(&str, &str); 2] = [
     (
         "minimal",
-        "[runtime]\n[container]\nname = 'benchmark'\nrootfs = 'rootfs'\n",
+        r#"[{"runtime": {}, "container": {"name": "benchmark", "rootfs": "rootfs"}}]"#,
     ),
-    (
-        "example",
-        include_str!("../../../kurumi-containerd.example.toml"),
-    ),
+    ("example", include_str!("../../../config.example.json")),
 ];
 
-fn parse_toml(criterion: &mut Criterion) {
+fn parse_json(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("config/parse");
     for (name, source) in CONFIGS {
         group.throughput(Throughput::Bytes(source.len() as u64));
@@ -26,7 +23,8 @@ fn parse_toml(criterion: &mut Criterion) {
             source,
             |bencher, source| {
                 bencher.iter(|| {
-                    toml::from_str::<Config>(black_box(source)).expect("valid TOML fixture")
+                    serde_json::from_str::<Vec<Config>>(black_box(source))
+                        .expect("valid JSON fixture")
                 });
             },
         );
@@ -70,7 +68,7 @@ fn configuration_io(criterion: &mut Criterion) {
 
     let mut group = criterion.benchmark_group("config/load");
     for (name, source) in CONFIGS {
-        let path = directory.path().join(format!("{name}.toml"));
+        let path = directory.path().join(format!("{name}.json"));
         fs::write(&path, source).unwrap();
         let config = Config::load(&path).expect("valid configuration fixture");
         assert_eq!(
@@ -108,7 +106,7 @@ fn configuration_io(criterion: &mut Criterion) {
 
 criterion_group!(
     benches,
-    parse_toml,
+    parse_json,
     parse_environment_file,
     configuration_io
 );
