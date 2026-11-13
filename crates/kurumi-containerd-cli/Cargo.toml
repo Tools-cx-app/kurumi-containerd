@@ -7,13 +7,17 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["tui"]
+tui = ["dep:kurumi-containerd-tui"]
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
 kurumi-containerd-config = { path = "../kurumi-containerd-config" }
 kurumi-containerd-host = { path = "../kurumi-containerd-host" }
 kurumi-containerd-runtime = { path = "../kurumi-containerd-runtime" }
-kurumi-containerd-tui = { path = "../kurumi-containerd-tui" }
+kurumi-containerd-tui = { path = "../kurumi-containerd-tui", optional = true }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

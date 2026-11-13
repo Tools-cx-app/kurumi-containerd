@@ -44,3 +44,6 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+
+      - name: Run CLI tests without TUI
+        run: cargo test -p kurumi-containerd --no-default-features --locked

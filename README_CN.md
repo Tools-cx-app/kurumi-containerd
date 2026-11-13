@@ -51,6 +51,15 @@ cargo build --release
 
 生成的二进制位于 `target/release/kurumi-containerd`。
 
+`tui` Cargo feature 默认启用。仅构建 CLI、排除终端管理界面及其依赖：
+
+```bash
+cargo build --release -p kurumi-containerd --no-default-features
+```
+
+添加 `--features tui` 可显式启用。关闭该 feature 后，`tui` 子命令不可用。
+纯 CLI 构建需指定 `-p kurumi-containerd`；`--workspace` 仍会单独构建 TUI crate。
+
 ## 基准测试
 
 无需 root 即可运行基准测试：

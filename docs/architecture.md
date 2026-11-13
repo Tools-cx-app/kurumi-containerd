@@ -22,6 +22,11 @@ helper, and error; host uses
 configuration, helper, and error; configuration uses error. Error and helper
 do not depend on other workspace crates.
 
+The CLI's default-enabled `tui` feature makes its TUI dependency and subcommand
+optional. `cargo build -p kurumi-containerd --no-default-features` excludes the
+TUI crate and its terminal dependencies from the CLI build. The TUI remains a
+workspace member, so workspace-wide builds and tests still include it.
+
 The error crate owns `ConfigError` and `RuntimeError`, preserving structured
 variants and source chains. Configuration and runtime re-export their existing
 error APIs. Host and runtime share `RuntimeError`, so policy callbacks cross

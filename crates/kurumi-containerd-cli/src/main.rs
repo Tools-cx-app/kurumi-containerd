@@ -104,6 +104,7 @@ enum Commands {
     Scan,
     /// Check host capabilities.
     Check,
+    #[cfg(feature = "tui")]
     /// Open the interactive container manager.
     Tui,
 }
@@ -140,6 +141,7 @@ fn run(cli: Cli) -> Result<()> {
     if matches!(cli.command, Commands::Check) {
         return check();
     }
+    #[cfg(feature = "tui")]
     if matches!(cli.command, Commands::Tui) {
         return kurumi_containerd_tui::run(&std::env::current_exe()?);
     }
@@ -225,6 +227,7 @@ fn run(cli: Cli) -> Result<()> {
             output::write(|out| output::recovered(out, &states))?;
         }
         Commands::Check => unreachable!("check is handled before loading configuration"),
+        #[cfg(feature = "tui")]
         Commands::Tui => unreachable!("tui is handled before selecting a configuration"),
         Commands::Install { .. } => unreachable!("install is handled before loading configuration"),
         Commands::Backup { .. } => unreachable!("backup is handled before loading configuration"),

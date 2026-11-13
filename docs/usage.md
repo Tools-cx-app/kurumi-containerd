@@ -46,6 +46,11 @@ result and diagnostic streams for noninteractive actions.
 
 ## Terminal manager
 
+Requires the `tui` Cargo feature, which is enabled by default. Build with
+`cargo build --release -p kurumi-containerd --no-default-features` to omit the
+manager and its dependencies; add `--features tui` to enable it explicitly.
+The `tui` subcommand is absent from builds without this feature.
+
 ```bash
 sudo -H kurumi-containerd tui
 ```

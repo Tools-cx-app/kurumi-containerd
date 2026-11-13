@@ -54,6 +54,17 @@ cargo build --release
 
 The binary is written to `target/release/kurumi-containerd`.
 
+The `tui` Cargo feature is enabled by default. To build only the CLI without
+the terminal manager or its dependencies:
+
+```bash
+cargo build --release -p kurumi-containerd --no-default-features
+```
+
+Add `--features tui` to enable it explicitly. Without this feature, the `tui`
+subcommand is unavailable. Select `-p kurumi-containerd` for a CLI-only build;
+`--workspace` also builds the standalone TUI crate.
+
 ## Benchmarks
 
 Run the benchmarks without root:
