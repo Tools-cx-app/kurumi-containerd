@@ -93,6 +93,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           runner: none
+          package: ${{ matrix.platform == 'linux' && contains(matrix.target, '-gnu') && 'liblzma-dev' || '' }}
       - name: Install cargo-ndk
         if: matrix.platform == 'android'
         uses: taiki-e/install-action@v2.87.28

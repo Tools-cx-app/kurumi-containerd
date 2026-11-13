@@ -139,6 +139,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           runner: none
+          package: ${{ contains(matrix.target, '-gnu') && 'liblzma-dev' || '' }}
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
