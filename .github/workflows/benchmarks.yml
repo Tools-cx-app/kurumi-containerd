@@ -57,7 +57,7 @@ jobs:
           save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Run benchmarks
-        run: cargo bench -p ${{ matrix.package }} --bench ${{ matrix.bench }} --locked
+        run: cargo bench -p ${{ matrix.package }} --bench ${{ matrix.bench }}
 
       - name: Write benchmark summary
         run: |
