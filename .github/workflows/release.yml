@@ -10,10 +10,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
-
 env:
   CARGO_TERM_COLOR: always
 
@@ -152,6 +148,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2.87.28
+        with:
+          tool: git-cliff
+      - name: Generate changelog
+        run: git-cliff --latest --strip header --output /tmp/changelog.md
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
@@ -172,7 +177,7 @@ jobs:
             dist/*.tar.xz
             dist/*.zip
             dist/SHA256SUMS
-          generate_release_notes: true
+          body_path: /tmp/changelog.md
           prerelease: ${{ contains(needs.validate.outputs.version, '-') }}
           fail_on_unmatched_files: true
 
