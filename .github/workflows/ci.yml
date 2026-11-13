@@ -213,4 +213,5 @@ jobs:
         with:
           bot-token: ${{ secrets.BOT_TOKEN }}
           chat-id: ${{ secrets.CHAT_ID }}
+          tags: containerd
           artifact-names: "kurumi-containerd-*"

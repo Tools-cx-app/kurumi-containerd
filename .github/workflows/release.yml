@@ -192,6 +192,7 @@ jobs:
         with:
           bot-token: ${{ secrets.BOT_TOKEN }}
           chat-id: ${{ secrets.CHAT_ID }}
+          tags: containerd
           is-release: "true"
           artifact-names: "release-*"
 
