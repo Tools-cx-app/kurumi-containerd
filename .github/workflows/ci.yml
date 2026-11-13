@@ -173,6 +173,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [android, android-module, linux]
     if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      actions: read
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      CHAT_ID: ${{ secrets.CHAT_ID }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -200,3 +206,10 @@ jobs:
           name: kurumi-containerd-all
           path: dist/*.zip
           if-no-files-found: error
+      - name: Send Telegram artifact links
+        if: env.BOT_TOKEN != '' && env.CHAT_ID != ''
+        uses: Tools-cx-app/telegram-upload-bot@master
+        with:
+          bot-token: ${{ secrets.BOT_TOKEN }}
+          chat-id: ${{ secrets.CHAT_ID }}
+          artifact-names: "kurumi-containerd-*"

@@ -98,7 +98,14 @@ release 文件名保持不变，debug 文件名在扩展名前追加 `-debug`。
 debug 构建的诊断日志输出到 stdout，release 构建输出到 stderr。
 两种 Debian/RPM 包使用相同的包名和安装路径，一次只安装其中一种。
 Android root 模块继续使用 release 二进制。
-CI 汇总 artifact 和 Telegram 上传均包含独立的 debug、release ZIP 包。
+CI 汇总 artifact 包含独立的 debug、release ZIP 包。
+
+在仓库 Actions secrets 中配置 `BOT_TOKEN` 和 `CHAT_ID`，即可启用 CI 构建成功及
+GitHub Release 发布后的 Telegram 通知。CI 打包完成后发送一条消息，包含所有平台
+构建、Android 模块和汇总包的 GitHub artifact 下载链接。Release 发布成功后发送
+发布通知，包含 Release 页面和本次发布工作流的 artifact 链接。
+Pull Request 或未同时配置两个 secret 时跳过通知。
+下载需要登录 GitHub 并具有仓库访问权限；artifact 过期或被删除后，链接失效。
 
 压缩包包含可执行文件、许可证、README 和示例配置。
 Debian/RPM 包将程序安装到 `/usr/bin`，文档和示例配置安装到

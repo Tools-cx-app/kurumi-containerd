@@ -175,6 +175,25 @@ jobs:
           prerelease: ${{ contains(needs.validate.outputs.version, '-') }}
           fail_on_unmatched_files: true
 
+  telegram:
+    name: Notify Telegram release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      CHAT_ID: ${{ secrets.CHAT_ID }}
+    steps:
+      - name: Send Telegram release links
+        if: env.BOT_TOKEN != '' && env.CHAT_ID != ''
+        uses: Tools-cx-app/telegram-upload-bot@master
+        with:
+          bot-token: ${{ secrets.BOT_TOKEN }}
+          chat-id: ${{ secrets.CHAT_ID }}
+          is-release: "true"
+          artifact-names: "release-*"
+
   module:
     name: Package Android module
     needs: [validate, build]

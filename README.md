@@ -108,7 +108,16 @@ Release filenames are unchanged; debug filenames add `-debug` before the extensi
 Debug builds write diagnostic logs to stdout; release builds use stderr.
 Both Debian/RPM variants install the same package and executable paths; install one
 variant at a time. The Android root module continues to use release binaries.
-The CI combined artifact and Telegram upload include separate debug and release ZIPs.
+The CI combined artifact includes separate debug and release ZIPs.
+
+To enable Telegram notifications for successful CI builds and published releases,
+configure the repository Actions secrets `BOT_TOKEN` and `CHAT_ID`. After packaging, CI sends one message
+with GitHub artifact links for all platform builds, the Android module and the
+combined archives. After a GitHub Release is published, the release workflow sends
+a release notification with the release page and its workflow artifact links.
+Pull requests and runs without both secrets skip notifications.
+Downloading artifacts requires GitHub sign-in and repository access; links expire
+when the artifacts expire or are deleted.
 
 Archives contain the executable, license, READMEs and example configuration.
 Debian/RPM packages install the executable into `/usr/bin` and documentation
