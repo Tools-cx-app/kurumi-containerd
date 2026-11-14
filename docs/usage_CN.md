@@ -31,7 +31,7 @@ backup CONTAINER_ID OUTPUT
 start [--foreground]
 stop
 restart [--foreground]
-enter [USER]
+enter [USER] [--shell PATH]
 run COMMAND...
 info
 pid
@@ -89,6 +89,8 @@ info、pid、show、scan 和 check。登记列表为空时仍可使用 Check hos
 备份时选择已停止的容器，选择 Backup，再输入一个尚不存在、以 `.zst`、`.xz`、`.zip`
 或 `.tar` 结尾的路径。所选 `container.name` 用作 ID。`run` 使用独立的可执行文件和
 参数字段，不解析 shell 引号或管道。捕获输出最多保留前 1 MiB。
+Enter 对话框提供可选的 Shell 字段：填写 `/bin/ash` 可显式指定 Alpine 登录 shell，
+留空则使用默认登录方式。
 
 在 Linux 上，交互和前台命令会打开独立图形终端，依次检测 `xterm`、`kitty`、`alacritty`。
 可将 `KURUMI_CONTAINERD_TERMINAL` 设置为其中一个可执行文件名或其路径，覆盖自动检测。
@@ -230,12 +232,21 @@ sudo python3 tests/container_lifecycle.py target/release/kurumi-containerd ./roo
 ```bash
 sudo -H kurumi-containerd enter
 sudo -H kurumi-containerd enter developer
+sudo -H kurumi-containerd --name alpine enter --shell /bin/ash
 sudo -H kurumi-containerd run uname -a
 sudo -H kurumi-containerd run sh -c 'id && mount'
 ```
 
 `enter` 以指定用户打开交互式登录，默认用户为 `root`。`run` 直接执行其余参数。
 使用管道、重定向或复合命令时，请显式调用 shell。
+
+可使用 `enter --shell /bin/ash` 显式指定登录 shell，例如进入 Alpine。
+路径必须是容器内的绝对路径，并指向可执行的 shell。指定后跳过 `su` 和
+`/etc/passwd` 中的 shell 字段，仍使用所选用户的 UID、GID、附加组、主目录和
+登录环境，`SHELL` 设为指定路径，并以 `-l` 参数启动 shell。
+不指定 `--shell` 时，先尝试容器内的 `su -l`，再尝试 `/etc/passwd` 中的 shell。
+该选项仅作用于当前会话，不修改 `/etc/passwd` 或 config.json。即使 shell 文件存在，
+缺失脚本解释器或动态加载器仍可能导致 `No such file or directory`。
 
 两者都加入运行中容器实际使用的 namespace 和 cgroup。修改 config.json 中的网络或
 资源设置只在下次启动时生效，不会改变进入当前实例的命令所使用的隔离或资源限制。

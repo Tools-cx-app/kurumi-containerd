@@ -87,6 +87,9 @@ enum Commands {
         /// Login user.
         #[arg(default_value = "root")]
         user: String,
+        /// Absolute login shell path inside the container; bypasses su.
+        #[arg(long)]
+        shell: Option<String>,
     },
     /// Run a command in the container.
     #[command(visible_alias = "exec")]
@@ -198,8 +201,8 @@ fn run(cli: Cli) -> Result<()> {
                 )
             })?;
         }
-        Commands::Enter { user } => {
-            let status = runtime.enter(&user)?;
+        Commands::Enter { user, shell } => {
+            let status = runtime.enter(&user, shell.as_deref())?;
             if status != 0 {
                 std::process::exit(status);
             }

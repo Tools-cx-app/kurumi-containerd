@@ -39,14 +39,22 @@ use crate::{
 
 impl Runtime {
     /// Opens an interactive login session inside the container.
+    /// An explicit shell must be an absolute container path and bypasses `su`.
     ///
     /// # Errors
     ///
     /// Returns an error when the user is invalid, the container is stopped, or
     /// an interactive login shell cannot be executed.
-    pub fn enter(&self, user: &str) -> Result<i32> {
+    pub fn enter(&self, user: &str, shell: Option<&str>) -> Result<i32> {
         ensure!(valid_login_name(user), "invalid login user name");
-        self.execute(&[], Some(user))
+        if let Some(shell) = shell {
+            ensure!(
+                shell.starts_with('/'),
+                "login shell must be an absolute container path"
+            );
+            CString::new(shell).context("login shell path contains a NUL byte")?;
+        }
+        self.execute(&[], Some((user, shell)))
     }
 
     /// Executes a command inside the container namespaces.
@@ -62,7 +70,7 @@ impl Runtime {
 
     #[allow(clippy::too_many_lines)]
     #[allow(unsafe_code)]
-    fn execute(&self, command: &[String], login_user: Option<&str>) -> Result<i32> {
+    fn execute(&self, command: &[String], login: Option<(&str, Option<&str>)>) -> Result<i32> {
         Self::ensure_root()?;
         let lock = self.lock()?;
         let state = self.require_state()?;
@@ -87,7 +95,7 @@ impl Runtime {
                 && validate_monitor_identity_for(&state, &monitor),
             "container process identity changed during execution resource capture"
         );
-        let terminal_socket = login_user
+        let terminal_socket = login
             .is_some()
             .then(socket_pair)
             .transpose()
@@ -172,9 +180,10 @@ impl Runtime {
                         // subsequent path exits directly without unwinding descriptor owners.
                         #[allow(unsafe_code)]
                         result_or_exit(unsafe { close_fds_except(&[]) });
-                        if let Some(user) = login_user {
+                        if let Some((user, shell)) = login {
                             exec_login(
                                 user,
+                                shell,
                                 &self.config.container.environment,
                                 &self.config.container.android,
                             );
@@ -245,34 +254,44 @@ struct PasswdEntry {
     shell: String,
 }
 
-fn exec_login(user: &str, configured: &BTreeMap<String, String>, android: &AndroidConfig) -> ! {
+fn exec_login(
+    user: &str,
+    shell: Option<&str>,
+    configured: &BTreeMap<String, String>,
+    android: &AndroidConfig,
+) -> ! {
     let base_env = command_environment(configured, android);
     let source = fs::read_to_string("/etc/passwd")
         .unwrap_or_else(|error| exec_failure(&format!("failed to read /etc/passwd: {error}")));
     let account = parse_passwd(&source, user)
         .unwrap_or_else(|| exec_failure(&format!("login user '{user}' was not found")));
     result_or_exit(prepare_runtime_directory(Path::new("/run/user"), &account));
-    for su in ["/bin/su", "/usr/bin/su", "/run/wrappers/bin/su"] {
-        if Path::new(su).is_file() {
-            let executable = result_or_exit(CString::new(su));
-            let arguments = [
-                result_or_exit(CString::new("su")),
-                result_or_exit(CString::new("-l")),
-                result_or_exit(CString::new(user)),
-            ];
-            let _ = execve(&executable, &arguments, &base_env);
+    if shell.is_none() {
+        for su in ["/bin/su", "/usr/bin/su", "/run/wrappers/bin/su"] {
+            if Path::new(su).is_file() {
+                let executable = result_or_exit(CString::new(su));
+                let arguments = [
+                    result_or_exit(CString::new("su")),
+                    result_or_exit(CString::new("-l")),
+                    result_or_exit(CString::new(user)),
+                ];
+                let _ = execve(&executable, &arguments, &base_env);
+            }
         }
     }
-    if !account.shell.starts_with('/') || !Path::new(&account.shell).is_file() {
-        exec_failure("login user has no usable absolute shell");
+    let shell_path = shell.unwrap_or(&account.shell);
+    if !shell_path.starts_with('/') || !Path::new(shell_path).is_file() {
+        exec_failure(&format!(
+            "login shell is not a usable absolute file: {shell_path}"
+        ));
     }
     let user_name = result_or_exit(CString::new(user));
     result_or_exit(init_groups(&user_name, account.gid));
     result_or_exit(set_gid(account.gid));
     result_or_exit(set_uid(account.uid));
     result_or_exit(chdir(Path::new(&account.home)));
-    let shell = result_or_exit(CString::new(account.shell.as_str()));
-    let shell_name = Path::new(&account.shell)
+    let shell = result_or_exit(CString::new(shell_path));
+    let shell_name = Path::new(shell_path)
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("sh");
@@ -284,14 +303,16 @@ fn exec_login(user: &str, configured: &BTreeMap<String, String>, android: &Andro
     replace_environment(&mut environment, "HOME", &account.home);
     replace_environment(&mut environment, "USER", user);
     replace_environment(&mut environment, "LOGNAME", user);
-    replace_environment(&mut environment, "SHELL", &account.shell);
+    replace_environment(&mut environment, "SHELL", shell_path);
     result_or_exit(environment::login_environment_defaults(
         &mut environment,
         &account.home,
         account.uid,
     ));
     let error = execve(&shell, &arguments, &environment).unwrap_err();
-    exec_failure(&format!("failed to execute login shell: {error}"));
+    exec_failure(&format!(
+        "failed to execute login shell '{shell_path}': {error}"
+    ));
 }
 
 fn prepare_runtime_directory(parent: &Path, account: &PasswdEntry) -> Result<()> {

@@ -108,6 +108,19 @@ fn dashboard_cards_and_form_fields_have_distinct_structure() {
 }
 
 #[test]
+fn enter_shell_field_remains_visible_on_short_terminals() {
+    let mut state = UiState::new(vec![]);
+    state.open(ActionKind::Enter);
+    state.next_field();
+    state.fields[state.field] = "/bin/ash".into();
+    for (width, height) in [(100, 30), (60, 24), (80, 12)] {
+        let text = render(width, height, &state, &[]);
+        assert!(text.contains("Shell (optional absolute path)"));
+        assert!(text.contains("/bin/ash"));
+    }
+}
+
+#[test]
 fn focused_panel_and_disabled_selection_keep_visible_contrast() {
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     terminal

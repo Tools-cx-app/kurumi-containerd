@@ -193,7 +193,8 @@ backup CONTAINER_ID OUTPUT
 start [--foreground]   Start the configured container
 stop                   Gracefully stop it
 restart [--foreground] Stop and start it
-enter [USER]           Open an interactive login, defaulting to root
+enter [USER] [--shell PATH]
+                        Open a login (default root), optionally choosing its shell
 run COMMAND...          Run a non-interactive command
 info                    Show live state and resource usage
 pid                     Print the container init PID

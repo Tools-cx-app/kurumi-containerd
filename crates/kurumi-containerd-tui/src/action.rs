@@ -18,7 +18,10 @@ pub(super) enum Action {
     Start(bool),
     Stop,
     Restart(bool),
-    Enter(String),
+    Enter {
+        user: String,
+        shell: Option<String>,
+    },
     Run(Vec<String>),
     Info,
     Pid,
@@ -61,7 +64,12 @@ impl Action {
                 }
             }
             Self::Stop => a.push("stop".into()),
-            Self::Enter(v) => a.extend(["enter".into(), v.into()]),
+            Self::Enter { user, shell } => {
+                a.extend(["enter".into(), user.into()]);
+                if let Some(shell) = shell {
+                    a.extend(["--shell".into(), shell.into()]);
+                }
+            }
             Self::Run(v) => {
                 a.push("run".into());
                 a.extend(v.iter().map(OsString::from));
@@ -77,7 +85,7 @@ impl Action {
     pub(super) fn needs_terminal(&self, foreground: bool) -> bool {
         matches!(
             self,
-            Self::Enter(_) | Self::Run(_) | Self::Start(true) | Self::Restart(true)
+            Self::Enter { .. } | Self::Run(_) | Self::Start(true) | Self::Restart(true)
         ) || foreground && matches!(self, Self::Start(_) | Self::Restart(_))
     }
 }
@@ -138,7 +146,7 @@ impl ActionKind {
         match self {
             Self::Install => &["Archive path", "Image size (optional)"],
             Self::Backup => &["Output path (.zst/.xz/.zip/.tar)"],
-            Self::Enter => &["User (default root)"],
+            Self::Enter => &["User (default root)", "Shell (optional absolute path)"],
             Self::Run => &["Executable", "Argument 1 (Tab to add another)"],
             _ => &[],
         }
@@ -174,11 +182,20 @@ impl ActionKind {
             Self::Stop => Action::Stop,
             Self::Restart => Action::Restart(false),
             Self::ForegroundRestart => Action::Restart(true),
-            Self::Enter => Action::Enter(if f[0].trim().is_empty() {
-                "root".into()
-            } else {
-                f[0].trim().into()
-            }),
+            Self::Enter => {
+                let shell = f[1].trim();
+                if !shell.is_empty() && !shell.starts_with('/') {
+                    bail!("login shell must be an absolute container path")
+                }
+                Action::Enter {
+                    user: if f[0].trim().is_empty() {
+                        "root".into()
+                    } else {
+                        f[0].trim().into()
+                    },
+                    shell: (!shell.is_empty()).then(|| shell.into()),
+                }
+            }
             Self::Run => {
                 if f[0].trim().is_empty() {
                     bail!("executable is required")

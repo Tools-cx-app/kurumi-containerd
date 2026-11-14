@@ -33,7 +33,7 @@ backup CONTAINER_ID OUTPUT
 start [--foreground]
 stop
 restart [--foreground]
-enter [USER]
+enter [USER] [--shell PATH]
 run COMMAND...
 info
 pid
@@ -97,6 +97,8 @@ choose Backup, and provide a new path ending in `.zst`, `.xz`, `.zip`, or `.tar`
 The selected `container.name` supplies the ID. `run` takes an executable and separate
 argument fields, without interpreting shell quoting or pipes. Captured output is
 limited to the first 1 MiB.
+The Enter dialog has an optional Shell field: use `/bin/ash` for an explicit
+Alpine login shell, or leave it empty to use the default login behavior.
 
 On Linux, interactive and foreground commands open a separate graphical terminal.
 Detection tries `xterm`, `kitty`, then `alacritty`. Set
@@ -254,6 +256,7 @@ Enable this option only for trusted containers.
 ```bash
 sudo -H kurumi-containerd enter
 sudo -H kurumi-containerd enter developer
+sudo -H kurumi-containerd --name alpine enter --shell /bin/ash
 sudo -H kurumi-containerd run uname -a
 sudo -H kurumi-containerd run sh -c 'id && mount'
 ```
@@ -261,6 +264,16 @@ sudo -H kurumi-containerd run sh -c 'id && mount'
 `enter` opens an interactive login as the specified user, defaulting to `root`.
 `run` executes its remaining arguments directly. Invoke a shell explicitly for
 pipes, redirection, or compound commands.
+
+Use `enter --shell /bin/ash` to override the login shell, for example on Alpine.
+The path must be absolute inside the container and refer to an executable shell.
+An explicit shell bypasses `su` and the shell field in `/etc/passwd`; the selected
+user's UID, GID, supplementary groups, home directory and login environment still
+apply, with `SHELL` set to the override. The shell is invoked with `-l`.
+Without `--shell`, `enter` tries the container's `su -l` first, then the account's
+shell from `/etc/passwd`. The override applies only to this session and does not
+modify `/etc/passwd` or config.json. A missing shell interpreter or dynamic loader
+can still cause `No such file or directory` even when the shell file exists.
 
 Both join the running container's actual namespaces and cgroups. Changes to
 network or resource settings in config.json take effect at the next start;

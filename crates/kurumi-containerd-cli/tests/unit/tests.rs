@@ -33,6 +33,31 @@ fn exec_alias_parses_as_run() {
 }
 
 #[test]
+fn enter_accepts_custom_login_shell() {
+    for (arguments, expected_user, expected_shell) in [
+        (vec!["enter"], "root", None),
+        (
+            vec!["enter", "--shell", "/bin/ash"],
+            "root",
+            Some("/bin/ash"),
+        ),
+        (
+            vec!["enter", "developer", "--shell", "/bin/sh"],
+            "developer",
+            Some("/bin/sh"),
+        ),
+    ] {
+        let cli =
+            Cli::try_parse_from(std::iter::once("kurumi-containerd").chain(arguments)).unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Enter { user, shell }
+                if user == expected_user && shell.as_deref() == expected_shell
+        ));
+    }
+}
+
+#[test]
 fn install_parses_local_archive_options() {
     let cli = Cli::try_parse_from([
         "kurumi-containerd",
