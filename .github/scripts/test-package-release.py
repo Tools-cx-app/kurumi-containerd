@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-v3-only
 
 """Smoke-test packaging with a host ELF binary; requires dpkg-deb and rpm tools."""
+import itertools
 import os
 from pathlib import Path
 import platform
@@ -18,28 +19,28 @@ with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
     for source in ("LICENSE", "README.md", "README_CN.md", "config.example.json"):
         shutil.copy2(ROOT / source, work / source)
-    for version in ("0.2.1", "0.2.2-rc.1"):
+    for version, variant in itertools.product(("0.2.1", "0.2.2-rc.1"), ("", "with-tui")):
         for profile in ("debug", "release"):
             binary = work / "target" / TARGET / profile / "kurumi-containerd"
             binary.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(shutil.which("true"), binary)
             with binary.open("ab") as payload:
-                payload.write(profile.encode())
+                payload.write(f"{variant}-{profile}".encode())
             subprocess.run(
                 ["bash", str(ROOT / ".github/scripts/package-release.sh")],
                 cwd=work,
-                env=dict(os.environ, TARGET=TARGET, PLATFORM="linux", VERSION=version, PROFILE=profile),
+                env=dict(os.environ, TARGET=TARGET, PLATFORM="linux", VERSION=version, PROFILE=profile, VARIANT=variant),
                 check=True,
             )
             suffix = "-debug" if profile == "debug" else ""
-            name = f"kurumi-containerd-{version}-linux-{TARGET}{suffix}"
+            name = f"kurumi-containerd-{version}-linux-{TARGET}{'-' + variant if variant else ''}{suffix}"
             with tarfile.open(work / "dist" / f"{name}.tar.xz") as archive:
                 entry = archive.getmember(f"{name}/kurumi-containerd")
                 assert entry.mode == 0o755 and entry.uid == entry.gid == 0
                 assert archive.extractfile(entry).read() == binary.read_bytes()
                 assert archive.extractfile(f"{name}/config.example.json").read() == (ROOT / "config.example.json").read_bytes()
             deb = work / "dist" / f"{name}.deb"
-            extracted = work / f"extracted-{version}-{profile}"
+            extracted = work / f"extracted-{version}-{variant}-{profile}"
             subprocess.run(["dpkg-deb", "-x", str(deb), str(extracted)], check=True)
             assert (extracted / "usr/bin/kurumi-containerd").read_bytes() == binary.read_bytes()
             assert (extracted / "usr/share/doc/kurumi-containerd/config.example.json").read_bytes() == (ROOT / "config.example.json").read_bytes()

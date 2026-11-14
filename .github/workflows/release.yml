@@ -141,9 +141,63 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  with-tui:
+    name: Build with TUI (${{ matrix.target }})
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-gnu
+          - target: armv7-unknown-linux-gnueabihf
+          - target: riscv64gc-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
+          - target: aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install Linux cross-compilation toolchain
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+          runner: none
+          package: ${{ contains(matrix.target, '-gnu') && 'liblzma-dev' || '' }}
+      - name: Install native package tools
+        if: contains(matrix.target, '-gnu')
+        run: sudo apt-get update && sudo apt-get install --yes rpm
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-with-tui-${{ matrix.target }}
+      - name: Build debug and release with TUI
+        run: |
+          cargo build -p kurumi-containerd --features tui --locked --target "${{ matrix.target }}"
+          cargo build -p kurumi-containerd --features tui --release --locked --target "${{ matrix.target }}"
+      - name: Package debug and release
+        env:
+          TARGET: ${{ matrix.target }}
+          PLATFORM: linux
+          VERSION: ${{ needs.validate.outputs.version }}
+          VARIANT: with-tui
+        run: |
+          PROFILE=debug bash .github/scripts/package-release.sh
+          PROFILE=release bash .github/scripts/package-release.sh
+      - name: Upload debug and release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.target }}-with-tui
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish GitHub Release
-    needs: [validate, build, module]
+    needs: [validate, build, with-tui, module]
     runs-on: ubuntu-latest
     permissions:
       contents: write

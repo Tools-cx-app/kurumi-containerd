@@ -47,8 +47,26 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --locked
 
-      - name: Run CLI tests without TUI
-        run: cargo test -p kurumi-containerd --no-default-features --locked
+  with-tui:
+    name: CLI tests with TUI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: with-tui
+          cache-workspace-crates: "true"
+          cache-all-crates: "true"
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Run CLI tests with TUI
+        run: cargo test -p kurumi-containerd --features tui --locked
 
   container:
     name: Container lifecycle (${{ matrix.image }})

@@ -15,7 +15,7 @@ case "$PROFILE" in
   *) echo "Unsupported build profile: $PROFILE" >&2; exit 1 ;;
 esac
 binary="target/$TARGET/$PROFILE/kurumi-containerd"
-name="kurumi-containerd-$VERSION-$PLATFORM-$TARGET$suffix"
+name="kurumi-containerd-$VERSION-$PLATFORM-$TARGET${VARIANT:+-$VARIANT}$suffix"
 mkdir -p dist
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

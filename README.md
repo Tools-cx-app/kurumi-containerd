@@ -49,21 +49,23 @@ sudo cargo run --release -p kurumi-containerd -- check
 ## Build
 
 ```bash
-cargo build --release
+cargo build --release -p kurumi-containerd
 ```
 
 The binary is written to `target/release/kurumi-containerd`.
 
-The `tui` Cargo feature is enabled by default. To build only the CLI without
-the terminal manager or its dependencies:
+The `tui` Cargo feature is disabled by default. To include the terminal manager:
 
 ```bash
-cargo build --release -p kurumi-containerd --no-default-features
+cargo build --release -p kurumi-containerd --features tui
 ```
 
-Add `--features tui` to enable it explicitly. Without this feature, the `tui`
-subcommand is unavailable. Select `-p kurumi-containerd` for a CLI-only build;
+Without this feature, the `tui` subcommand is unavailable.
+Select `-p kurumi-containerd` for a CLI-only build;
 `--workspace` also builds the standalone TUI crate.
+
+CI and releases provide `-with-tui` debug and release artifacts for every Linux
+target. Android artifacts use the default build without TUI.
 
 ## Benchmarks
 

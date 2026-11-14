@@ -46,19 +46,22 @@ sudo cargo run --release -p kurumi-containerd -- check
 ## 构建
 
 ```bash
-cargo build --release
+cargo build --release -p kurumi-containerd
 ```
 
 生成的二进制位于 `target/release/kurumi-containerd`。
 
-`tui` Cargo feature 默认启用。仅构建 CLI、排除终端管理界面及其依赖：
+`tui` Cargo feature 默认关闭。构建时启用终端管理界面：
 
 ```bash
-cargo build --release -p kurumi-containerd --no-default-features
+cargo build --release -p kurumi-containerd --features tui
 ```
 
-添加 `--features tui` 可显式启用。关闭该 feature 后，`tui` 子命令不可用。
+未启用该 feature 时，`tui` 子命令不可用。
 纯 CLI 构建需指定 `-p kurumi-containerd`；`--workspace` 仍会单独构建 TUI crate。
+
+CI 和 Release 为所有 Linux target 提供带 `-with-tui` 后缀的 debug/release 产物。
+Android 产物使用默认的不带 TUI 构建。
 
 ## 基准测试
 
