@@ -21,9 +21,10 @@ command; the name must match exactly, including case. `backup CONTAINER_ID OUTPU
 is the exception: its positional ID selects `container.name`, and combining it
 with `--name` is rejected. `check` alone does not load configuration.
 
-The examples use `sudo -H`, so create the registry under root's HOME. Changing
-HOME selects a different registry. Most operations need root to create namespaces,
-mounts, devices, cgroups, or network interfaces. See the [configuration
+The examples use `sudo -H`, selecting the registry under root's HOME. `install`
+can create the registry and missing entries automatically. Changing HOME selects
+a different registry. Most operations need root to create namespaces, mounts,
+devices, cgroups, or network interfaces. See the [configuration
 reference](configuration.md) for JSON and path rules and the [migration
 guide](migration-config-pointer.md) for the removed configuration entry points.
 
@@ -118,6 +119,14 @@ For a directory target configured in the selected entry:
 ```bash
 sudo -H kurumi-containerd install ./debian-rootfs.tar.zst
 ```
+
+If the registry is missing or empty, or `--name NAME` selects a missing entry,
+`install` first saves a default configuration. New entries use NAME, or `default`
+when no name is supplied and the registry is empty. The default directory is
+`$HOME/.kurumi-containerd/NAME.rootfs`; supplying `--size` instead selects a
+`NAME.img` image. Existing entries retain their settings; multiple entries still
+require `--name`, and invalid JSON is never overwritten. Configuration is saved
+before extraction, so a failed installation leaves it available for editing or retry.
 
 For a new sparse ext4 image, configure `container.rootfs_image` and supply its
 logical size. Binary suffixes include `M`, `G`, `MiB`, and `GiB`:

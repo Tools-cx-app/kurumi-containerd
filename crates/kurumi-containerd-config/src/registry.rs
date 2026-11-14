@@ -1,11 +1,15 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use crate::{Config, ConfigError, Result, config::valid_name};
+use crate::{
+    Config, ConfigError, Result,
+    config::{lock_document, valid_name, write_document},
+};
 use kurumi_containerd_error::{config::ErrorContext as _, config_ensure as ensure};
 use std::{
     ffi::OsString,
     fs,
+    os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
 };
 
@@ -22,6 +26,68 @@ impl ConfigEntry {
     /// Returns an error for invalid HOME, JSON, names, or duplicate entries.
     pub fn load_home() -> Result<Vec<Self>> {
         Self::load(&path_from_home(std::env::var_os("HOME"))?)
+    }
+
+    /// Selects an install target under HOME, creating a default entry when absent.
+    /// New entries use NAME (or `default`) and a sibling NAME.rootfs or NAME.img.
+    /// # Errors
+    /// Returns an error for invalid registries, ambiguous names, or failed writes.
+    pub fn prepare_install_home(name: Option<&str>, image: bool) -> Result<Self> {
+        Self::prepare_install(&path_from_home(std::env::var_os("HOME"))?, name, image)
+    }
+
+    fn prepare_install(path: &Path, name: Option<&str>, image: bool) -> Result<Self> {
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(path.parent().context("config path has no parent")?)?;
+        let persistent_path = match fs::symlink_metadata(path) {
+            Ok(_) => path.canonicalize()?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => path
+                .parent()
+                .context("config path has no parent")?
+                .canonicalize()?
+                .join(path.file_name().context("config path has no filename")?),
+            Err(error) => return Err(error.into()),
+        };
+        let _lock = lock_document(&persistent_path)?;
+        let mut document = read_install_document(&persistent_path, true)?;
+        let name = match name {
+            Some(name) => name,
+            None if document.is_empty() => "default",
+            None => {
+                let index = select_document(&document, None)?;
+                return Ok(Self {
+                    name: document[index]["container"]["name"]
+                        .as_str()
+                        .context("missing container.name")?
+                        .to_owned(),
+                    path: path.to_owned(),
+                });
+            }
+        };
+        ensure!(valid_name(name), "invalid container name: {name}");
+        if !document
+            .iter()
+            .any(|entry| entry["container"]["name"] == name)
+        {
+            let mut entry = serde_json::json!({
+                "runtime": {},
+                "container": {"name": name, "uuid": uuid::Uuid::new_v4().to_string()}
+            });
+            let (field, extension) = if image {
+                ("rootfs_image", "img")
+            } else {
+                ("rootfs", "rootfs")
+            };
+            entry["container"][field] = format!("{name}.{extension}").into();
+            document.push(entry);
+            write_document(&persistent_path, &document)?;
+        }
+        Ok(Self {
+            name: name.to_owned(),
+            path: path.to_owned(),
+        })
     }
 
     /// Lists entries without validating individual container settings.
@@ -81,15 +147,26 @@ impl ConfigEntry {
 }
 
 pub(crate) fn read_document(path: &Path) -> Result<Vec<serde_json::Value>> {
-    let source = fs::read_to_string(path)
-        .with_context(|| format!("failed to read config {}", path.display()))?;
+    read_install_document(path, false)
+}
+
+fn read_install_document(path: &Path, installing: bool) -> Result<Vec<serde_json::Value>> {
+    let source = match fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(error) if installing && error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Vec::new());
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read config {}", path.display()));
+        }
+    };
     let entries: Vec<serde_json::Value> =
         serde_json::from_str(&source).map_err(|source| ConfigError::Context {
             context: format!("failed to parse JSON config {}", path.display()),
             source: Box::new(source),
         })?;
     ensure!(
-        !entries.is_empty(),
+        installing || !entries.is_empty(),
         "config {} must not be empty",
         path.display()
     );

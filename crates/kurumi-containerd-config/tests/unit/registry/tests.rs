@@ -108,3 +108,92 @@ fn requires_absolute_home() {
         Path::new("/home/user/.kurumi-containerd/config.json")
     );
 }
+
+#[test]
+fn install_creates_missing_registry_and_reuses_the_sole_entry() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(".kurumi-containerd/config.json");
+    let entry = ConfigEntry::prepare_install(&path, None, false).unwrap();
+    let config = entry.load_for_install().unwrap();
+    assert_eq!(config.container.name, "default");
+    assert_eq!(
+        config.container.rootfs,
+        Some(path.parent().unwrap().join("default.rootfs"))
+    );
+    assert!(config.container.uuid.is_some());
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let original = fs::read(&path).unwrap();
+    ConfigEntry::prepare_install(&path, None, true).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), original);
+}
+
+#[test]
+fn install_appends_named_targets_without_changing_existing_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let original = json!({"runtime": {}, "container": {"name": "existing", "rootfs": "custom"}});
+    fs::write(&path, json!([original]).to_string()).unwrap();
+    let entry = ConfigEntry::prepare_install(&path, Some("new"), true).unwrap();
+    let config = entry.load_for_install().unwrap();
+    assert_eq!(config.container.name, "new");
+    assert_eq!(
+        config.container.rootfs_image,
+        Some(dir.path().join("new.img"))
+    );
+    assert_eq!(read_document(&path).unwrap()[0], original);
+    let persisted = fs::read(&path).unwrap();
+    ConfigEntry::prepare_install(&path, Some("new"), false).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), persisted);
+    assert!(ConfigEntry::prepare_install(&path, None, false).is_err());
+    assert_eq!(fs::read(&path).unwrap(), persisted);
+}
+
+#[test]
+fn install_accepts_empty_registry_but_preserves_invalid_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    fs::write(&path, "[]").unwrap();
+    let entry = ConfigEntry::prepare_install(&path, Some("first"), false).unwrap();
+    assert_eq!(entry.load_for_install().unwrap().container.name, "first");
+    for source in [
+        "{",
+        "{}",
+        "null",
+        "[null]",
+        r#"[{"container":{"name":"one"}},{"container":{"name":"one"}}]"#,
+    ] {
+        fs::write(&path, source).unwrap();
+        assert!(ConfigEntry::prepare_install(&path, Some("new"), false).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
+    }
+    fs::write(&path, "[]").unwrap();
+    for name in ["", "..", "../escape", "/absolute"] {
+        assert!(ConfigEntry::prepare_install(&path, Some(name), false).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "[]");
+    }
+}
+
+#[test]
+fn install_updates_symlink_target_without_replacing_the_link() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("actual.json");
+    let path = dir.path().join("config.json");
+    fs::write(&target, "[]").unwrap();
+    std::os::unix::fs::symlink(&target, &path).unwrap();
+    ConfigEntry::prepare_install(&path, Some("new"), false).unwrap();
+    assert!(
+        fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        read_document(&target).unwrap()[0]["container"]["name"],
+        "new"
+    );
+}

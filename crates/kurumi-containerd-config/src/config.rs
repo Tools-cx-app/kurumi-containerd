@@ -5,7 +5,7 @@ use std::{
     collections::VecDeque,
     fs::{self, File, OpenOptions},
     io::Write,
-    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, chown},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, chown},
     path::{Component, Path, PathBuf},
 };
 
@@ -74,63 +74,14 @@ impl Config {
         let persistent_path = path
             .canonicalize()
             .with_context(|| format!("failed to resolve config {}", path.display()))?;
-        let lock_path = persistent_path.with_file_name(format!(
-            ".{}.lock",
-            persistent_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-        ));
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(&lock_path)
-            .with_context(|| format!("failed to open config lock {}", lock_path.display()))?;
-        lock.lock_exclusive()
-            .context("failed to lock persistent config")?;
+        let _lock = lock_document(&persistent_path)?;
         let config = Self::load_selected(path, name, false)?;
         if config.container.uuid.is_none() {
             let mut document = crate::registry::read_document(&persistent_path)?;
             let index = crate::registry::select_document(&document, name)?;
             document[index]["container"]["uuid"] =
                 serde_json::Value::String(Uuid::new_v4().to_string());
-            let encoded =
-                serde_json::to_string_pretty(&document).map_err(|source| ConfigError::Context {
-                    context: "failed to serialize persistent JSON config".to_owned(),
-                    source: Box::new(source),
-                })?;
-            let temporary = persistent_path.with_extension(format!("{}.tmp", Uuid::new_v4()));
-            let metadata = fs::metadata(&persistent_path)?;
-            let result = (|| {
-                let mut file = OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .mode(metadata.permissions().mode())
-                    .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-                    .open(&temporary)?;
-                chown(&temporary, Some(metadata.uid()), Some(metadata.gid()))?;
-                fs::set_permissions(&temporary, metadata.permissions())?;
-                file.write_all(encoded.as_bytes())?;
-                file.sync_all()?;
-                fs::rename(&temporary, &persistent_path).with_context(|| {
-                    format!("failed to commit persistent config {}", path.display())
-                })?;
-                File::open(
-                    persistent_path
-                        .parent()
-                        .context("config path has no parent")?,
-                )?
-                .sync_all()?;
-                Ok::<(), ConfigError>(())
-            })();
-            if result.is_err() {
-                fs::remove_file(&temporary).ok();
-            }
-            result?;
+            write_document(&persistent_path, &document)?;
             return Self::load_selected(path, name, false);
         }
         Ok(config)
@@ -466,4 +417,58 @@ fn valid_interface_name(name: &str) -> bool {
         && name
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+pub(crate) fn lock_document(path: &Path) -> Result<File> {
+    let lock_path = path.with_file_name(format!(
+        ".{}.lock",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&lock_path)
+        .with_context(|| format!("failed to open config lock {}", lock_path.display()))?;
+    lock.lock_exclusive()
+        .context("failed to lock persistent config")?;
+    Ok(lock)
+}
+
+pub(crate) fn write_document(path: &Path, document: &[serde_json::Value]) -> Result<()> {
+    let encoded = serde_json::to_vec_pretty(document).map_err(|source| ConfigError::Context {
+        context: "failed to serialize persistent JSON config".to_owned(),
+        source: Box::new(source),
+    })?;
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    let temporary = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&temporary)?;
+        if let Some(metadata) = metadata {
+            chown(&temporary, Some(metadata.uid()), Some(metadata.gid()))?;
+            fs::set_permissions(&temporary, metadata.permissions())?;
+        }
+        file.write_all(&encoded)?;
+        file.sync_all()?;
+        fs::rename(&temporary, path)
+            .with_context(|| format!("failed to commit persistent config {}", path.display()))?;
+        File::open(path.parent().context("config path has no parent")?)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        fs::remove_file(&temporary).ok();
+    }
+    result
 }

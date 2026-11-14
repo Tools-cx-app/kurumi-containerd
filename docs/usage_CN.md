@@ -20,8 +20,9 @@ kurumi-containerd [--name NAME] [--verbose] COMMAND
 `backup CONTAINER_ID OUTPUT` 是特例：位置参数 ID 直接选择 `container.name`，
 同时使用 `--name` 会被拒绝。只有 `check` 不加载配置。
 
-本文示例使用 `sudo -H`，因此请在 root 的 HOME 下创建登记文件。更改 HOME 就会选择
-另一份登记文件。大多数操作需要 root 来创建 namespace、挂载、设备、cgroup 或网络接口。
+本文示例使用 `sudo -H`，因此使用 root 的 HOME 下的登记文件。`install` 可自动创建
+登记文件及缺失项。更改 HOME 就会选择另一份登记文件。大多数操作需要 root 来创建
+namespace、挂载、设备、cgroup 或网络接口。
 JSON 和路径规则见[配置参考](configuration_CN.md)，已删除的配置入口见
 [迁移指南](migration-config-pointer_CN.md)。
 
@@ -108,6 +109,12 @@ Enter 对话框提供可选的 Shell 字段：填写 `/bin/ash` 可显式指定 
 ```bash
 sudo -H kurumi-containerd install ./debian-rootfs.tar.zst
 ```
+
+登记文件不存在、列表为空，或 `--name NAME` 指定的项不存在时，`install` 会先保存
+默认配置。新项以 NAME 命名；未指定名称且登记为空时使用 `default`。
+默认目录为 `$HOME/.kurumi-containerd/NAME.rootfs`；传入 `--size` 时改用
+`NAME.img` 镜像。已有项保留原配置，多项时仍必须指定 `--name`，非法 JSON 不会被覆盖。
+配置先于解包保存，因此安装失败后仍可修改配置或重试。
 
 创建稀疏 ext4 镜像时，配置 `container.rootfs_image` 并指定逻辑容量。
 支持 `M`、`G`、`MiB`、`GiB` 等二进制容量后缀：

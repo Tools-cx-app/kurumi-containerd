@@ -148,6 +148,15 @@ fn run(cli: Cli) -> Result<()> {
     if matches!(cli.command, Commands::Tui) {
         return kurumi_containerd_tui::run(&std::env::current_exe()?);
     }
+    if let Commands::Install {
+        archive,
+        size,
+        force,
+    } = &cli.command
+    {
+        let entry = ConfigEntry::prepare_install_home(cli.name.as_deref(), size.is_some())?;
+        return install(&entry, archive, *size, *force);
+    }
     tracing::debug!(name = cli.name.as_deref(), "loading configuration registry");
     let entries = ConfigEntry::load_home()?;
     if let Commands::Backup {
@@ -161,14 +170,6 @@ fn run(cli: Cli) -> Result<()> {
         return backup(&entries, container_id, output);
     }
     let entry = ConfigEntry::select(&entries, cli.name.as_deref())?;
-    if let Commands::Install {
-        archive,
-        size,
-        force,
-    } = &cli.command
-    {
-        return install(entry, archive, *size, *force);
-    }
     let config = entry.load_persistent()?;
     let container_name = config.container.name.clone();
     let configured_foreground = config.container.foreground;
