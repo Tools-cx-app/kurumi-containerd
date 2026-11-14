@@ -192,6 +192,31 @@ Stop selects a shutdown protocol from the detected init family and escalates
 after `runtime.stop_timeout_seconds`.
 Custom init programs receive `SIGTERM` first so they can finish their own cleanup;
 programs that do not exit before the timeout receive `SIGKILL`.
+Alpine images using BusyBox as PID 1 receive the BusyBox shutdown signal even
+when OpenRC manages their services.
+
+CI runs privileged lifecycle tests from `.github/workflows/tests.yml` on Ubuntu
+with Debian Bookworm (systemd) and Alpine 3.22 (OpenRC) rootfs archives from
+LXC Images (`images.linuxcontainers.org`). Each download is checked against the
+SHA-256 in the image index. The test installs the archive with the CLI and checks
+init readiness, command execution and exit status, restart, graceful shutdown,
+process/state/cgroup cleanup, mount isolation, and startup after stopping.
+An init-managed service records both startup and shutdown, so forced termination
+does not count as a successful graceful stop. Networking uses `none`.
+
+To run the same test with a matching host-architecture LXC rootfs:
+
+```bash
+cargo build --release --locked -p kurumi-containerd
+sudo target/release/kurumi-containerd check
+sudo python3 tests/container_lifecycle.py target/release/kurumi-containerd ./rootfs.tar.xz systemd
+# Use openrc instead of systemd for Alpine.
+```
+
+The script requires root, namespace/mount privileges, Python 3, and the rootfs
+archive; it creates an isolated HOME registry and temporary rootfs, stops the
+container on exit, and removes its temporary files. It does not require LXC or
+Incus to be installed.
 
 ## Nested sandboxing
 

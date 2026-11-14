@@ -27,6 +27,18 @@ fn detects_supported_init_families() {
 }
 
 #[test]
+fn detects_busybox_pid_one_with_openrc_services() {
+    let root = tempfile::tempdir().unwrap();
+    create(root.path(), "sbin/openrc", b"service manager");
+    create(root.path(), "bin/busybox", b"init");
+    std::os::unix::fs::symlink("/bin/busybox", root.path().join("sbin/init")).unwrap();
+    assert_eq!(
+        detect(root.path(), Path::new("/sbin/init")),
+        InitSystem::Busybox
+    );
+}
+
+#[test]
 fn distinguishes_busybox_sysv_and_nix_wrappers() {
     let busybox = tempfile::tempdir().unwrap();
     create(busybox.path(), "sbin/init", b"#!/bin/sh\nexec busybox init");

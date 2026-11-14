@@ -123,7 +123,7 @@ pub(crate) fn detect(rootfs: &Path, configured_init: &Path) -> InitSystem {
         (InitSystem::Procd, &["sbin/procd", "usr/sbin/procd"][..]),
         (
             InitSystem::Openrc,
-            &["sbin/openrc-init", "usr/bin/openrc-init", "sbin/openrc"][..],
+            &["sbin/openrc-init", "usr/bin/openrc-init"][..],
         ),
         (InitSystem::Runit, &["sbin/runit", "usr/bin/runit"][..]),
         (InitSystem::S6, &["bin/s6-svscan", "usr/bin/s6-svscan"][..]),
