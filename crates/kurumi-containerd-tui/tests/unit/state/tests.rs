@@ -94,7 +94,9 @@ fn enter_form_supports_optional_shell_and_validates_its_path() {
     assert_eq!(state.field, 1);
     state.fields[state.field] = "ash".into();
     assert!(state.submit().is_err());
-    state.fields[state.field] = " /bin/ash ".into();
+    state.fields[state.field] = "/bin/ash '".into();
+    assert!(state.submit().is_err());
+    state.fields[state.field] = " /bin/busybox ash ".into();
     state.fields[0] = " developer ".into();
     let action = state.submit().unwrap().unwrap();
     assert!(action.needs_terminal(false));
@@ -106,7 +108,7 @@ fn enter_form_supports_optional_shell_and_validates_its_path() {
             "enter",
             "developer",
             "--shell",
-            "/bin/ash"
+            "/bin/busybox ash"
         ]
         .map(std::ffi::OsString::from)
     );

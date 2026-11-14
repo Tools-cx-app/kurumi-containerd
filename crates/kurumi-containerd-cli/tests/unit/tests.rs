@@ -46,6 +46,11 @@ fn enter_accepts_custom_login_shell() {
             "developer",
             Some("/bin/sh"),
         ),
+        (
+            vec!["enter", "--shell", "/bin/busybox ash"],
+            "root",
+            Some("/bin/busybox ash"),
+        ),
     ] {
         let cli =
             Cli::try_parse_from(std::iter::once("kurumi-containerd").chain(arguments)).unwrap();

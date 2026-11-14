@@ -87,8 +87,8 @@ enum Commands {
         /// Login user.
         #[arg(default_value = "root")]
         user: String,
-        /// Absolute login shell path inside the container; bypasses su.
-        #[arg(long)]
+        /// Login shell command with an absolute container path and optional arguments; bypasses su.
+        #[arg(long, value_name = "COMMAND")]
         shell: Option<String>,
     },
     /// Run a command in the container.

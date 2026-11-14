@@ -50,7 +50,7 @@ pub trait ContainerRuntime {
     /// Returns an error when stopping or starting fails.
     fn restart(&self, foreground: bool) -> Result<ContainerState>;
     /// Opens an interactive login session inside the container.
-    /// An explicit shell must be an absolute container path and bypasses `su`.
+    /// An explicit shell command starts with an absolute container path and bypasses `su`.
     ///
     /// # Errors
     /// Returns an error when the container or login session is unavailable.

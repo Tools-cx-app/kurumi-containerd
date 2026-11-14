@@ -112,11 +112,11 @@ fn enter_shell_field_remains_visible_on_short_terminals() {
     let mut state = UiState::new(vec![]);
     state.open(ActionKind::Enter);
     state.next_field();
-    state.fields[state.field] = "/bin/ash".into();
+    state.fields[state.field] = "/bin/busybox ash".into();
     for (width, height) in [(100, 30), (60, 24), (80, 12)] {
         let text = render(width, height, &state, &[]);
-        assert!(text.contains("Shell (optional absolute path)"));
-        assert!(text.contains("/bin/ash"));
+        assert!(text.contains("Shell command (optional)"));
+        assert!(text.contains("/bin/busybox ash"));
     }
 }
 

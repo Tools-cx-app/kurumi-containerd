@@ -34,7 +34,7 @@ backup CONTAINER_ID OUTPUT
 start [--foreground]
 stop
 restart [--foreground]
-enter [USER] [--shell PATH]
+enter [USER] [--shell COMMAND]
 run COMMAND...
 info
 pid
@@ -98,8 +98,8 @@ choose Backup, and provide a new path ending in `.zst`, `.xz`, `.zip`, or `.tar`
 The selected `container.name` supplies the ID. `run` takes an executable and separate
 argument fields, without interpreting shell quoting or pipes. Captured output is
 limited to the first 1 MiB.
-The Enter dialog has an optional Shell field: use `/bin/ash` for an explicit
-Alpine login shell, or leave it empty to use the default login behavior.
+The Enter dialog has an optional Shell command field: use `/bin/ash` or
+`/bin/busybox ash` for Alpine, or leave it empty to use the default login behavior.
 
 On Linux, interactive and foreground commands open a separate graphical terminal.
 Detection tries `xterm`, `kitty`, then `alacritty`. Set
@@ -266,6 +266,7 @@ Enable this option only for trusted containers.
 sudo -H kurumi-containerd enter
 sudo -H kurumi-containerd enter developer
 sudo -H kurumi-containerd --name alpine enter --shell /bin/ash
+sudo -H kurumi-containerd --name alpine enter --shell '/bin/busybox ash'
 sudo -H kurumi-containerd run uname -a
 sudo -H kurumi-containerd run sh -c 'id && mount'
 ```
@@ -275,10 +276,15 @@ sudo -H kurumi-containerd run sh -c 'id && mount'
 pipes, redirection, or compound commands.
 
 Use `enter --shell /bin/ash` to override the login shell, for example on Alpine.
-The path must be absolute inside the container and refer to an executable shell.
-An explicit shell bypasses `su` and the shell field in `/etc/passwd`; the selected
+The command starts with an absolute executable path inside the container and may
+include arguments, such as `--shell '/bin/busybox ash'`. Quote the whole command
+on the CLI; in the TUI Shell command field, enter `/bin/busybox ash` directly.
+Shell-style quotes and backslashes group arguments; variables, substitutions and
+pipes are not evaluated. Quote paths containing spaces within the command.
+An explicit command bypasses `su` and the shell field in `/etc/passwd`; the selected
 user's UID, GID, supplementary groups, home directory and login environment still
-apply, with `SHELL` set to the override. The shell is invoked with `-l`.
+apply. `SHELL` is set to the executable path and `-l` is appended after the supplied
+arguments, so BusyBox receives `busybox ash -l`.
 Without `--shell`, `enter` tries the container's `su -l` first, then the account's
 shell from `/etc/passwd`. The override applies only to this session and does not
 modify `/etc/passwd` or config.json. A missing shell interpreter or dynamic loader

@@ -172,7 +172,7 @@ backup CONTAINER_ID OUTPUT
 start [--foreground]   启动配置中的容器
 stop                   优雅停止容器
 restart [--foreground] 重启容器
-enter [USER] [--shell PATH]
+enter [USER] [--shell COMMAND]
                         进入交互式登录（默认 root），可指定 shell
 run COMMAND...          执行非交互命令
 info                    显示运行状态和资源使用情况

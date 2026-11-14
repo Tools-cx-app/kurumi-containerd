@@ -39,7 +39,7 @@ use crate::{
 
 impl Runtime {
     /// Opens an interactive login session inside the container.
-    /// An explicit shell must be an absolute container path and bypasses `su`.
+    /// An explicit shell command starts with an absolute container path and bypasses `su`.
     ///
     /// # Errors
     ///
@@ -47,14 +47,8 @@ impl Runtime {
     /// an interactive login shell cannot be executed.
     pub fn enter(&self, user: &str, shell: Option<&str>) -> Result<i32> {
         ensure!(valid_login_name(user), "invalid login user name");
-        if let Some(shell) = shell {
-            ensure!(
-                shell.starts_with('/'),
-                "login shell must be an absolute container path"
-            );
-            CString::new(shell).context("login shell path contains a NUL byte")?;
-        }
-        self.execute(&[], Some((user, shell)))
+        let shell = shell.map(login_shell_arguments).transpose()?;
+        self.execute(&[], Some((user, shell.as_deref())))
     }
 
     /// Executes a command inside the container namespaces.
@@ -70,7 +64,11 @@ impl Runtime {
 
     #[allow(clippy::too_many_lines)]
     #[allow(unsafe_code)]
-    fn execute(&self, command: &[String], login: Option<(&str, Option<&str>)>) -> Result<i32> {
+    fn execute(
+        &self,
+        command: &[String],
+        login: Option<(&str, Option<&[CString]>)>,
+    ) -> Result<i32> {
         Self::ensure_root()?;
         let lock = self.lock()?;
         let state = self.require_state()?;
@@ -256,7 +254,7 @@ struct PasswdEntry {
 
 fn exec_login(
     user: &str,
-    shell: Option<&str>,
+    shell: Option<&[CString]>,
     configured: &BTreeMap<String, String>,
     android: &AndroidConfig,
 ) -> ! {
@@ -279,7 +277,17 @@ fn exec_login(
             }
         }
     }
-    let shell_path = shell.unwrap_or(&account.shell);
+    let default_arguments;
+    let arguments = if let Some(arguments) = shell {
+        arguments
+    } else {
+        default_arguments = [
+            result_or_exit(CString::new(account.shell.as_str())),
+            result_or_exit(CString::new("-l")),
+        ];
+        &default_arguments
+    };
+    let shell_path = result_or_exit(arguments[0].to_str());
     if !shell_path.starts_with('/') || !Path::new(shell_path).is_file() {
         exec_failure(&format!(
             "login shell is not a usable absolute file: {shell_path}"
@@ -290,15 +298,7 @@ fn exec_login(
     result_or_exit(set_gid(account.gid));
     result_or_exit(set_uid(account.uid));
     result_or_exit(chdir(Path::new(&account.home)));
-    let shell = result_or_exit(CString::new(shell_path));
-    let shell_name = Path::new(shell_path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("sh");
-    let arguments = [
-        result_or_exit(CString::new(shell_name)),
-        result_or_exit(CString::new("-l")),
-    ];
+    let shell = &arguments[0];
     let mut environment = base_env;
     replace_environment(&mut environment, "HOME", &account.home);
     replace_environment(&mut environment, "USER", user);
@@ -309,10 +309,25 @@ fn exec_login(
         &account.home,
         account.uid,
     ));
-    let error = execve(&shell, &arguments, &environment).unwrap_err();
+    let error = execve(shell, arguments, &environment).unwrap_err();
     exec_failure(&format!(
         "failed to execute login shell '{shell_path}': {error}"
     ));
+}
+
+fn login_shell_arguments(command: &str) -> Result<Vec<CString>> {
+    let words = shlex::split(command).context("invalid quoting in login shell command")?;
+    ensure!(
+        words
+            .first()
+            .is_some_and(|program| program.starts_with('/')),
+        "login shell must be an absolute container path"
+    );
+    words
+        .into_iter()
+        .chain(std::iter::once(String::from("-l")))
+        .map(|word| CString::new(word).context("login shell command contains a NUL byte"))
+        .collect()
 }
 
 fn prepare_runtime_directory(parent: &Path, account: &PasswdEntry) -> Result<()> {

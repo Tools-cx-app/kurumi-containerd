@@ -146,7 +146,7 @@ impl ActionKind {
         match self {
             Self::Install => &["Archive path", "Image size (optional)"],
             Self::Backup => &["Output path (.zst/.xz/.zip/.tar)"],
-            Self::Enter => &["User (default root)", "Shell (optional absolute path)"],
+            Self::Enter => &["User (default root)", "Shell command (optional)"],
             Self::Run => &["Executable", "Argument 1 (Tab to add another)"],
             _ => &[],
         }
@@ -184,8 +184,12 @@ impl ActionKind {
             Self::ForegroundRestart => Action::Restart(true),
             Self::Enter => {
                 let shell = f[1].trim();
-                if !shell.is_empty() && !shell.starts_with('/') {
-                    bail!("login shell must be an absolute container path")
+                if !shell.is_empty()
+                    && !shlex::split(shell)
+                        .and_then(|words| words.into_iter().next())
+                        .is_some_and(|program| program.starts_with('/'))
+                {
+                    bail!("login shell requires an absolute container path and valid quoting")
                 }
                 Action::Enter {
                     user: if f[0].trim().is_empty() {

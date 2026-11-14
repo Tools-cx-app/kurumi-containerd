@@ -43,6 +43,35 @@ fn parses_login_account() {
 }
 
 #[test]
+fn parses_login_shell_command_without_evaluating_arguments() {
+    for (command, expected) in [
+        ("/bin/ash", vec!["/bin/ash", "-l"]),
+        ("/bin/busybox ash", vec!["/bin/busybox", "ash", "-l"]),
+        (
+            "'/opt/my shell' --label 'two words' \"$HOME\"",
+            vec!["/opt/my shell", "--label", "two words", "$HOME", "-l"],
+        ),
+    ] {
+        let arguments = login_shell_arguments(command).unwrap();
+        let arguments: Vec<_> = arguments.iter().map(|arg| arg.to_str().unwrap()).collect();
+        assert_eq!(arguments, expected);
+    }
+    for command in [
+        "",
+        "ash",
+        "'' ash",
+        "/bin/ash '",
+        "/bin/ash \\",
+        "/bin/ash a\0b",
+    ] {
+        assert!(
+            login_shell_arguments(command).is_err(),
+            "accepted {command:?}"
+        );
+    }
+}
+
+#[test]
 fn rejects_unsafe_login_names() {
     assert!(valid_login_name("root"));
     assert!(valid_login_name("service-user_1"));
