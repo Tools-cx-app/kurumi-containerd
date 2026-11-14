@@ -22,7 +22,9 @@ license = "GPL-3.0-only"
 anyhow = "1.0.104"
 bitflags = "2.13.2"
 clap = { version = "4.6.7", features = ["derive", "env"] }
-criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+criterion = { version = "0.8.2", default-features = false, features = [
+  "cargo_bench_support",
+] }
 fs2 = "0.4.3"
 flate2 = { version = "1.1.11", default-features = false, features = [
   "rust_backend",
@@ -59,3 +61,6 @@ strip = true
 opt-level = "z"
 lto = true
 codegen-units = 1
+
+[profile.debug]
+strip = true
