@@ -224,7 +224,6 @@ jobs:
 
   artifacts:
     name: Package build artifacts
-
     runs-on: ubuntu-latest
     needs: [android, android-module, linux, with-tui]
     if: github.event_name != 'pull_request'
@@ -235,32 +234,6 @@ jobs:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: kurumi-containerd-*
-          path: artifacts
-          merge-multiple: false
-      - name: Package GitHub aggregate archives
-        run: |
-          mkdir -p dist
-          cd artifacts
-          for artifact in kurumi-containerd-android-* kurumi-containerd-linux-*; do
-            [[ -d "$artifact" ]] || continue
-            suffix=
-            if [[ "$artifact" == *-debug ]]; then
-              suffix=-debug
-            fi
-            zip -9 -r "../dist/kurumi-containerd-all-${GITHUB_SHA}${suffix}.zip" "$artifact"
-          done
-      - name: Upload combined artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: kurumi-containerd-all
-          path: dist/*.zip
-          if-no-files-found: error
       - name: Send Telegram artifact links
         if: env.BOT_TOKEN != '' && env.CHAT_ID != ''
         uses: Tools-cx-app/telegram-upload-bot@master
