@@ -1,0 +1,113 @@
+# Copyright (C) 2026 Tools-cx-app
+# SPDX-License-Identifier: GPL-v3-only
+
+name: Test
+
+on:
+  push:
+    branches: ["master"]
+    paths:
+      - "crates/**"
+      - "Cargo.*"
+      - "tests/container_lifecycle.py"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    branches: ["master"]
+    paths:
+      - "crates/**"
+      - "Cargo.*"
+      - "tests/container_lifecycle.py"
+      - ".github/workflows/tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-workspace-crates: "true"
+          cache-all-crates: "true"
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Run tests
+        run: cargo test --workspace --locked
+
+      - name: Run CLI tests without TUI
+        run: cargo test -p kurumi-containerd --no-default-features --locked
+
+  container:
+    name: Container lifecycle (${{ matrix.image }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian
+            release: bookworm
+            init: systemd
+          - image: alpine
+            release: "3.22"
+            init: openrc
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: container-lifecycle
+          cache-workspace-crates: "true"
+          cache-all-crates: "true"
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Build runtime
+        run: cargo build --release --locked -p kurumi-containerd
+
+      - name: Check host capabilities
+        run: sudo target/release/kurumi-containerd check
+
+      - name: Download LXC Images rootfs
+        env:
+          IMAGE: ${{ matrix.image }}
+          RELEASE: ${{ matrix.release }}
+        run: |
+          set -euo pipefail
+          base=https://images.linuxcontainers.org
+          wget --no-verbose --tries=1 \
+            -O "$RUNNER_TEMP/images.json" "$base/streams/v1/images.json"
+          item=$(jq -ce --arg product "$IMAGE:$RELEASE:amd64:default" '
+            .products[$product].versions | to_entries | max_by(.key)
+            | .value.items["root.tar.xz"]
+            | select(.path != null and .sha256 != null)
+          ' "$RUNNER_TEMP/images.json")
+          url="$base/$(jq -r .path <<< "$item")"
+          echo "Rootfs: $url"
+          timeout 600 wget --no-verbose --timeout=60 --tries=1 \
+            -O "$RUNNER_TEMP/rootfs.tar.xz" "$url"
+          echo "$(jq -r .sha256 <<< "$item")  $RUNNER_TEMP/rootfs.tar.xz" | sha256sum --check
+
+      - name: Test container startup and shutdown
+        env:
+          INIT_SYSTEM: ${{ matrix.init }}
+        run: |
+          sudo python3 tests/container_lifecycle.py \
+            target/release/kurumi-containerd "$RUNNER_TEMP/rootfs.tar.xz" "$INIT_SYSTEM"
