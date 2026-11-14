@@ -232,8 +232,17 @@ pub fn execve(program: &CStr, arguments: &[CString], environment: &[CString]) ->
         .collect::<Vec<_>>();
     envp.push(std::ptr::null());
     close_non_stdio_on_exec()?;
+    // Bypass host execve interposers (e.g. termux-exec) after changing root.
     // SAFETY: all pointers are NUL-terminated and both pointer arrays end in null.
-    cvt(unsafe { libc::execve(program.as_ptr(), argv.as_ptr(), envp.as_ptr()) }).map(drop)
+    cvt_long(unsafe {
+        libc::syscall(
+            libc::SYS_execve,
+            program.as_ptr(),
+            argv.as_ptr(),
+            envp.as_ptr(),
+        )
+    })
+    .map(drop)
 }
 
 fn close_non_stdio_on_exec() -> io::Result<()> {

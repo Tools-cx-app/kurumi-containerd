@@ -258,6 +258,9 @@ CLI 中需引用整个命令；TUI 的 Shell command 字段直接填写 `/bin/bu
 不指定 `--shell` 时，先尝试容器内的 `su -l`，再尝试 `/etc/passwd` 中的 shell。
 该选项仅作用于当前会话，不修改 `/etc/passwd` 或 config.json。即使 shell 文件存在，
 缺失脚本解释器或动态加载器仍可能导致 `No such file or directory`。
+容器 init 和命令直接调用内核 `execve`，避免宿主预加载库（如 `termux-exec`）改写容器路径。
+Linux 上可运行 `python3 tests/exec_interposition.py`，通过预加载的 `execve` 拦截库验证该行为；
+需要 Cargo 和宿主 C 编译器，无需 root。
 
 两者都加入运行中容器实际使用的 namespace 和 cgroup。修改 config.json 中的网络或
 资源设置只在下次启动时生效，不会改变进入当前实例的命令所使用的隔离或资源限制。

@@ -289,6 +289,10 @@ Without `--shell`, `enter` tries the container's `su -l` first, then the account
 shell from `/etc/passwd`. The override applies only to this session and does not
 modify `/etc/passwd` or config.json. A missing shell interpreter or dynamic loader
 can still cause `No such file or directory` even when the shell file exists.
+Container init and commands use the kernel `execve` syscall directly, preventing
+host preload libraries such as `termux-exec` from rewriting container paths.
+On Linux, `python3 tests/exec_interposition.py` verifies this with a preloaded
+`execve` interposer; it requires Cargo and a host C compiler, without root.
 
 Both join the running container's actual namespaces and cgroups. Changes to
 network or resource settings in config.json take effect at the next start;
