@@ -311,7 +311,7 @@ fn check() -> Result<()> {
         print_check(&capability.name, capability.available, &capability.detail)?;
     }
     if !report.required_namespaces_available() {
-        bail!("one or more required namespaces are unavailable");
+        bail!("required mount or UTS namespace is unavailable");
     }
     Ok(())
 }

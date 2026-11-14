@@ -19,7 +19,7 @@ use crate::{
     Result,
     error::{ErrorContext as _, bail, ensure},
 };
-use kurumi_containerd_config::AndroidConfig;
+use kurumi_containerd_config::{AndroidConfig, IsolationMode};
 use kurumi_containerd_helper::{
     process::{
         ForkResult, NamespaceFlags, WaitStatus, chdir, chroot, close_fds_except, current_pid,
@@ -80,7 +80,7 @@ impl Runtime {
         let root = process
             .open_relative("root")
             .context("failed to open container root")?;
-        let namespaces = capture_namespaces(&process)?;
+        let namespaces = capture_namespaces(&process, state.isolation)?;
         let monitor =
             Process::new(state.monitor_pid).context("failed to open container monitor")?;
         ensure!(
@@ -135,9 +135,27 @@ impl Runtime {
                     .attach(current_pid())
                     .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                 for (name, namespace) in &namespaces {
-                    setns(namespace.as_fd(), NamespaceFlags::EMPTY).unwrap_or_else(|error| {
-                        exec_failure(&format!("failed to join {name} namespace: {error}"))
+                    let current =
+                        File::open(format!("/proc/self/ns/{name}")).unwrap_or_else(|error| {
+                            exec_failure(&format!("failed to inspect {name} namespace: {error}"))
+                        });
+                    let current_metadata = current.metadata().unwrap_or_else(|error| {
+                        exec_failure(&format!(
+                            "failed to inspect current {name} namespace: {error}"
+                        ))
                     });
+                    let target_metadata = namespace.metadata().unwrap_or_else(|error| {
+                        exec_failure(&format!(
+                            "failed to inspect target {name} namespace: {error}"
+                        ))
+                    });
+                    if (current_metadata.dev(), current_metadata.ino())
+                        != (target_metadata.dev(), target_metadata.ino())
+                    {
+                        setns(namespace.as_fd(), NamespaceFlags::EMPTY).unwrap_or_else(|error| {
+                            exec_failure(&format!("failed to join {name} namespace: {error}"))
+                        });
+                    }
                 }
                 drop(lock);
                 let console = terminal_sender.map(|sender| {
@@ -156,7 +174,7 @@ impl Runtime {
                     drop(console.master);
                     slave
                 });
-                security::install_seccomp(&self.config.container.security)
+                security::install_seccomp(&self.config.container.security, state.isolation)
                     .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
                 // A child created after setns(CLONE_NEWPID) enters the target PID namespace.
                 match unsafe { fork() }.unwrap_or_else(|error| {
@@ -215,9 +233,18 @@ impl Runtime {
     }
 }
 
-fn capture_namespaces(process: &Process) -> Result<Vec<(&'static str, File)>> {
-    let mut namespaces = ["mnt", "uts", "ipc", "pid"]
-        .into_iter()
+fn capture_namespaces(
+    process: &Process,
+    isolation: IsolationMode,
+) -> Result<Vec<(&'static str, File)>> {
+    let required = if isolation == IsolationMode::SharedPidIpc {
+        &["mnt", "uts"][..]
+    } else {
+        &["mnt", "uts", "ipc", "pid"][..]
+    };
+    let mut namespaces = required
+        .iter()
+        .copied()
         .map(|name| {
             process
                 .open_relative(Path::new("ns").join(name))

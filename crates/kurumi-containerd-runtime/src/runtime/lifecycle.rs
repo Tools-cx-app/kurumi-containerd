@@ -13,12 +13,12 @@ use crate::{
     Result, RuntimeError,
     error::{ErrorContext as _, bail, ensure},
 };
-use kurumi_containerd_config::NetworkMode;
+use kurumi_containerd_config::{IsolationMode, NetworkMode};
 use kurumi_containerd_helper::{
     fs::{MountFlags, mount},
     process::{
-        ForkResult, NamespaceFlags, WaitStatus, current_pid, fork, pipe, setsid, unshare, waitpid,
-        write,
+        ForkResult, NamespaceFlags, WaitStatus, current_pid, fork, pipe, set_child_subreaper,
+        setsid, unshare, waitpid, write,
     },
     signal::{Signal, kill},
 };
@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use super::supervisor::{
     configure_monitor_signals, ignore_foreground_parent_signals, is_reboot_status, read_retry,
-    redirect_stdio_to_null, reset_init_signals, wait_status_code, waitpid_retry,
+    redirect_stdio_to_null, reset_init_signals, supervise_shared, wait_status_code, waitpid_retry,
 };
 #[cfg(target_os = "android")]
 use crate::host::android;
@@ -95,10 +95,17 @@ impl Runtime {
                 drop(lock);
                 drop(reader);
                 let foreground = foreground_override || self.config.container.foreground;
+                if !foreground {
+                    redirect_stdio_to_null();
+                }
                 let mut startup = Some(writer);
                 let result = self.monitor(&mut startup, foreground);
                 if let Err(error) = result {
-                    self.remove_state().ok();
+                    if self.config.container.isolation == IsolationMode::Isolated {
+                        self.remove_state().ok();
+                    } else if let Err(cleanup_error) = self.cleanup_shared_monitor_cgroup() {
+                        tracing::error!(error = %format_args!("{cleanup_error:#}"), "failed to clean shared monitor cgroup");
+                    }
                     let message = format!("{error:#}");
                     if !report_startup_error(startup.as_mut(), &message) {
                         tracing::error!(container = %self.config.container.name, error = %message, "monitor failed");
@@ -108,6 +115,19 @@ impl Runtime {
                 std::process::exit(0);
             }
         }
+    }
+
+    fn cleanup_shared_monitor_cgroup(&self) -> Result<()> {
+        use crate::host::cgroup::{remove_cgroup, terminate_cgroup};
+        let state = self
+            .state()?
+            .context("shared generation state is unavailable during cleanup")?;
+        let Some(directory) = crate::runtime::state::shared_cgroup_directory(&state)? else {
+            return Ok(());
+        };
+        terminate_cgroup(&directory, Duration::from_secs(5))?;
+        remove_cgroup(&directory)?;
+        self.remove_state_for(&state)
     }
 
     #[allow(unsafe_code)]
@@ -120,9 +140,15 @@ impl Runtime {
         let console = terminal::Console::open()?;
         #[cfg(target_os = "android")]
         let _selinux = android::SelinuxGuard::apply(&self.config.container.android, &self.workdir)?;
-        let host_netns = File::open("/proc/self/ns/net")?;
-        unshare(NamespaceFlags::UTS | NamespaceFlags::IPC | NamespaceFlags::MOUNT)
-            .context("failed to create UTS/IPC/mount namespaces")?;
+        let isolation = self.config.container.isolation;
+        let shared = isolation == IsolationMode::SharedPidIpc;
+        let host_netns =
+            File::open("/proc/self/ns/net").context("failed to capture host network namespace")?;
+        let mut monitor_flags = NamespaceFlags::UTS | NamespaceFlags::MOUNT;
+        if !shared {
+            monitor_flags |= NamespaceFlags::IPC;
+        }
+        unshare(monitor_flags).context("failed to create monitor namespaces")?;
         mount(
             None,
             Path::new("/"),
@@ -134,13 +160,29 @@ impl Runtime {
         let rootfs = self.rootfs.prepare()?;
         self.init.prepare(rootfs.as_ref())?;
         let init_system = self.init.detect(rootfs.as_ref());
-        let mut cgroup = Cgroup::create(
-            &self.workdir,
-            &self.config.container.name,
-            &self.config.container.resources,
-            init_system == init::InitSystem::Systemd,
-            true,
-        )?;
+        if shared {
+            self.init.validate_shared(rootfs.as_ref())?;
+        }
+        let mut cgroup = if shared {
+            Cgroup::create_shared(
+                &self.workdir,
+                &self.config.container.name,
+                &self.config.container.resources,
+            )?
+        } else {
+            Cgroup::create(
+                &self.workdir,
+                &self.config.container.name,
+                &self.config.container.resources,
+                init_system == init::InitSystem::Systemd,
+                true,
+            )?
+        };
+        let shared_directory = if shared {
+            Some(cgroup.directory()?)
+        } else {
+            None
+        };
         let uuid = self.config.container.uuid.unwrap_or_else(Uuid::new_v4);
         let host_boot_id = host_boot_id()?;
         let monitor_pid = current_pid();
@@ -156,6 +198,14 @@ impl Runtime {
             let (pid_reader, mut pid_writer) = pipe().context("failed to create PID pipe")?;
             let (result_reader, mut result_writer) =
                 pipe().context("failed to create result pipe")?;
+            let (lifetime_reader, lifetime_writer) =
+                pipe().context("failed to create monitor lifetime pipe")?;
+            let generation_worker_pid = current_pid();
+            let generation_worker_start = if shared {
+                Some(process_start_time(generation_worker_pid)?)
+            } else {
+                None
+            };
 
             // SAFETY: the single-threaded monitor forks a generation worker which only unshares and forks init.
             let intermediate = match unsafe { fork() }
@@ -167,14 +217,27 @@ impl Runtime {
                     drop(generation_lock.take());
                     drop(pid_reader);
                     drop(result_reader);
-                    let mut flags = NamespaceFlags::PID;
+                    drop(lifetime_writer);
+                    if shared {
+                        set_child_subreaper().unwrap_or_else(|error| {
+                            tracing::error!(%error, "failed to configure shared child reaper");
+                            std::process::exit(125);
+                        });
+                    }
+                    let mut flags = if shared {
+                        NamespaceFlags::EMPTY
+                    } else {
+                        NamespaceFlags::PID
+                    };
                     if self.config.container.network != NetworkMode::Host {
                         flags |= NamespaceFlags::NETWORK;
                     }
-                    unshare(flags).unwrap_or_else(|error| {
-                            tracing::error!(container = %self.config.container.name, %error, "failed to create PID/network namespace");
+                    if !flags.is_empty() {
+                        unshare(flags).unwrap_or_else(|error| {
+                            tracing::error!(container = %self.config.container.name, %error, "failed to create generation namespaces");
                             std::process::exit(125);
                         });
+                    }
                     // SAFETY: the generation worker is single-threaded and the child immediately boots.
                     match unsafe { fork() }.unwrap_or_else(|error| {
                             tracing::error!(container = %self.config.container.name, %error, "failed to fork init");
@@ -183,17 +246,30 @@ impl Runtime {
                             ForkResult::Parent { child } => {
                                 drop(network_reader);
                                 drop(network_writer);
-                                drop(boot_reader);
                                 drop(boot_writer);
+                                drop(boot_reader);
                                 write(&mut pid_writer, &child.to_ne_bytes())
                                     .unwrap_or_else(|_| std::process::exit(125));
                                 drop(pid_writer);
                                 if !foreground {
                                     redirect_stdio_to_null();
                                 }
-                                let status = waitpid_retry(child)
-                                    .unwrap_or_else(|_| std::process::exit(125));
-                                let result = if is_reboot_status(status) { b'R' } else { b'E' };
+                                let status = if shared {
+                                    supervise_shared(
+                                        child,
+                                        &lifetime_reader,
+                                        &mut cgroup,
+                                        &self.store,
+                                        generation_worker_pid,
+                                        generation_worker_start.expect("shared worker start time was captured"),
+                                    )
+                                } else {
+                                    waitpid_retry(child).map_err(RuntimeError::from)
+                                }.unwrap_or_else(|error| {
+                                    tracing::error!(error = %format_args!("{error:#}"), "generation cleanup failed");
+                                    std::process::exit(125);
+                                });
+                                let result = if !shared && is_reboot_status(status) { b'R' } else { b'E' };
                                 write(&mut result_writer, &[result])
                                     .unwrap_or_else(|_| std::process::exit(125));
                                 std::process::exit(wait_status_code(status));
@@ -203,6 +279,7 @@ impl Runtime {
                                 drop(result_writer);
                                 drop(network_writer);
                                 drop(boot_reader);
+                                drop(lifetime_reader);
                                 reset_init_signals();
                                 self.boot(
                                     &boot_writer,
@@ -212,6 +289,7 @@ impl Runtime {
                                     init_system,
                                     cgroup.unified(),
                                     uuid,
+                                    shared_directory.as_ref(),
                                 )
                                 .unwrap_or_else(|error| {
                                     let message = format!("{error:#}");
@@ -230,11 +308,13 @@ impl Runtime {
                 worker: Some(intermediate),
                 init: None,
                 network_writer: Some(network_writer),
+                shared: shared_directory.as_ref(),
             };
             drop(pid_writer);
             drop(result_writer);
             drop(network_reader);
             drop(boot_writer);
+            drop(lifetime_reader);
             let mut pid_bytes = [0_u8; std::mem::size_of::<i32>()];
             File::from(pid_reader)
                 .read_exact(&mut pid_bytes)
@@ -255,7 +335,9 @@ impl Runtime {
                 &host_netns,
                 &self.workdir,
             )?;
-            cgroup.attach(init_pid)?;
+            if !shared {
+                cgroup.attach(init_pid)?;
+            }
             write(
                 processes
                     .network_writer
@@ -281,11 +363,32 @@ impl Runtime {
                 uuid,
                 host_boot_id: host_boot_id.clone(),
                 init_start_time: process_start_time(init_pid)?,
-                pid_namespace_inode: namespace_inode(init_pid, "pid")?,
+                pid_namespace_inode: if shared {
+                    None
+                } else {
+                    Some(namespace_inode(init_pid, "pid")?)
+                },
                 started_at_unix: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
                 monitor_start_time,
                 init_system,
                 generation,
+                isolation,
+                worker_pid: shared.then_some(intermediate),
+                worker_start_time: if shared {
+                    Some(process_start_time(intermediate)?)
+                } else {
+                    None
+                },
+                mount_namespace_inode: if shared {
+                    Some(namespace_inode(init_pid, "mnt")?)
+                } else {
+                    None
+                },
+                cgroup_path: if shared {
+                    Some(shared_cgroup_path(init_pid)?)
+                } else {
+                    None
+                },
             };
             if let Err(error) = self.write_state(&state) {
                 self.remove_state_for(&state).ok();
@@ -323,11 +426,14 @@ impl Runtime {
             } else {
                 terminal::drain(&console.master, intermediate)
             };
+            drop(lifetime_writer);
             let status = match status {
                 Ok(status) => status,
                 Err(error) => {
                     network.cleanup();
-                    self.remove_state_for(&state).ok();
+                    if !shared {
+                        self.remove_state_for(&state).ok();
+                    }
                     cgroup.remove().ok();
                     return Err(error);
                 }
@@ -340,7 +446,9 @@ impl Runtime {
             network.cleanup();
             if result_length != 1 || !matches!(generation_result[0], b'R' | b'E') {
                 let _ = init_process.send_signal(Signal::Kill);
-                self.remove_state_for(&state).ok();
+                if !shared {
+                    self.remove_state_for(&state).ok();
+                }
                 cgroup.remove().ok();
                 bail!("generation worker exited without a verified init result");
             }
@@ -357,8 +465,8 @@ impl Runtime {
                 continue;
             }
 
-            self.remove_state_for(&state)?;
             cgroup.remove()?;
+            self.remove_state_for(&state)?;
             return match status {
                 WaitStatus::Exited(_, 0) => Ok(()),
                 WaitStatus::Exited(_, code) => bail!("container exited with status {code}"),
@@ -379,6 +487,9 @@ impl Runtime {
         let _lock = self.lock()?;
         let state = self.state_for_stop()?;
         let _stop_request = self.store.request_stop()?;
+        if state.isolation == IsolationMode::SharedPidIpc {
+            return self.stop_shared(&state);
+        }
         if !validate_process_identity(&state) {
             return self.wait_for_monitor_cleanup(&state);
         }
@@ -399,6 +510,55 @@ impl Runtime {
             Duration::from_secs(self.config.runtime.stop_timeout_seconds),
         )?;
         self.wait_for_monitor_cleanup(&state)
+    }
+
+    fn stop_shared(&self, state: &ContainerState) -> Result<()> {
+        use crate::host::cgroup::terminate_cgroup;
+        let directory = crate::runtime::state::shared_cgroup_directory(state)
+            .context("failed to capture shared cgroup before stop")?;
+        let monitor = if procfs::process::Process::new(state.monitor_pid).is_ok_and(|process| {
+            crate::runtime::state::validate_monitor_identity_for(state, &process)
+        }) {
+            Some(require_handle(state.monitor_pid)?)
+        } else {
+            None
+        };
+        if validate_process_identity(state) {
+            let process = require_handle(state.init_pid)?;
+            ensure!(
+                validate_process_identity(state),
+                "shared supervisor identity changed before shutdown"
+            );
+            shutdown_init(
+                &process,
+                init::InitSystem::Custom,
+                Duration::from_secs(self.config.runtime.stop_timeout_seconds),
+            )?;
+        }
+        if let Some(directory) = &directory {
+            terminate_cgroup(directory, Duration::from_secs(5))
+                .context("failed to terminate shared cgroup during stop")?;
+        }
+        if let Some(monitor) = monitor {
+            ensure!(
+                monitor.wait_for_exit(Duration::from_secs(10))?,
+                "shared monitor did not finish cleanup"
+            );
+        } else if let Some(pid) = state.worker_pid
+            && process_start_time(pid).ok() == state.worker_start_time
+        {
+            let worker = require_handle(pid)?;
+            ensure!(
+                process_start_time(pid).ok() == state.worker_start_time,
+                "shared worker identity changed"
+            );
+            ensure!(
+                worker.wait_for_exit(Duration::from_secs(10))?,
+                "shared worker did not finish cleanup"
+            );
+        }
+        // The monitor or generation worker owns cgroup removal after confirmed empty.
+        self.remove_state_for(state)
     }
 
     /// Stops and starts the configured container.
@@ -437,17 +597,33 @@ fn shutdown_init(
     Ok(())
 }
 
+fn shared_cgroup_path(pid: i32) -> Result<String> {
+    let groups = procfs::process::Process::new(pid)?.cgroups()?;
+    groups
+        .0
+        .into_iter()
+        .find(|group| group.controllers.is_empty())
+        .and_then(|group| {
+            group
+                .pathname
+                .strip_suffix("/kurumi-init/bootstrap")
+                .map(str::to_owned)
+        })
+        .context("shared init is not in its dedicated cgroup leaf")
+}
+
 fn report_startup_error(startup: Option<&mut OwnedFd>, message: &str) -> bool {
     startup.is_some_and(|pipe| write(pipe, message.as_bytes()).is_ok())
 }
 
-struct GenerationProcesses {
+struct GenerationProcesses<'a> {
+    shared: Option<&'a File>,
     worker: Option<i32>,
     init: Option<ProcessHandle>,
     network_writer: Option<OwnedFd>,
 }
 
-impl Drop for GenerationProcesses {
+impl Drop for GenerationProcesses<'_> {
     fn drop(&mut self) {
         // EOF releases init even if PID capture failed before a trusted handle existed.
         drop(self.network_writer.take());
@@ -462,6 +638,19 @@ impl Drop for GenerationProcesses {
                 Ok(false) => tracing::error!("generation init did not exit during cleanup"),
                 Err(error) => tracing::error!(%error, "failed to wait for generation init cleanup"),
             }
+        }
+        if let Some(directory) = self.shared {
+            if let Err(error) =
+                crate::host::cgroup::terminate_cgroup(directory, Duration::from_secs(5))
+            {
+                tracing::error!(error = %format_args!("{error:#}"), "failed to clean shared generation");
+            }
+            if let Some(worker) = self.worker.take()
+                && let Err(error) = waitpid_retry(worker)
+            {
+                tracing::error!(%error, "failed to reap shared generation worker");
+            }
+            return;
         }
         if let Some(worker) = self.worker.take() {
             match waitpid(worker, true) {

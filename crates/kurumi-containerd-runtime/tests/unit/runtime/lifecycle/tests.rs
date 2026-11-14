@@ -44,6 +44,7 @@ fn startup_failure_terminates_init_and_reaps_worker() {
     let init_handle = ProcessHandle::open(init_pid).unwrap();
     let result = (|| -> Result<()> {
         let _processes = GenerationProcesses {
+            shared: None,
             worker: Some(worker_pid),
             init: Some(ProcessHandle::open(init_pid)?),
             network_writer: None,
@@ -72,6 +73,7 @@ fn pid_handshake_failure_reaps_worker_without_init_handle() {
         .unwrap();
     let pid = i32::try_from(worker.id()).unwrap();
     drop(GenerationProcesses {
+        shared: None,
         worker: Some(pid),
         init: None,
         network_writer: Some(writer),

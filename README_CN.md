@@ -19,6 +19,7 @@ Linux namespace、挂载、cgroup、网络及持久化 JSON 配置管理轻量�
 - 从本地 tar/ZIP 归档安装目录 rootfs 或稀疏 ext4 镜像
 - CLI/TUI 导出停止容器的 rootfs，支持 `.zst`、`.xz`、`.zip`、`.tar`
 - Mount、PID、UTS、IPC 以及可选的 Network namespace
+- 显式共享 PID/IPC 模式，供缺少对应 namespace 的内核运行可信服务
 - Host、隔离、NAT 和已有网桥网络模式
 - cgroup v1/v2 内存、CPU 和进程数限制
 - Bind mount 和临时 OverlayFS
@@ -36,7 +37,7 @@ Linux namespace、挂载、cgroup、网络及持久化 JSON 配置管理轻量�
 - root 权限
 - Rust 1.85 或更高版本
 - NAT/网桥网络所需的 `ip` 和 `iptables`
-- 配置资源限制时可用的 cgroup v1 或 v2
+- 隔离模式资源限制需要 cgroup v1/v2；共享模式始终需要可写且专属的 cgroup v2 子树
 - 包含 init 可执行文件的 Linux rootfs
 
 启动容器前可检查主机能力：
@@ -162,6 +163,16 @@ sudo -H ./target/release/kurumi-containerd stop
 TUI 选择容器后使用 Backup 输入输出路径；备份不包含 config.json，ZIP 有元数据限制，
 详见[备份与恢复说明](docs/usage_CN.md#back-up-a-container)。
 
+缺少 PID/IPC namespace 的内核可显式设置 `"isolation": "shared-pid-ipc"`，
+使用前台服务 supervisor；不会在隔离启动失败后自动降级。该模式共享宿主可见 PID
+和 IPC，仅供可信工作负载，必须有 cgroup v2，但不要求 `cgroup.kill`。不支持普通
+systemd 系统实例。[Dinit + s6/servicectl 部署示例](docs/servicectl.md)提供固定上游
+提交、运行依赖、完整启动/回滚、最小业务 unit 和验收命令。Go 仅用于构建 rootfs
+服务工具，不加入 Kurumi 的 Rust 依赖。运行代际持久化实际隔离模式，修改 JSON
+不会改变现有实例的 run/enter/info/stop/scan 行为。`check` 不读取 HOME 或配置，
+分项报告两种模式的能力要求；启动时仍检查选定模式的实际前提。
+
+
 ## 命令
 
 ```text
@@ -194,6 +205,8 @@ check                   检查主机能力
 | 实现状态 | [[zh](docs/status_CN.md) / [en](docs/status.md)] |
 | Android root 模块 | [[zh](docs/android-module_CN.md) / [en](docs/android-module.md)] |
 | 配置迁移 | [[zh](docs/migration-config-pointer_CN.md) / [en](docs/migration-config-pointer.md)] |
+- [共享模式服务部署与特权验收](docs/servicectl.md)
+- [共享模式兼容变更说明](docs/shared-isolation-release.md)
 
 ## 致谢
 

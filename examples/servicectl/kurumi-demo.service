@@ -1,0 +1,11 @@
+[Unit]
+Description=Kurumi shared PID/IPC lifecycle demonstrator
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kurumi-demo
+Restart=no
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

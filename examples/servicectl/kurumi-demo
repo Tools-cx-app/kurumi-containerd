@@ -1,0 +1,27 @@
+#!/usr/bin/python3
+# Copyright (C) 2026 Tools-cx-app
+# SPDX-License-Identifier: GPL-v3-only
+import os
+from pathlib import Path
+import signal
+import time
+
+stopping = False
+
+
+def stop(signum, frame):
+    global stopping
+    stopping = True
+
+
+signal.signal(signal.SIGTERM, stop)
+signal.signal(signal.SIGINT, stop)
+markers = Path("/var/lib/kurumi-demo")
+markers.mkdir(parents=True, exist_ok=True)
+(markers / "pid").write_text(str(os.getpid()) + "\n")
+(markers / "ready").touch()
+while not stopping:
+    time.sleep(0.1)
+(markers / "ready").unlink(missing_ok=True)
+with (markers / "stopped").open("a") as stream:
+    stream.write(str(os.getpid()) + "\n")

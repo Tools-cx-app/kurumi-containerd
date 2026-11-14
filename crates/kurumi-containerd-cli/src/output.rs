@@ -56,9 +56,10 @@ pub fn containers(out: &mut dyn Write, states: &[ContainerState]) -> io::Result<
     for state in states {
         writeln!(
             out,
-            "{}  PID {}  {}",
+            "{}  PID {}  {}  {}",
             state.name,
             state.init_pid,
+            state.isolation,
             state.rootfs.display()
         )?;
     }
@@ -70,7 +71,11 @@ pub fn recovered(out: &mut dyn Write, states: &[ContainerState]) -> io::Result<(
         return writeln!(out, "No containers required recovery");
     }
     for state in states {
-        writeln!(out, "Recovered {} (PID {})", state.name, state.init_pid)?;
+        writeln!(
+            out,
+            "Recovered {} (PID {}, {})",
+            state.name, state.init_pid, state.isolation
+        )?;
     }
     writeln!(out, "Recovered containers: {}", states.len())
 }
@@ -91,10 +96,16 @@ pub fn check(
 
 fn info_lines(info: &ContainerInfo) -> Vec<String> {
     let mut lines = vec![format!("Name: {}", info.name)];
+    lines.push(format!("Isolation: {}", info.isolation));
     if info.active {
         lines.extend([
             format!(
-                "Active: active (running) for {}",
+                "Active: {} for {}",
+                if info.init_pid.is_some() {
+                    "active (running)"
+                } else {
+                    "active (cleanup pending)"
+                },
                 format_duration(info.uptime_seconds.unwrap_or_default())
             ),
             format!(

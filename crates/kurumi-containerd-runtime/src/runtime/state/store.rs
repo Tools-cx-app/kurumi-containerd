@@ -13,8 +13,8 @@ use crate::{Result, RuntimeError, error::ErrorContext as _};
 use kurumi_containerd_helper::fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW};
 
 use super::{
-    ContainerState, ensure_trusted_directory, read_state, remove_if_exists,
-    validate_monitor_identity, validate_process_identity, write_state_atomic,
+    ContainerState, ensure_trusted_directory, read_state, remove_if_exists, state_is_present,
+    write_state_atomic,
 };
 
 pub(crate) struct StateStore {
@@ -71,7 +71,8 @@ impl StateStore {
                 continue;
             }
             if let Ok(state) = read_state(&entry.path())
-                && (validate_process_identity(&state) || validate_monitor_identity(&state))
+                && entry.path() == self.state_path_for(&state.name)
+                && state_is_present(&state)
             {
                 states.push(state);
             }
@@ -86,10 +87,11 @@ impl StateStore {
             return Ok(None);
         }
         let state = read_state(&path)?;
-        Ok(
-            (validate_process_identity(&state) || validate_monitor_identity(&state))
-                .then_some(state),
-        )
+        crate::error::ensure!(
+            state.name == self.name,
+            "state record belongs to a different container"
+        );
+        Ok(state_is_present(&state).then_some(state))
     }
 
     pub(crate) fn write_state(&self, state: &ContainerState) -> Result<()> {
@@ -108,6 +110,11 @@ impl StateStore {
         recovered: &ContainerState,
     ) -> Result<bool> {
         let _lock = self.lock_updates(&original.name)?;
+        if original.isolation == kurumi_containerd_config::IsolationMode::SharedPidIpc
+            && original != recovered
+        {
+            return Ok(false);
+        }
         if read_optional_state(&self.recovery_path(original.uuid))?.as_ref() != Some(original) {
             return Ok(false);
         }
@@ -138,6 +145,31 @@ impl StateStore {
         let _lock = self.lock_updates(&self.name)?;
         remove_if_exists(&self.state_path())?;
         remove_if_exists(&self.recovery_path(state.uuid))
+    }
+
+    pub(crate) fn remove_shared_state_for_worker(
+        &self,
+        worker_pid: i32,
+        worker_start_time: u64,
+    ) -> Result<bool> {
+        let _lock = self.lock_updates(&self.name)?;
+        let path = self.state_path();
+        let Ok(state) = read_optional_state(&path) else {
+            return Ok(false);
+        };
+        let Some(state) = state else {
+            return Ok(false);
+        };
+        if state.name != self.name
+            || state.isolation != kurumi_containerd_config::IsolationMode::SharedPidIpc
+            || state.worker_pid != Some(worker_pid)
+            || state.worker_start_time != Some(worker_start_time)
+        {
+            return Ok(false);
+        }
+        remove_if_exists(&path)?;
+        remove_if_exists(&self.recovery_path(state.uuid))?;
+        Ok(true)
     }
 
     pub(crate) fn lock(&self) -> Result<File> {
