@@ -1,5 +1,7 @@
 # KurumiContainerd
 
+[[zh](README_CN.md) / [en](README.md)]
+
 KurumiContainerd 是一个使用 Rust 编写的特权 Linux 容器运行时和命令行工具。它通过
 Linux namespace、挂载、cgroup、网络及持久化 JSON 配置管理轻量级系统容器。
 
@@ -115,9 +117,10 @@ CI 汇总 artifact 包含独立的 debug、release ZIP 包。
 在仓库 Actions secrets 中配置 `BOT_TOKEN` 和 `CHAT_ID`，即可启用 CI 构建成功及
 GitHub Release 发布后的 Telegram 通知。CI 打包完成后发送一条消息，包含所有平台
 构建、Android 模块和汇总包的 GitHub artifact 下载链接。Release 发布成功后发送
-发布通知，包含 Release 页面和本次发布工作流的 artifact 链接。
+发布通知，包含 Release 页面、发布包和 `SHA256SUMS` 的直接下载链接。
 Pull Request 或未同时配置两个 secret 时跳过通知。
-下载需要登录 GitHub 并具有仓库访问权限；artifact 过期或被删除后，链接失效。
+下载 CI artifact 需要登录 GitHub 并具有仓库访问权限；artifact 过期或被删除后，链接失效。
+公开 Release 附件无需登录即可下载；私有仓库的 Release 附件仍需要仓库访问权限。
 
 压缩包包含可执行文件、许可证、README 和示例配置。
 Debian/RPM 包将程序安装到 `/usr/bin`，文档和示例配置安装到
@@ -151,13 +154,13 @@ sudo -H ./target/release/kurumi-containerd stop
 
 使用 `sudo -H ./target/release/kurumi-containerd tui` 可打开 ratatui 管理界面，
 浏览所有已登记容器并执行现有 CLI 命令。按键、配置选择和终端要求见
-[CLI 使用](docs/usage.md)。JSON 配置格式和路径规则见[配置参考](docs/configuration.md)；
-从已删除的 `-c/--config` 入口迁移时，参阅[配置入口迁移指南](docs/migration-config-pointer.md)。
+[CLI 使用](docs/usage_CN.md)。JSON 配置格式和路径规则见[配置参考](docs/configuration_CN.md)；
+从已删除的 `-c/--config` 入口迁移时，参阅[配置入口迁移指南](docs/migration-config-pointer_CN.md)。
 
 备份示例：`sudo -H ./target/release/kurumi-containerd backup debian ./debian.zst`。
 先停止容器；`debian` 统一使用 JSON 中的 `container.name`，与运行时、TUI 一致。
 TUI 选择容器后使用 Backup 输入输出路径；备份不包含 config.json，ZIP 有元数据限制，
-详见[备份与恢复说明](docs/usage.md#back-up-a-container)。
+详见[备份与恢复说明](docs/usage_CN.md#back-up-a-container)。
 
 ## 命令
 
@@ -180,11 +183,16 @@ check                   检查主机能力
 
 ## 文档
 
-- [CLI 使用](docs/usage.md)
-- [配置参考](docs/configuration.md)
-- [运行时架构](docs/architecture.md)
-- [实现状态](docs/status.md)
-- [Android root 模块](docs/android-module.md)
+完整文档：[[zh](docs/README_CN.md) / [en](docs/README.md)]。
+
+| 指南 | 语言 |
+| --- | --- |
+| CLI 使用 | [[zh](docs/usage_CN.md) / [en](docs/usage.md)] |
+| 配置参考 | [[zh](docs/configuration_CN.md) / [en](docs/configuration.md)] |
+| 运行时架构 | [[zh](docs/architecture_CN.md) / [en](docs/architecture.md)] |
+| 实现状态 | [[zh](docs/status_CN.md) / [en](docs/status.md)] |
+| Android root 模块 | [[zh](docs/android-module_CN.md) / [en](docs/android-module.md)] |
+| 配置迁移 | [[zh](docs/migration-config-pointer_CN.md) / [en](docs/migration-config-pointer.md)] |
 
 ## 致谢
 

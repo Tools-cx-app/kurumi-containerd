@@ -1,10 +1,12 @@
 # CLI usage
 
-KurumiContainerd manages one configured container per invocation. Most commands
-select an entry in `$HOME/.kurumi-containerd/config.json` using `--name NAME`.
-Single-entry lists are selected automatically; multiple entries require an exact,
-case-sensitive name before the command. `backup CONTAINER_ID OUTPUT` instead
-selects the JSON `container.name` directly through its required positional container ID.
+[[zh](usage_CN.md) / [en](usage.md)]
+
+[Documentation](README.md)
+
+Use this guide to select a configured container, install its rootfs, manage its
+lifecycle, and export or recover it. KurumiContainerd requires privileged host
+operations; run only root filesystems and commands you trust.
 
 ## Invocation
 
@@ -12,127 +14,139 @@ selects the JSON `container.name` directly through its required positional conta
 kurumi-containerd [--name NAME] [--verbose] COMMAND
 ```
 
-The process reads `$HOME/.kurumi-containerd/config.json`, containing a nonempty
-list of complete configurations with unique `container.name` values. See [configuration](configuration.md)
-for the JSON format and the [migration guide](migration-config-pointer.md) for
-upgrading existing commands. `check` is the only command that does not load a
-configuration. The examples below use `sudo -H`: create the JSON under root's HOME.
+The registry is `$HOME/.kurumi-containerd/config.json`: a nonempty JSON list of
+complete configurations with unique `container.name` values. Most commands select
+the only entry automatically. With multiple entries, put `--name NAME` before the
+command; the name must match exactly, including case. `backup CONTAINER_ID OUTPUT`
+is the exception: its positional ID selects `container.name`, and combining it
+with `--name` is rejected. `check` alone does not load configuration.
 
-Most operations require root because they create namespaces, mounts, devices,
-cgroups, and network interfaces.
+The examples use `sudo -H`, so create the registry under root's HOME. Changing
+HOME selects a different registry. Most operations need root to create namespaces,
+mounts, devices, cgroups, or network interfaces. See the [configuration
+reference](configuration.md) for JSON and path rules and the [migration
+guide](migration-config-pointer.md) for the removed configuration entry points.
+
+```text
+install ARCHIVE [--size SIZE] [--force]
+backup CONTAINER_ID OUTPUT
+start [--foreground]
+stop
+restart [--foreground]
+enter [USER]
+run COMMAND...
+info
+pid
+show
+scan
+check
+tui
+```
+
+`tui` is available only in builds with the optional feature described below.
 
 ## Output and diagnostics
 
-Command results and success confirmations go to stdout as plain text, without
-timestamps or log levels. `pid` prints only the init PID and a newline, so it
-can be captured directly:
+Results and success confirmations are plain stdout text without timestamps or
+log levels. `pid` prints just the init PID and a newline:
 
 ```bash
 pid=$(sudo -H kurumi-containerd pid)
 ```
 
-Diagnostic logs are written to stdout in debug builds and stderr in release
-builds. The default level is INFO; `--verbose` (or `-v`) also enables DEBUG.
-Colors are enabled only when the selected logger stream is a terminal and
-`NO_COLOR` is unset. Failed operations include their error cause chain and exit
-with a nonzero status; `run` and `enter` preserve the command's exit status.
-Closing a pipe reading CLI command results does not produce a panic.
+Diagnostic logs use stdout in debug builds and stderr in release builds. INFO is
+the default level; `--verbose` or `-v` enables DEBUG too. Logs use color only when
+their stream is a terminal and `NO_COLOR` is unset. Failures include the chain of
+error causes and return nonzero; `run` and `enter` preserve the executed command's
+exit status. Closing a pipe that reads command results does not cause a panic.
 
-Foreground start/restart reports completion after the container exits, while
-background start/restart confirms startup with the init PID. Detached monitors
-redirect their standard streams to `/dev/null` after startup; stderr redirection
-is not a persistent background-container log facility. The TUI captures both
-result and diagnostic streams for noninteractive actions.
+Foreground start/restart reports completion when the container exits. Background
+start/restart confirms startup with the init PID. After startup, detached monitors
+redirect their standard streams to `/dev/null`; redirecting stderr therefore does
+not provide persistent background-container logging. The TUI captures results and
+diagnostics for noninteractive actions.
 
 ## Terminal manager
 
-Requires the `tui` Cargo feature, which is disabled by default. Build with
-`cargo build --release -p kurumi-containerd --features tui` to include the
-manager and its dependencies.
-The `tui` subcommand is absent from builds without this feature.
+The `tui` Cargo feature is disabled by default. Enable it when building to include
+the manager and its dependencies:
 
 ```bash
+cargo build --release -p kurumi-containerd --features tui
 sudo -H kurumi-containerd tui
 ```
 
-The ratatui manager shows every entry in the HOME JSON registry, including
-stopped containers. Use `j`/`k` or the arrow keys to select a container;
-`h`/`l` or left/right to choose an action; Enter to open its dialog. Unavailable
-actions show the reason. `Tab`/`Shift+Tab` switch focus between containers,
-details and output; PageUp/PageDown scroll the focused details or output pane
-independently. Switching containers resets the details position. Narrow terminals
-stack the container list and details; very small terminals show a resize hint.
+Without that feature, the `tui` subcommand does not exist. The ratatui manager lists
+all entries in the HOME registry, including stopped containers. Each action runs
+the same CLI executable with the same HOME registry. Available actions are
+install, backup, start/stop/restart (including foreground modes), enter, run,
+info, pid, show, scan, and check. Check host remains available with an empty registry.
 
-Inside a dialog, `Tab`/`Shift+Tab` move between input fields (`Tab` at the last
-`run` argument adds another argument); `Space` toggles
-force while the install force field is selected. Enter submits; stop, restart,
-scan and forced install require a second Enter to confirm. Escape cancels the
-dialog, `r` reloads the JSON registry,
-and `q` exits when no command is in progress. Status refreshes periodically.
-Validation errors appear in the dialog, and confirmation identifies the target.
-Check host is also available when the registry is empty.
+| Context | Keys and behavior |
+| --- | --- |
+| Container list | `j`/`k` or up/down selects a container. |
+| Action selection | `h`/`l` or left/right chooses an action; Enter opens its dialog. Unavailable actions explain why. |
+| Panes | `Tab`/`Shift+Tab` changes focus between containers, details, and output. PageUp/PageDown scrolls the focused details or output independently. Selecting another container resets details scrolling. |
+| Dialog fields | `Tab`/`Shift+Tab` moves between fields; Tab at the last `run` argument adds another argument. Space toggles the selected install force field. |
+| Submission | Enter submits. Stop, restart, scan, and forced install require a second Enter; confirmation identifies the target. Validation errors stay in the dialog. |
+| Navigation | Escape cancels a dialog; `r` reloads the registry; `q` exits when no command is running. |
 
-The manager exposes install, backup, start/stop/restart (including foreground modes),
-enter, run, info, pid, show, scan and check. Each operation invokes the same
-CLI executable and HOME registry. Select a stopped container, choose Backup,
-and enter a new output path ending in `.zst`, `.xz`, `.zip` or `.tar`; the selected
-JSON `container.name` supplies its container ID. `run` accepts an executable and separate
-argument fields; it does not interpret shell quoting or pipes. Captured output
-is limited to the first 1 MiB in the manager.
+Status refreshes periodically. Narrow terminals stack the list and details;
+very small terminals display a resize hint. To back up, select a stopped container,
+choose Backup, and provide a new path ending in `.zst`, `.xz`, `.zip`, or `.tar`.
+The selected `container.name` supplies the ID. `run` takes an executable and separate
+argument fields, without interpreting shell quoting or pipes. Captured output is
+limited to the first 1 MiB.
 
-Interactive and foreground commands open a separate graphical terminal on
-Linux. The manager detects `xterm`, `kitty` or `alacritty`, in that order;
-set `KURUMI_CONTAINERD_TERMINAL` to one of those executable names or its
-path to override detection. The terminal remains open after the command so
-its result can be read; close it when finished. On headless Linux or Android,
-these actions are unavailable, while noninteractive management remains in
-the TUI. A JSON entry with `container.foreground` set to `true` also routes
-ordinary start and restart through the separate terminal.
+On Linux, interactive and foreground commands open a separate graphical terminal.
+Detection tries `xterm`, `kitty`, then `alacritty`. Set
+`KURUMI_CONTAINERD_TERMINAL` to one of these executable names or its path to
+override detection. The terminal stays open for reading the result; close it when
+finished. These actions are unavailable on headless Linux and Android; other
+noninteractive actions remain usable. An entry with `container.foreground: true`
+also sends ordinary start/restart actions to the separate terminal.
 
 ## Install a local rootfs
 
-`install` accepts only a local archive. It never downloads a rootfs or accepts
-a registry or URL source. Supported content formats are tar, gzip-compressed
-tar, XZ-compressed tar, Zstandard-compressed tar, and ZIP. The format is
-detected from the file header rather than its name or extension.
-
-For a configured directory target:
+`install` reads a local archive only: it does not download rootfs files or accept
+URLs or registry sources. File headers, rather than extensions, identify tar,
+gzip-compressed tar, XZ-compressed tar, Zstandard-compressed tar, or ZIP content.
+For a directory target configured in the selected entry:
 
 ```bash
 sudo -H kurumi-containerd install ./debian-rootfs.tar.zst
 ```
 
-For `container.rootfs_image`, provide the logical size of the new sparse ext4
-image. Set `container.rootfs_image` in the selected JSON entry. Binary suffixes such as
-`M`, `G`, `MiB`, and `GiB` are accepted:
+For a new sparse ext4 image, configure `container.rootfs_image` and supply its
+logical size. Binary suffixes include `M`, `G`, `MiB`, and `GiB`:
 
 ```bash
 sudo -H kurumi-containerd install ./debian-rootfs.tar.zst --size 8G
 ```
 
-An existing target is rejected unless `--force` is supplied. Replacement is
-staged and renamed only after extraction and init validation complete. The
-container must be stopped. Image installation additionally requires
-`mke2fs` or `mkfs.ext4`, loop devices, and mount privileges.
+The container must be stopped. Existing targets require `--force`; replacement is
+staged and renamed only after extraction and init validation succeed. Image
+installation also needs `mke2fs` or `mkfs.ext4`, loop devices, and mount privileges.
+`--size` is mandatory for image targets and rejected for directory targets.
 
-Archive paths are installed directly at the rootfs top level, so `sbin/init`
-must not be wrapped in an extra distribution directory. ZIP cannot preserve
-UID/GID and device nodes reliably; tar is recommended for system rootfs
-archives. `--size` is required for image targets and rejected for directory
-targets.
+Archive entries go directly into the rootfs top level: `sbin/init` must not sit
+inside an extra distribution directory. ZIP cannot reliably preserve UID/GID or
+device nodes. Prefer tar for system rootfs archives, and read the restore metadata
+limits in the next section before choosing a backup format.
 
 ## Back up a container
+
+Stop the source before exporting it:
 
 ```bash
 sudo -H kurumi-containerd --name debian stop
 sudo -H kurumi-containerd backup debian ./debian.zst
 ```
 
-`CONTAINER_ID` is the exact, case-sensitive `container.name` in config.json. This works with multiple registry
-entries without `--name`; combining `--name` with backup is rejected. Neither
-the container name nor its UUID is changed by backup.
-
-The output suffix selects the format:
+`CONTAINER_ID` is the exact, case-sensitive JSON `container.name`, not a UUID.
+It selects an entry even in a multi-entry registry without `--name`; supplying
+`--name` with backup is an error. Backup changes neither the name nor the UUID.
+The output suffix determines the archive format:
 
 | Suffix | Contents |
 | --- | --- |
@@ -142,38 +156,38 @@ The output suffix selects the format:
 | `.tar` | Uncompressed tar |
 
 Backup requires root and a stopped container. It exports the configured rootfs
-directory or the filesystem inside its image, not a raw image, config.json,
-runtime state, bind-mount sources, or discarded volatile OverlayFS changes.
-Image sources require the same loop-device and mount support as startup.
-The lifecycle lock prevents starting this container during export; avoid external
-writes to the source while backing up.
+directory or the filesystem inside an image, not the raw image. It excludes
+config.json, runtime state, bind-mount sources, and discarded volatile OverlayFS
+changes. Image sources need the loop-device and mount support required for
+startup. A lifecycle lock prevents this container from starting during export;
+also prevent external writes to the source.
 
-The output directory must already exist outside the rootfs. Existing paths,
-including symlinks, are never overwritten. Archives are streamed to a private
-temporary file with mode `0600` and published only after successful completion;
-ordinary failures remove the partial file. Unmount any mounted rootfs subtrees
-first. Kernel filesystems and special files (devices, sockets, FIFOs) are rejected
-rather than silently skipped.
+Create the output directory in advance, outside the rootfs. Existing output paths,
+including symlinks, are never overwritten. Export streams into a private `0600`
+temporary file and publishes it only on success; ordinary failures remove the
+partial file. Unmount rootfs subtrees first. Kernel filesystems and special files
+(devices, sockets, and FIFOs) cause rejection rather than being silently omitted.
 
-Tar and its compressed variants preserve ownership, permissions, timestamps,
-hardlinks, symlinks, and extended attributes. ZIP preserves ordinary permissions
-and safe relative symlinks but loses ownership, timestamps, xattrs, special
-permission bits and hardlink identity; a warning is emitted. ZIP rejects absolute
-or escaping symlinks and non-UTF-8 or ambiguous paths rather than changing them.
+Tar and compressed tar preserve ownership, permissions, timestamps, hardlinks,
+symlinks, and xattrs. ZIP preserves ordinary permissions and safe relative
+symlinks, but loses ownership, timestamps, xattrs, special permission bits, and
+hardlink identity; the command warns about this loss. ZIP rejects absolute or
+escaping symlinks and non-UTF-8 or ambiguous paths instead of modifying them.
 Prefer `.zst`, `.xz`, or `.tar` for system rootfs backups.
 
-Restore rootfs contents through `install` after selecting the destination JSON entry:
+Restore by selecting the destination entry and using `install`:
 
 ```bash
 sudo -H kurumi-containerd --name restored install ./debian.zst
 ```
 
-Image targets still need `--size`; existing targets still need `--force`.
-The current installer restores tar xattrs on regular files only, and its PAX
-reader does not restore attribute values containing newlines. For directory or
+Image destinations still require `--size`, and existing targets require `--force`.
+The installer currently restores tar xattrs only on regular files; its PAX reader
+cannot restore attribute values containing newlines. To restore directory or
 symlink xattrs, or newline-containing values, use an external tar implementation
-with xattr restoration enabled (for example GNU tar `--xattrs --xattrs-include='*'`).
-Save config.json separately; backup does not package it.
+with xattr restoration enabled, such as GNU tar with
+`--xattrs --xattrs-include='*'`. Save config.json separately: it is never packaged
+by backup.
 
 ## Lifecycle
 
@@ -184,27 +198,25 @@ sudo -H kurumi-containerd restart
 sudo -H kurumi-containerd stop
 ```
 
-Background start detaches a monitor process. Foreground start connects the
-container console to the current terminal. In a foreground console,
-`Escape` followed by `Ctrl-Q` requests shutdown.
+Background start detaches a monitor. Foreground start connects the container
+console to the current terminal; press Escape followed by Ctrl-Q to request
+shutdown. `restart` stops and starts the container and also accepts `--foreground`.
 
-Stop selects a shutdown protocol from the detected init family and escalates
-after `runtime.stop_timeout_seconds`.
-Custom init programs receive `SIGTERM` first so they can finish their own cleanup;
-programs that do not exit before the timeout receive `SIGKILL`.
-Alpine images using BusyBox as PID 1 receive the BusyBox shutdown signal even
-when OpenRC manages their services.
+Stop chooses a shutdown protocol for the detected init family and escalates after
+`runtime.stop_timeout_seconds`. A custom init receives `SIGTERM` for cleanup,
+then `SIGKILL` if it has not exited by the timeout. Alpine with BusyBox PID 1
+receives the BusyBox shutdown signal even when OpenRC manages services.
 
-CI runs privileged lifecycle tests from `.github/workflows/tests.yml` on Ubuntu
-with Debian Bookworm (systemd) and Alpine 3.22 (OpenRC) rootfs archives from
-LXC Images (`images.linuxcontainers.org`). Each download is checked against the
-SHA-256 in the image index. The test installs the archive with the CLI and checks
-init readiness, command execution and exit status, restart, graceful shutdown,
-process/state/cgroup cleanup, mount isolation, and startup after stopping.
-An init-managed service records both startup and shutdown, so forced termination
-does not count as a successful graceful stop. Networking uses `none`.
+The privileged lifecycle CI in `.github/workflows/tests.yml` runs on Ubuntu using
+Debian Bookworm (systemd) and Alpine 3.22 (OpenRC) rootfs archives from
+`images.linuxcontainers.org`. Downloads are verified against the image index's
+SHA-256. The CLI installs each archive; tests cover init readiness, command
+execution and exit status, restart, graceful stop, process/state/cgroup cleanup,
+mount isolation, and starting again after stop. An init-managed service records
+startup and shutdown, so forced termination does not count as graceful stop.
+Networking is `none`.
 
-To run the same test with a matching host-architecture LXC rootfs:
+Use a matching host-architecture LXC rootfs to run the same integration script:
 
 ```bash
 cargo build --release --locked -p kurumi-containerd
@@ -213,15 +225,13 @@ sudo python3 tests/container_lifecycle.py target/release/kurumi-containerd ./roo
 # Use openrc instead of systemd for Alpine.
 ```
 
-The script requires root, namespace/mount privileges, Python 3, and the rootfs
-archive; it creates an isolated HOME registry and temporary rootfs, stops the
-container on exit, and removes its temporary files. It does not require LXC or
-Incus to be installed.
+The script needs root, namespace/mount privileges, Python 3, and the archive.
+It creates an isolated HOME registry and temporary rootfs, stops the container
+on exit, and removes temporary files. LXC and Incus need not be installed.
 
 ## Nested sandboxing
 
-Set the following option when the container must run a workload that creates
-unprivileged user namespaces:
+Enable this option for workloads that create unprivileged user namespaces:
 
 ```json
 {
@@ -233,18 +243,13 @@ unprivileged user namespaces:
 }
 ```
 
-This is useful for Docker userns-remap, Podman, Flatpak, and Bubblewrap. The
-runtime keeps its regular `/proc` and `/sys` mounts and additionally provides
-fresh mounts at `/run/kurumi-containerd/proc` and `/run/kurumi-containerd/sys`.
-The first is writable and the second is read-only. Because the extra proc
-view can expose host kernel sysctls, this option reduces isolation and should
-be limited to trusted containers.
+Examples include Docker userns-remap, Podman, Flatpak, and Bubblewrap. The runtime
+retains its normal `/proc` and `/sys` mounts and adds fresh views at
+`/run/kurumi-containerd/proc` (writable) and `/run/kurumi-containerd/sys`
+(read-only). The extra proc view can expose host kernel sysctls, reducing isolation.
+Enable this option only for trusted containers.
 
 ## Enter and run
-
-Commands join the running container's actual namespaces and cgroups. Editing its
-network or resource settings in config.json takes effect on the next start; it does not
-change the isolation or limits of commands entered into the current container.
 
 ```bash
 sudo -H kurumi-containerd enter
@@ -253,9 +258,13 @@ sudo -H kurumi-containerd run uname -a
 sudo -H kurumi-containerd run sh -c 'id && mount'
 ```
 
-`enter` opens an interactive login and defaults to `root`. `run` executes
-the remaining arguments directly; use a shell explicitly for pipes,
-redirection, or compound commands.
+`enter` opens an interactive login as the specified user, defaulting to `root`.
+`run` executes its remaining arguments directly. Invoke a shell explicitly for
+pipes, redirection, or compound commands.
+
+Both join the running container's actual namespaces and cgroups. Changes to
+network or resource settings in config.json take effect at the next start;
+they do not alter isolation or limits for commands entering the current instance.
 
 ## Inspect and recover
 
@@ -266,12 +275,11 @@ sudo -H kurumi-containerd show
 sudo -H kurumi-containerd scan
 ```
 
-`show` reads live states from the configured work directory. `scan` searches
-procfs for namespace PID 1 processes and reconstructs missing state only when
-the in-container identity and root-owned recovery record agree.
-
-`info` prints container identity, init and monitor PIDs, init system, uptime,
-memory use, process count, generation, rootfs, and UUID.
+`info` reports container identity, init and monitor PIDs, init system, uptime,
+memory use, process count, generation, rootfs, and UUID. `pid` returns the init PID.
+`show` reads live states from the configured work directory. To recover missing
+state, `scan` searches procfs for namespace PID 1 processes. Recovery requires
+agreement between the in-container identity and a root-owned recovery record.
 
 ## Host checks
 
@@ -279,6 +287,6 @@ memory use, process count, generation, rootfs, and UUID.
 sudo kurumi-containerd check
 ```
 
-The check command probes mount, PID, UTS, IPC, and network namespaces, then
-reports OverlayFS, cgroup v2, pidfd, `ip`, and `iptables` availability. A
-failed mandatory namespace probe returns an error.
+`check` needs no registry. It probes mount, PID, UTS, IPC, and network namespaces,
+then reports OverlayFS, cgroup v2, pidfd, `ip`, and `iptables` availability. Failure
+of a mandatory namespace probe returns an error.

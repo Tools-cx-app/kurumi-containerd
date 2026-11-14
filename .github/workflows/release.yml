@@ -240,7 +240,7 @@ jobs:
     needs: publish
     runs-on: ubuntu-latest
     permissions:
-      actions: read
+      contents: read
     env:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -253,7 +253,9 @@ jobs:
           chat-id: ${{ secrets.CHAT_ID }}
           tags: containerd
           is-release: "true"
-          artifact-names: "release-*"
+          artifact-names: |
+            kurumi-containerd-*
+            SHA256SUMS
 
   module:
     name: Package Android module

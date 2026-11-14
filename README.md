@@ -1,5 +1,7 @@
 # KurumiContainerd
 
+[[zh](README_CN.md) / [en](README.md)]
+
 KurumiContainerd is a privileged Linux container runtime and command-line tool written
 in Rust. It manages lightweight system containers with Linux namespaces,
 mounts, cgroups, networking, and a persistent JSON configuration.
@@ -127,10 +129,12 @@ To enable Telegram notifications for successful CI builds and published releases
 configure the repository Actions secrets `BOT_TOKEN` and `CHAT_ID`. After packaging, CI sends one message
 with GitHub artifact links for all platform builds, the Android module and the
 combined archives. After a GitHub Release is published, the release workflow sends
-a release notification with the release page and its workflow artifact links.
+a release notification with the release page and direct download links for its
+packages and `SHA256SUMS`.
 Pull requests and runs without both secrets skip notifications.
-Downloading artifacts requires GitHub sign-in and repository access; links expire
-when the artifacts expire or are deleted.
+Downloading CI artifacts requires GitHub sign-in and repository access; links expire
+when the artifacts expire or are deleted. Public release assets can be downloaded
+without signing in; private release assets require repository access.
 
 Archives contain the executable, license, READMEs and example configuration.
 Debian/RPM packages install the executable into `/usr/bin` and documentation
@@ -200,11 +204,16 @@ check                   Probe required host capabilities
 
 ## Documentation
 
-- [CLI usage](docs/usage.md)
-- [Configuration reference](docs/configuration.md)
-- [Runtime architecture](docs/architecture.md)
-- [Implementation status](docs/status.md)
-- [Android root module](docs/android-module.md)
+Full documentation: [[zh](docs/README_CN.md) / [en](docs/README.md)].
+
+| Guide | Language |
+| --- | --- |
+| CLI usage | [[zh](docs/usage_CN.md) / [en](docs/usage.md)] |
+| Configuration reference | [[zh](docs/configuration_CN.md) / [en](docs/configuration.md)] |
+| Runtime architecture | [[zh](docs/architecture_CN.md) / [en](docs/architecture.md)] |
+| Implementation status | [[zh](docs/status_CN.md) / [en](docs/status.md)] |
+| Android root module | [[zh](docs/android-module_CN.md) / [en](docs/android-module.md)] |
+| Configuration migration | [[zh](docs/migration-config-pointer_CN.md) / [en](docs/migration-config-pointer.md)] |
 
 ## Acknowledgments
 
