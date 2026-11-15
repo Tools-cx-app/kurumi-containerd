@@ -97,6 +97,16 @@ cargo bench -p kurumi-containerd-host --bench archive --locked -- --save-baselin
 # 修改代码后，与保存的基线对比。
 cargo bench -p kurumi-containerd-host --bench archive --locked -- --baseline before
 ```
+需要 root、静态 C 编译器和可写 cgroup v2 的 Linux 主机，直接对比原有独立 PID/IPC namespace
+与 `shared-pid-ipc` 的容器启动至 supervisor 就绪时间及 `run` 往返时间：
+
+```bash
+sudo python3 tests/shared_pid_ipc_bench.py target/release/kurumi-containerd --iterations 20
+```
+
+输出每种模式各操作的中位数和 P95，耗时包含 CLI 进程开销；该 benchmark 使用相同的最小
+静态 supervisor，不依赖发行版 rootfs。 [Benchmarks workflow](.github/workflows/benchmarks.yml)
+在具备所需特权的 runner 上执行该对比。
 
 ## 自动发布
 
