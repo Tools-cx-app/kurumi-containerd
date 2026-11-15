@@ -513,7 +513,7 @@ impl Runtime {
     }
 
     fn stop_shared(&self, state: &ContainerState) -> Result<()> {
-        use crate::host::cgroup::terminate_cgroup;
+        use crate::host::cgroup::{remove_cgroup, terminate_cgroup};
         let directory = crate::runtime::state::shared_cgroup_directory(state)
             .context("failed to capture shared cgroup before stop")?;
         let monitor = if procfs::process::Process::new(state.monitor_pid).is_ok_and(|process| {
@@ -559,7 +559,11 @@ impl Runtime {
                 "shared worker did not finish cleanup"
             );
         }
-        // The monitor or generation worker owns cgroup removal after confirmed empty.
+        if let Some(directory) = &directory {
+            terminate_cgroup(directory, Duration::from_secs(5))
+                .context("failed to terminate shared cgroup after stop")?;
+            remove_cgroup(directory).context("failed to remove shared cgroup after stop")?;
+        }
         self.remove_state_for(state)
     }
 

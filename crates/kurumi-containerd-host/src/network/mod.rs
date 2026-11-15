@@ -260,7 +260,7 @@ impl Network {
             peer_name,
             "setting up container network"
         );
-        if mode == NetworkMode::Host {
+        if matches!(mode, NetworkMode::Host | NetworkMode::None) {
             return Ok(());
         }
         run("ip", &["link", "set", "lo", "up"])?;
