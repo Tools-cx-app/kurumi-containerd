@@ -8,6 +8,7 @@ fn container_info_output_preserves_running_and_inactive_details() {
     let mut container = ContainerInfo {
         name: "test".into(),
         active: true,
+        isolation: kurumi_containerd_config::IsolationMode::Isolated,
         init_pid: Some(123),
         monitor_pid: Some(122),
         rootfs: "/rootfs".into(),
@@ -22,14 +23,23 @@ fn container_info_output_preserves_running_and_inactive_details() {
     info(&mut out, &container).unwrap();
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "Name: test\nActive: active (running) for 1h 02m 03s\nMain PID: 123 (systemd)\nMonitor PID: 122\nTasks: 4\nMemory: 1.5 MiB\nGeneration: 1\nRootfs: /rootfs\nUUID: unassigned\n"
+        "Name: test\nIsolation: isolated\nActive: active (running) for 1h 02m 03s\nMain PID: 123 (systemd)\nMonitor PID: 122\nTasks: 4\nMemory: 1.5 MiB\nGeneration: 1\nRootfs: /rootfs\nUUID: unassigned\n"
+    );
+    container.init_pid = None;
+    let mut residual = Vec::new();
+    info(&mut residual, &container).unwrap();
+    assert!(
+        String::from_utf8(residual)
+            .unwrap()
+            .contains("active (cleanup pending)")
     );
     container.active = false;
+    container.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
     let mut out = Vec::new();
     info(&mut out, &container).unwrap();
     assert_eq!(
         out,
-        b"Name: test\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned\n"
+        b"Name: test\nIsolation: shared-pid-ipc\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned\n"
     );
     let mut full = &mut [][..];
     assert!(info(&mut full, &container).is_err());

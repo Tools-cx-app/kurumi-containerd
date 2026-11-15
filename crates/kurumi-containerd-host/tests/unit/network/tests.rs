@@ -29,6 +29,17 @@ fn network_state_rejects_untrusted_directories() {
 }
 
 #[test]
+fn no_network_mode_does_not_require_iproute2() {
+    Network::setup_child_with(
+        "test",
+        NetworkMode::None,
+        &kurumi_containerd_config::NetworkConfig::default(),
+        "none",
+    )
+    .unwrap();
+}
+
+#[test]
 fn replaces_dangling_resolv_conf_symlink() {
     let rootfs = tempfile::tempdir().unwrap();
     fs::create_dir(rootfs.path().join("etc")).unwrap();

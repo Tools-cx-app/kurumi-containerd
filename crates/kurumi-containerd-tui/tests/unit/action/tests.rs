@@ -48,6 +48,7 @@ fn backup_requires_successful_inactive_info() {
         info: Ok(kurumi_containerd_runtime::ContainerInfo {
             name: "test".into(),
             active: false,
+            isolation: kurumi_containerd_config::IsolationMode::Isolated,
             init_pid: None,
             monitor_pid: None,
             rootfs: "/rootfs".into(),

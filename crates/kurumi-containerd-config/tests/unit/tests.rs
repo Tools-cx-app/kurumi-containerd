@@ -395,3 +395,26 @@ fn test_config() -> (tempfile::TempDir, Config) {
     let config = Config::load(&path).unwrap();
     (dir, config)
 }
+
+#[test]
+fn isolation_defaults_and_strict_values_round_trip() {
+    let (_, config) = test_config();
+    assert_eq!(config.container.isolation, IsolationMode::Isolated);
+    for (name, expected) in [
+        ("isolated", IsolationMode::Isolated),
+        ("shared-pid-ipc", IsolationMode::SharedPidIpc),
+    ] {
+        let mut value = serde_json::to_value(&config).unwrap();
+        value["container"]["isolation"] = name.into();
+        let parsed: Config = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.container.isolation, expected);
+        assert_eq!(parsed.container.isolation.to_string(), name);
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap()["container"]["isolation"],
+            name
+        );
+    }
+    let mut value = serde_json::to_value(config).unwrap();
+    value["container"]["isolation"] = "auto".into();
+    assert!(serde_json::from_value::<Config>(value).is_err());
+}

@@ -13,8 +13,8 @@ pub use config::resolve_container_path;
 pub use config::{ConfigError, Result};
 pub use environment::parse_environment;
 pub use model::{
-    AndroidConfig, BindMount, Config, ContainerConfig, NetworkConfig, NetworkMode, PortForward,
-    Protocol, ResourceConfig, RuntimeConfig, SecurityConfig,
+    AndroidConfig, BindMount, Config, ContainerConfig, IsolationMode, NetworkConfig, NetworkMode,
+    PortForward, Protocol, ResourceConfig, RuntimeConfig, SecurityConfig,
 };
 
 /// Validates a configuration value, including any normalization required by

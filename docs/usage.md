@@ -240,6 +240,27 @@ The script needs root, namespace/mount privileges, Python 3, and the archive.
 It creates an isolated HOME registry and temporary rootfs, stops the container
 on exit, and removes temporary files. LXC and Incus need not be installed.
 
+For kernels without PID/IPC namespaces, explicitly select
+`container.isolation: "shared-pid-ipc"` and a foreground supervisor, as described
+in [configuration](configuration.md#pid-and-ipc-isolation). A normal systemd
+system instance is unsupported. The mode requires exclusive writable cgroup v2
+but not `cgroup.kill`; it is for trusted workloads and never silently replaces a
+failed isolated start. The deployable [Dinit/s6/servicectl guide](servicectl.md)
+includes prerequisites, graceful rollback and exact service smoke commands.
+
+Run the disposable shared-mode acceptance script separately:
+
+```sh
+sudo python3 tests/shared_isolation.py target/release/kurumi-containerd
+```
+
+Missing mount/UTS privileges or writable cgroup v2 produce explicit SKIP output.
+This does not certify a kernel with PID/IPC namespaces disabled, Android, or the
+old-kernel cgroup cleanup path unless that environment was actually used. No valid
+reboot request is ever issued; an invalid-magic filter probe is disposable-VM-only
+and opt-in. See the guide for the acknowledgement and command.
+
+
 ## Nested sandboxing
 
 Enable this option for workloads that create unprivileged user namespaces:
@@ -262,6 +283,10 @@ Enable this option only for trusted containers.
 
 ## Enter and run
 
+Commands join the running container's actual namespaces and cgroups. Its persisted
+isolation mode controls entry; shared mode does not open/join absent PID/IPC
+namespace interfaces. Editing isolation, network or resources in config.json
+takes effect on the next start, not the running generation.
 ```bash
 sudo -H kurumi-containerd enter
 sudo -H kurumi-containerd enter developer
@@ -307,11 +332,9 @@ sudo -H kurumi-containerd show
 sudo -H kurumi-containerd scan
 ```
 
-`info` reports container identity, init and monitor PIDs, init system, uptime,
-memory use, process count, generation, rootfs, and UUID. `pid` returns the init PID.
-`show` reads live states from the configured work directory. To recover missing
-state, `scan` searches procfs for namespace PID 1 processes. Recovery requires
-agreement between the in-container identity and a root-owned recovery record.
+`info` prints container identity, actual isolation, init and monitor PIDs, init system, uptime, memory use, process count, generation, rootfs, and UUID. `pid` returns the init PID. Shared process/memory statistics cover its recursive dedicated cgroup, not host totals.
+
+`show` reads live states from the configured work directory. `scan` reconstructs missing state only when in-container identity and a protected host recovery record agree. Isolated recovery finds namespace PID 1; shared recovery validates the recorded supervisor, worker identity and exclusive cgroup instead of guessing a service from procfs. Editing current JSON does not relabel a running instance.
 
 ## Host checks
 
@@ -319,6 +342,11 @@ agreement between the in-container identity and a root-owned recovery record.
 sudo kurumi-containerd check
 ```
 
-`check` needs no registry. It probes mount, PID, UTS, IPC, and network namespaces,
-then reports OverlayFS, cgroup v2, pidfd, `ip`, and `iptables` availability. Failure
-of a mandatory namespace probe returns an error.
+`check` does not read HOME or configuration. It reports namespace capabilities,
+OverlayFS, cgroup v2, pidfd, `ip` and `iptables`, distinguishing isolated and
+shared-mode prerequisites. Shared mode additionally requires cgroup namespace
+creation and exclusive writable cgroup v2; `start` validates the selected mode.
+Missing PID/IPC namespaces do not alone prevent shared mode. Network namespaces
+are required only for non-host networking. `start` validates the selected mode,
+rootfs/init, security facilities and cgroup delegation rather than treating a
+successful generic host check as authorization for every configuration.

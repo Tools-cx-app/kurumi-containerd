@@ -42,6 +42,7 @@ selection rules, metadata preservation, exclusions, and restoration constraints.
 ### Isolation and host integration
 
 - Mount, UTS, IPC, PID, and optional network namespaces
+- Explicit trusted shared PID/IPC mode with mandatory cgroup v2 ownership
 - Host, isolated, NAT, and existing-bridge networking
 - TCP/UDP single-port forwarding with rollback and cleanup of owned rules
 - Cgroup v1/v2 memory, CPU, and PID limits
@@ -126,3 +127,8 @@ Configuration fields are documented only when they have an active runtime path.
 Treat failures as errors rather than assuming a degraded fallback. Consult the
 [architecture](architecture.md) for ownership and trust rules and
 [CLI usage](usage.md) for operational requirements.
+
+- Shared mode does not support normal systemd/PID-1-dependent system instances.
+- Shared mode exposes host-visible PIDs and shared IPC; it is not isolation from host workloads.
+
+The [shared-mode deployment guide](servicectl.md) provides a pinned external Dinit/s6/servicectl stack and privileged acceptance commands. Delivered scripts are not proof of an executed environment: disabled-PID/IPC kernels, kernels without `cgroup.kill`, Android delegation/SELinux and the optional VM seccomp probe require separately recorded runtime results. Missing host privileges or cgroup v2 are SKIP conditions, not passing lifecycle coverage.

@@ -4,14 +4,14 @@
 use std::path::Path;
 
 use crate::{Result, error::ErrorContext as _};
-use kurumi_containerd_config::SecurityConfig;
+use kurumi_containerd_config::{IsolationMode, SecurityConfig};
 use kurumi_containerd_helper::{
     fs::{MountFlags, mount},
     security::{
         ADDRESS_FAMILY_ALG, FilterInstruction, SECCOMP_ALLOW, SECCOMP_ERRNO_NOT_IMPLEMENTED,
         SECCOMP_ERRNO_PERMISSION, SECCOMP_KILL_PROCESS, blocked_syscalls,
         install_seccomp as install_seccomp_filter, namespace_user_flag, syscall_clone,
-        syscall_clone3, syscall_socket, syscall_unshare,
+        syscall_clone3, syscall_reboot, syscall_socket, syscall_unshare,
     },
 };
 
@@ -93,14 +93,20 @@ pub fn harden_mounts(config: &SecurityConfig) -> Result<()> {
     Ok(())
 }
 
-pub fn install_seccomp(config: &SecurityConfig) -> Result<()> {
-    let mut instructions = seccomp_filter(config)?;
+pub fn install_seccomp(config: &SecurityConfig, isolation: IsolationMode) -> Result<()> {
+    let mut instructions = seccomp_filter(config, isolation)?;
     install_seccomp_filter(&mut instructions).context("failed to install seccomp filter")
 }
 
 #[allow(clippy::too_many_lines)]
-fn seccomp_filter(config: &SecurityConfig) -> Result<Vec<FilterInstruction>> {
-    let blocked = blocked_syscalls();
+fn seccomp_filter(
+    config: &SecurityConfig,
+    isolation: IsolationMode,
+) -> Result<Vec<FilterInstruction>> {
+    let mut blocked = blocked_syscalls();
+    if isolation == IsolationMode::SharedPidIpc {
+        blocked.push(syscall_reboot());
+    }
 
     let mut instructions = vec![
         statement(BPF_LD_W_ABS, SECCOMP_DATA_ARCH_OFFSET),

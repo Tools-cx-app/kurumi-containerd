@@ -108,7 +108,7 @@ fn preserves_command_exit_status() {
 #[test]
 fn captures_actual_network_and_cgroup_namespaces_without_configuration() {
     let process = Process::myself().unwrap();
-    let namespaces = capture_namespaces(&process).unwrap();
+    let namespaces = capture_namespaces(&process, IsolationMode::Isolated).unwrap();
     for name in ["net", "cgroup"] {
         if let Ok(expected) = process.open_relative(format!("ns/{name}")) {
             let (_, captured) = namespaces
@@ -121,4 +121,16 @@ fn captures_actual_network_and_cgroup_namespaces_without_configuration() {
             );
         }
     }
+}
+
+#[test]
+fn shared_namespace_capture_omits_pid_and_ipc() {
+    let process = Process::myself().unwrap();
+    let namespaces = capture_namespaces(&process, IsolationMode::SharedPidIpc).unwrap();
+    assert!(
+        !namespaces
+            .iter()
+            .any(|(name, _)| matches!(*name, "pid" | "ipc"))
+    );
+    assert!(namespaces.iter().any(|(name, _)| *name == "mnt"));
 }

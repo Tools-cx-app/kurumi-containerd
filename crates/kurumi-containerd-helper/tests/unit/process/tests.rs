@@ -63,3 +63,35 @@ fn closes_descriptors_outside_allowlist() {
     assert!(!should_close_fd(kept.as_raw_fd(), &[kept.as_fd()]));
     assert!(should_close_fd(kept.as_raw_fd() + 1, &[kept.as_fd()]));
 }
+
+#[test]
+fn subreaper_adopts_and_reaps_orphaned_grandchild() {
+    const CHILD: &str = "KURUMI_SUBREAPER_TEST";
+    if std::env::var_os(CHILD).is_some() {
+        set_child_subreaper().unwrap();
+        let output = Command::new("/bin/sh")
+            .args(["-c", "sleep 30 </dev/null >/dev/null 2>&1 & echo $!"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let pid = String::from_utf8(output.stdout)
+            .unwrap()
+            .trim()
+            .parse::<i32>()
+            .unwrap();
+        crate::signal::kill(pid, crate::signal::Signal::Kill).unwrap();
+        assert!(
+            matches!(waitpid(pid, false).unwrap(), WaitStatus::Signaled(reaped, _, _) if reaped == pid)
+        );
+        return;
+    }
+    let status = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "process::tests::subreaper_adopts_and_reaps_orphaned_grandchild",
+        ])
+        .env(CHILD, "1")
+        .status()
+        .unwrap();
+    assert!(status.success());
+}

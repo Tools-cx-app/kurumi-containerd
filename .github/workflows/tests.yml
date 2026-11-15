@@ -10,6 +10,8 @@ on:
       - "crates/**"
       - "Cargo.*"
       - "tests/container_lifecycle.py"
+      - "tests/shared_isolation.py"
+      - "examples/servicectl/**"
       - ".github/workflows/tests.yml"
   pull_request:
     branches: ["master"]
@@ -17,6 +19,8 @@ on:
       - "crates/**"
       - "Cargo.*"
       - "tests/container_lifecycle.py"
+      - "tests/shared_isolation.py"
+      - "examples/servicectl/**"
       - ".github/workflows/tests.yml"
   workflow_dispatch:
 
@@ -67,6 +71,26 @@ jobs:
 
       - name: Run CLI tests with TUI
         run: cargo test -p kurumi-containerd --features tui --locked
+
+  shared:
+    name: Shared PID and IPC lifecycle
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: shared-lifecycle
+          cache-workspace-crates: "true"
+          save-if: ${{ github.event_name != 'pull_request' }}
+      - name: Build runtime
+        run: cargo build --release --locked -p kurumi-containerd
+      - name: Test disposable shared rootfs
+        run: sudo python3 tests/shared_isolation.py target/release/kurumi-containerd
 
   container:
     name: Container lifecycle (${{ matrix.image }})

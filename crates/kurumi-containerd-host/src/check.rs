@@ -23,10 +23,11 @@ pub struct HostCheckReport {
 impl HostCheckReport {
     #[must_use]
     pub fn required_namespaces_available(&self) -> bool {
-        self.capabilities
-            .iter()
-            .find(|capability| capability.name == "Namespaces")
-            .is_some_and(|capability| capability.available)
+        ["Mount namespace", "UTS namespace"].iter().all(|name| {
+            self.capabilities
+                .iter()
+                .any(|capability| capability.name == *name && capability.available)
+        })
     }
 }
 
@@ -43,20 +44,33 @@ pub struct HostCapabilities;
 
 impl HostCheck for HostCapabilities {
     fn check(&self) -> Result<HostCheckReport> {
-        let namespaces = [
-            probe_namespace(NamespaceFlags::MOUNT),
-            probe_namespace(NamespaceFlags::PID),
-            probe_namespace(NamespaceFlags::UTS),
-            probe_namespace(NamespaceFlags::IPC),
-            probe_namespace(NamespaceFlags::NETWORK),
-        ];
-        let namespaces_available = namespaces.into_iter().all(|available| available);
+        let mount = probe_namespace(NamespaceFlags::MOUNT);
+        let pid = probe_namespace(NamespaceFlags::PID);
+        let uts = probe_namespace(NamespaceFlags::UTS);
+        let ipc = probe_namespace(NamespaceFlags::IPC);
+        let net = probe_namespace(NamespaceFlags::NETWORK);
+        let cgroup = probe_namespace(NamespaceFlags::CGROUP);
         let mountinfo = procfs::process::Process::myself()?.mountinfo()?;
         let capabilities = vec![
+            capability("Mount namespace", mount, "required by both isolation modes"),
+            capability("UTS namespace", uts, "required by both isolation modes"),
+            capability("PID namespace", pid, "required by isolated mode"),
+            capability("IPC namespace", ipc, "required by isolated mode"),
+            capability("Network namespace", net, "required by non-host networking"),
             capability(
-                "Namespaces",
-                namespaces_available,
-                "mount, pid, uts, ipc, network",
+                "Isolated mode namespaces",
+                mount && uts && pid && ipc,
+                "resource and init requirements checked at start",
+            ),
+            capability(
+                "Cgroup namespace",
+                cgroup,
+                "required by shared mode and systemd cgroup isolation",
+            ),
+            capability(
+                "Shared PID/IPC namespaces",
+                mount && uts && cgroup && Path::new("/sys/fs/cgroup/cgroup.controllers").exists(),
+                "also requires writable dedicated cgroup v2 and a foreground supervisor at start",
             ),
             capability(
                 "OverlayFS",

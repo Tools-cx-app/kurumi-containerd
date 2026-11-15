@@ -36,6 +36,10 @@ pub fn syscall_clone3() -> libc::c_long {
     libc::SYS_clone3
 }
 
+pub fn syscall_reboot() -> libc::c_long {
+    libc::SYS_reboot
+}
+
 pub fn blocked_syscalls() -> Vec<libc::c_long> {
     let blocked = vec![
         libc::SYS_init_module,

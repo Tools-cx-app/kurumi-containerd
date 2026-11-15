@@ -4,7 +4,17 @@
 use super::*;
 
 fn action(config: &SecurityConfig, syscall: libc::c_long, arg0: u32, arch: u32) -> u32 {
-    let filter = seccomp_filter(config).unwrap();
+    action_for(config, IsolationMode::Isolated, syscall, arg0, arch)
+}
+
+fn action_for(
+    config: &SecurityConfig,
+    isolation: IsolationMode,
+    syscall: libc::c_long,
+    arg0: u32,
+    arch: u32,
+) -> u32 {
+    let filter = seccomp_filter(config, isolation).unwrap();
     let mut accumulator = 0;
     let mut position = 0;
     loop {
@@ -90,6 +100,46 @@ fn namespace_opt_in_preserves_architecture_and_host_syscall_restrictions() {
         );
         assert_eq!(
             action(&config, syscall_socket(), 2, audit_arch()),
+            SECCOMP_ALLOW
+        );
+    }
+}
+
+#[test]
+fn shared_pid_mode_denies_host_reboot_regardless_of_user_namespace_opt_in() {
+    for allow_user_namespaces in [false, true] {
+        let config = SecurityConfig {
+            allow_user_namespaces,
+            ..SecurityConfig::default()
+        };
+        assert_eq!(
+            action_for(
+                &config,
+                IsolationMode::SharedPidIpc,
+                syscall_reboot(),
+                0,
+                audit_arch()
+            ),
+            SECCOMP_ERRNO_PERMISSION
+        );
+        assert_eq!(
+            action_for(
+                &config,
+                IsolationMode::Isolated,
+                syscall_reboot(),
+                0,
+                audit_arch()
+            ),
+            SECCOMP_ALLOW
+        );
+        assert_eq!(
+            action_for(
+                &config,
+                IsolationMode::SharedPidIpc,
+                syscall_clone(),
+                0,
+                audit_arch()
+            ),
             SECCOMP_ALLOW
         );
     }

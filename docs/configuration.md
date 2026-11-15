@@ -69,6 +69,7 @@ work-directory field.
 | `rootfs_image` | Absent | Host filesystem image or block-device path |
 | `hostname` | Container name | Empty or omitted values use `name` |
 | `init` | `/sbin/init` | Absolute path inside rootfs |
+| `isolation` | `isolated` | `isolated` or trusted `shared-pid-ipc`; shared mode requires cgroup v2 |
 | `foreground` | `false` | Connect start/restart to a foreground console |
 | `volatile` | `false` | Put writable OverlayFS layers on tmpfs; changes are discarded |
 | `network` | `host` | `host`, `none`, `nat`, `gateway`, or `dhcp` |
@@ -88,6 +89,58 @@ Existing targets require `--force`. See [installation](usage.md#install-a-local-
 The following examples are object fragments to merge into the selected entry,
 not complete configuration files. [config.example.json](../config.example.json)
 provides a larger example; adapt its paths and remove mounts you do not need.
+
+## PID and IPC isolation
+
+`container.isolation` accepts exactly `isolated` (default) or `shared-pid-ipc`.
+Unknown values are rejected. There is no automatic fallback when namespace
+creation fails. Shared mode inherits the PID/IPC spaces of Kurumi's execution
+environment, including an outer container if one exists. Mount and UTS namespaces,
+private `/run`, `/dev` and `/dev/shm`, procfs and existing security filters remain
+required. `network: "host"` avoids a network namespace requirement.
+
+```json
+{
+  "container": {
+    "name": "debian-services",
+    "rootfs": "/srv/kurumi/debian/rootfs",
+    "init": "/usr/local/sbin/kurumi-services",
+    "isolation": "shared-pid-ipc",
+    "network": "host"
+  }
+}
+```
+
+Shared mode always requires a writable, exclusively owned cgroup v2 subtree and
+the ability to create a cgroup namespace rooted at its init leaf. Kurumi creates
+an empty namespace root, mounts cgroup v2 there, and runs the supervisor in its
+`bootstrap` child. cgroup v1 is unsupported in this mode. Old kernels without
+`cgroup.kill` use repeated membership enumeration and trusted process handles;
+that file is not a prerequisite. Controllers are required only for requested
+resource limits. A missing PID/IPC namespace procfs interface is allowed.
+
+This is a trusted-workload mode, not a security sandbox. Host processes are
+visible through procfs, and SysV IPC and POSIX message queues are shared. Private
+`/dev/shm` does not provide IPC namespace isolation. Services must clean only their
+own IPC objects; Kurumi never globally deletes shared IPC resources.
+
+Normal systemd system instances and other PID-1-dependent init programs are
+unsupported. A custom entry must remain a foreground supervisor, handle SIGTERM
+and exit after graceful cleanup. It must never call host shutdown/reboot tools,
+`kill(-1)`, global `killall`, or global IPC cleanup. Arbitrary scripts cannot be
+fully inspected for these operations. Init and exec/login inherit a reboot syscall
+denial policy. Restart with Kurumi `restart`, not namespace reboot or SIGHUP.
+
+Use the deployable [Dinit + s6/servicectl example](servicectl.md). Its dependencies
+live in the rootfs; Kurumi has no Go runtime/build dependency on servicectl.
+Only supported unit directives are translated: `PrivateIPC=` and full systemd
+distribution boot semantics are not promised.
+
+The actual isolation mode is persisted with each running generation. Changing
+JSON does not change `run`, `enter`, `info`, `stop` or `scan` for that generation;
+new settings apply at the next start. `check` remains independent of HOME/config
+and reports mode prerequisites separately; `start` checks the selected workload.
+
 
 ## Networking
 
@@ -159,12 +212,7 @@ and `run` join the running container's actual namespaces and cgroups.
 }
 ```
 
-Resource fields are optional unsigned integers. Limits use cgroup v2 when
-available, otherwise cgroup v1. `memory_bytes` must be at least 4194304 (4 MiB).
-CPU quota and period are in microseconds and must be supplied together;
-`cpu_quota` must be at least 1000 and `cpu_period` greater than zero.
-`pids` must be between 1 and 4194304. Unavailable requested controllers are
-reported as errors.
+In isolated mode resource limits use cgroup v2 when available and otherwise fall back to cgroup v1. Shared mode always requires cgroup v2. Memory must be at least 4 MiB. CPU quota and period must be configured together; quota must be at least 1000, and period must be greater than zero. The PID limit must be between 1 and 4194304. Unavailable requested controllers are reported as errors.
 
 `read_only_sys` defaults to `true`; `allow_user_namespaces` defaults to `false`.
 Enable the latter only for trusted workloads needing unprivileged user

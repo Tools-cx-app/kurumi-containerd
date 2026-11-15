@@ -8,6 +8,7 @@
       "rootfs": "./rootfs",
       "hostname": "debian-dev",
       "init": "/sbin/init",
+      "isolation": "isolated",
       "foreground": false,
       "volatile": false,
       "network": "host",
