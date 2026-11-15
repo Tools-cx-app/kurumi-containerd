@@ -535,9 +535,11 @@ impl Runtime {
                 Duration::from_secs(self.config.runtime.stop_timeout_seconds),
             )?;
         }
-        if let Some(directory) = &directory {
-            terminate_cgroup(directory, Duration::from_secs(5))
-                .context("failed to terminate shared cgroup during stop")?;
+        if monitor.is_none() {
+            if let Some(directory) = &directory {
+                terminate_cgroup(directory, Duration::from_secs(5))
+                    .context("failed to terminate shared cgroup during stop")?;
+            }
         }
         if let Some(monitor) = monitor {
             ensure!(
