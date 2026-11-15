@@ -93,6 +93,13 @@ impl Runtime {
                 && validate_monitor_identity_for(&state, &monitor),
             "container process identity changed during execution resource capture"
         );
+        let current_namespaces = namespaces
+            .iter()
+            .map(|(name, _)| {
+                File::open(format!("/proc/self/ns/{name}"))
+                    .context("failed to inspect current namespace")
+            })
+            .collect::<Result<Vec<_>>>()?;
         let terminal_socket = login
             .is_some()
             .then(socket_pair)
@@ -134,11 +141,7 @@ impl Runtime {
                 cgroups
                     .attach(current_pid())
                     .unwrap_or_else(|error| exec_failure(&format!("{error:#}")));
-                for (name, namespace) in &namespaces {
-                    let current =
-                        File::open(format!("/proc/self/ns/{name}")).unwrap_or_else(|error| {
-                            exec_failure(&format!("failed to inspect {name} namespace: {error}"))
-                        });
+                for ((name, namespace), current) in namespaces.iter().zip(&current_namespaces) {
                     let current_metadata = current.metadata().unwrap_or_else(|error| {
                         exec_failure(&format!(
                             "failed to inspect current {name} namespace: {error}"

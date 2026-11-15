@@ -560,8 +560,6 @@ impl Runtime {
             );
         }
         if let Some(directory) = &directory {
-            terminate_cgroup(directory, Duration::from_secs(5))
-                .context("failed to terminate shared cgroup after stop")?;
             remove_cgroup(directory).context("failed to remove shared cgroup after stop")?;
         }
         self.remove_state_for(state)
