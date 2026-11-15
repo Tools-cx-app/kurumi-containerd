@@ -271,3 +271,36 @@ fn shared_residual_persistence_does_not_depend_on_init_or_monitor_liveness() {
     assert_eq!(store.state().unwrap(), Some(state.clone()));
     assert_eq!(read_state(&store.recovery_path(state.uuid)).unwrap(), state);
 }
+
+#[test]
+fn shared_worker_cleanup_preserves_other_generations_and_boots() {
+    let (_directory, store, mut state) = fixture();
+    state.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
+    state.host_boot_id = crate::host::process::host_boot_id().unwrap();
+    state.worker_pid = Some(11);
+    state.worker_start_time = Some(95);
+    state.pid_namespace_inode = None;
+    state.mount_namespace_inode = Some(300);
+    state.cgroup_path = Some("/delegated/kurumi-containerd/demo".into());
+    store.write_state(&state).unwrap();
+
+    for (pid, start) in [(12, 95), (11, 96)] {
+        assert!(!store.remove_shared_state_for_worker(pid, start).unwrap());
+        assert_eq!(read_state(&store.state_path()).unwrap(), state);
+        assert_eq!(read_state(&store.recovery_path(state.uuid)).unwrap(), state);
+    }
+    let mut previous_boot = state.clone();
+    previous_boot.host_boot_id = "previous-boot".into();
+    store.write_state(&previous_boot).unwrap();
+    assert!(!store.remove_shared_state_for_worker(11, 95).unwrap());
+    assert_eq!(read_state(&store.state_path()).unwrap(), previous_boot);
+    assert_eq!(
+        read_state(&store.recovery_path(state.uuid)).unwrap(),
+        previous_boot
+    );
+
+    store.write_state(&state).unwrap();
+    assert!(store.remove_shared_state_for_worker(11, 95).unwrap());
+    assert!(!store.state_path().exists());
+    assert!(!store.recovery_path(state.uuid).exists());
+}

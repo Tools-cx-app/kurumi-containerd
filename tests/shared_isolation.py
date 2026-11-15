@@ -208,6 +208,7 @@ class Container:
         wait_for("all descendants and supervisors reaped", lambda: gone(processes))
         if self.group:
             wait_for("container cgroup removed", lambda: not self.group.exists())
+        assert not self.state.exists(), f"cleaned generation retained state: {self.state}"
         assert self.cli("pid", check=False).returncode != 0
         mounts = Path("/proc/self/mountinfo").read_text().splitlines()
         assert not any(line.split()[4].startswith(str(self.root) + "/") for line in mounts)

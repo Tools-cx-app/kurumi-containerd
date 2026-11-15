@@ -148,6 +148,11 @@ manager-loss or cleanup errors produce exit 1. It records that result in
 exclusive cgroup ownership, including double-forked/new-session processes.
 SIGKILL cannot execute hooks. Use Kurumi `restart` to replace a generation.
 
+The monitor removes the cgroup after the worker has terminated and reaped its
+descendants. `stop` waits for that cleanup instead of removing the same cgroup
+again. If the monitor dies, the surviving worker removes the cgroup first, then
+retires only state matching its PID, start time and host boot ID.
+
 The cgroup helper wrapper always passes `--no-auto-mount` and a root beneath
 `/sys/fs/cgroup/servicectl.slice`. The cgroup namespace root is the empty init
 cgroup; `kurumi-services` and its services run in the `bootstrap` child. Thus

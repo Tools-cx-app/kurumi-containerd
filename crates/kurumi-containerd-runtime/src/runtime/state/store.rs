@@ -154,9 +154,7 @@ impl StateStore {
     ) -> Result<bool> {
         let _lock = self.lock_updates(&self.name)?;
         let path = self.state_path();
-        let Ok(state) = read_optional_state(&path) else {
-            return Ok(false);
-        };
+        let state = read_optional_state(&path)?;
         let Some(state) = state else {
             return Ok(false);
         };
@@ -164,6 +162,7 @@ impl StateStore {
             || state.isolation != kurumi_containerd_config::IsolationMode::SharedPidIpc
             || state.worker_pid != Some(worker_pid)
             || state.worker_start_time != Some(worker_start_time)
+            || state.host_boot_id != crate::host::process::host_boot_id()?
         {
             return Ok(false);
         }

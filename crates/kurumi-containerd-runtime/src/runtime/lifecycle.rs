@@ -200,12 +200,6 @@ impl Runtime {
                 pipe().context("failed to create result pipe")?;
             let (lifetime_reader, lifetime_writer) =
                 pipe().context("failed to create monitor lifetime pipe")?;
-            let generation_worker_pid = current_pid();
-            let generation_worker_start = if shared {
-                Some(process_start_time(generation_worker_pid)?)
-            } else {
-                None
-            };
 
             // SAFETY: the single-threaded monitor forks a generation worker which only unshares and forks init.
             let intermediate = match unsafe { fork() }
@@ -260,8 +254,6 @@ impl Runtime {
                                         &lifetime_reader,
                                         &mut cgroup,
                                         &self.store,
-                                        generation_worker_pid,
-                                        generation_worker_start.expect("shared worker start time was captured"),
                                     )
                                 } else {
                                     waitpid_retry(child).map_err(RuntimeError::from)
@@ -513,7 +505,7 @@ impl Runtime {
     }
 
     fn stop_shared(&self, state: &ContainerState) -> Result<()> {
-        use crate::host::cgroup::{remove_cgroup, terminate_cgroup};
+        use crate::host::cgroup::terminate_cgroup;
         let directory = crate::runtime::state::shared_cgroup_directory(state)
             .context("failed to capture shared cgroup before stop")?;
         let monitor = if procfs::process::Process::new(state.monitor_pid).is_ok_and(|process| {
@@ -535,11 +527,11 @@ impl Runtime {
                 Duration::from_secs(self.config.runtime.stop_timeout_seconds),
             )?;
         }
-        if monitor.is_none() {
-            if let Some(directory) = &directory {
-                terminate_cgroup(directory, Duration::from_secs(5))
-                    .context("failed to terminate shared cgroup during stop")?;
-            }
+        if monitor.is_none()
+            && let Some(directory) = &directory
+        {
+            terminate_cgroup(directory, Duration::from_secs(5))
+                .context("failed to terminate shared cgroup during stop")?;
         }
         if let Some(monitor) = monitor {
             ensure!(
@@ -558,9 +550,6 @@ impl Runtime {
                 worker.wait_for_exit(Duration::from_secs(10))?,
                 "shared worker did not finish cleanup"
             );
-        }
-        if let Some(directory) = &directory {
-            remove_cgroup(directory).context("failed to remove shared cgroup after stop")?;
         }
         self.remove_state_for(state)
     }

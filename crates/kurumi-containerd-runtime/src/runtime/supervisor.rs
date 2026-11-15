@@ -24,9 +24,9 @@ pub(super) fn supervise_shared(
     monitor: &impl AsFd,
     cgroup: &mut Cgroup,
     state_store: &StateStore,
-    worker_pid: i32,
-    worker_start_time: u64,
 ) -> Result<WaitStatus> {
+    let worker_pid = kurumi_containerd_helper::process::current_pid();
+    let worker_start_time = crate::host::process::process_start_time(worker_pid)?;
     let directory = cgroup.directory()?;
     let init = ProcessHandle::open(child)?;
     let mut main_status = None;
@@ -60,6 +60,7 @@ pub(super) fn supervise_shared(
         std::thread::sleep(Duration::from_millis(10));
     }
     if monitor_gone {
+        cgroup.remove()?;
         state_store.remove_shared_state_for_worker(worker_pid, worker_start_time)?;
     }
     main_status.context("shared supervisor exited without a wait status")
