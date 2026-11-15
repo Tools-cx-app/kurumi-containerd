@@ -123,4 +123,12 @@ jobs:
         run: cargo build --release --locked -p kurumi-containerd
 
       - name: Compare isolated and shared PID/IPC
-        run: sudo python3 tests/shared_pid_ipc_bench.py target/release/kurumi-containerd --iterations 20
+        run: |
+          set -o pipefail
+          {
+            echo "## Shared PID and IPC comparison"
+            echo
+            echo '```text'
+            sudo python3 tests/shared_pid_ipc_bench.py target/release/kurumi-containerd --iterations 20
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
