@@ -21,7 +21,7 @@ license = "GPL-3.0-only"
 [workspace.dependencies]
 anyhow = "1.0.104"
 bitflags = "2.13.2"
-clap = { version = "4.6.7", features = ["derive", "env"] }
+clap = { version = "4.6.9", features = ["derive", "env"] }
 criterion = { version = "0.8.2", default-features = false, features = [
   "cargo_bench_support",
 ] }
@@ -41,13 +41,13 @@ shlex = "2.0.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 tar = "0.4.46"
-toml = "1.2.1"
+toml = "1.2.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-uuid = { version = "1.29.2", features = ["v4", "serde"] }
+uuid = { version = "1.29.3", features = ["v4", "serde"] }
 which = "8.0.6"
 xz2 = "0.1.7"
-zip = { version = "9.5.1", default-features = false, features = ["deflate"] }
+zip = { version = "9.8.1", default-features = false, features = ["deflate"] }
 zstd = { version = "0.14.4", default-features = false }
 
 [workspace.lints.rust]
