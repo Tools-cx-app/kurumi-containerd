@@ -1,6 +1,6 @@
 # Runtime architecture
 
-[[zh](architecture_CN.md) / [en](architecture.md)]
+[简体中文](../zh/architecture.md) | [English](../en/architecture.md)
 
 [Documentation](README.md)
 
@@ -70,8 +70,7 @@ src/
   registry.rs     configuration registry loading and selection
 ```
 
-Callers use `kurumi_containerd_config`, without depending on this private layout.
-The registry implementation is `registry.rs`, not the former `pointer.rs` name.
+Callers use the public `kurumi_containerd_config` API without depending on this private layout.
 
 ## Lifecycle
 
@@ -147,9 +146,6 @@ Paths below are relative to the runtime crate's `src/`:
 | `container/environment.rs` | Deterministic init and session environments |
 | `container/init.rs` | Init-family detection and shutdown protocols |
 | `container/security.rs` | Seccomp and protected kernel views |
-
-In the current source tree, query and persistence are files (`query.rs` and
-`state/store.rs`), not `query/` or `state/store/` module directories.
 
 Host resources live in the host crate's `src/`:
 

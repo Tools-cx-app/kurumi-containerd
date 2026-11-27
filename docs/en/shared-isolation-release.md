@@ -1,5 +1,9 @@
 # Shared PID/IPC compatibility changes
 
+[简体中文](../zh/shared-isolation-release.md) | [English](../en/shared-isolation-release.md)
+
+[Documentation](README.md)
+
 The optional `servicectl` Cargo feature controls shared PID/IPC support and
 is disabled by default. CI and tagged release builds enable it only for release
 artifacts. Local release builds must pass `--features servicectl` explicitly.

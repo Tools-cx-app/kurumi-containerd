@@ -1,8 +1,8 @@
 # 运行时架构
 
-[[zh](architecture_CN.md) / [en](architecture.md)]
+[简体中文](../zh/architecture.md) | [English](../en/architecture.md)
 
-[文档目录](README_CN.md)
+[文档目录](README.md)
 
 KurumiContainerd 用七个工作区 crate 分别承担命令呈现、容器策略和宿主资源管理。
 本文说明各层边界、资源归属，以及持久化状态可以被信任和使用的条件；这些机制并不构成
@@ -62,18 +62,18 @@ src/
   registry.rs     configuration registry loading and selection
 ```
 
-调用方使用 `kurumi_containerd_config`，不依赖这一私有布局。注册表实现在
-`registry.rs` 中，旧文档中的 `pointer.rs` 已不是当前文件名。
+调用方使用 `kurumi_containerd_config` 的公共 API，不依赖这一私有布局。
 
 ## 生命周期
 
-启动时先验证配置并取得该容器的生命周期锁，再准备 rootfs、分配长期资源并创建监控进程。
-每一代启动都通过一个中间进程创建新的 PID 命名空间和可选网络命名空间，然后 fork 出 init。
+启动时先验证配置并取得容器生命周期锁，再准备 rootfs、分配长期资源并创建 monitor。
+每一代通过中间 worker 创建 mount/UTS 和可选 network namespace 后 fork init。
+默认 `isolated` 模式还创建 PID/IPC namespace；显式 `shared-pid-ipc` 继承它们。
 
-监控进程在容器内部重启期间持续持有 rootfs 挂载、控制台 PTY、cgroup，以及适用的 Android
-SELinux 状态。init 和监控进程的身份记录包含宿主启动 ID、进程启动时间及 PID 命名空间
-inode；仅有数值 PID 不能证明预期进程仍然存活。向 init 发送信号和等待退出时，会在可用时
-使用 pidfd。
+monitor 在内部重启期间持有 rootfs 挂载、控制台 PTY、cgroup 和适用的 Android SELinux
+状态。init/monitor 身份包含宿主 boot ID 和进程启动时间。独立模式还验证 PID namespace
+inode；共享模式持久化实际模式、worker 身份、mount namespace 和专属 cgroup 路径，
+允许缺少 PID/IPC namespace 接口。数值 PID 本身不可信；可用时使用 pidfd 发送信号和等待。
 
 停止与重启共用每容器生命周期锁。停止操作在等待监控进程时，还会持有独立的停止请求锁。
 内部重启会等待普通生命周期锁持有者，仅在停止请求处于活动状态时取消。关闭停止请求的
@@ -83,6 +83,17 @@ inode；仅有数值 PID 不能证明预期进程仍然存活。向 init 发送�
 不会根据当前 JSON 重新推导。它们通过已验证监控进程的挂载视图打开 cgroup 目录，因此
 仍能访问在私有命名空间中引导建立的层级；命令加入所捕获容器分组下的执行叶节点，不改变
 资源限制。修改网络或资源配置只影响下一次启动，不影响进入当前启动代次的命令。
+
+共享模式即使未设限制，也分配专属 cgroup v2 子树。init、服务和 exec 叶节点位于其中，
+monitor 和 worker 位于外部。worker 是 child subreaper，持有 cgroup 目录句柄和 monitor
+生命周期管道；EOF 触发清理。supervisor 优雅停止后，递归终止剩余成员并等待 cgroup 为空、
+子进程已回收，才发布停止状态或允许下一代。无 `cgroup.kill` 时反复枚举并使用可信进程
+句柄。清理失败保留可恢复记录，不报告成功停止。
+
+共享 rootfs 只看到委派的 cgroup 子树，保留私有 mount/UTS 和运行目录，但能看到宿主 PID，
+并共享 SysV IPC/POSIX 消息队列。init 和进入容器的命令均禁止 reboot syscall。
+共享 supervisor 的 SIGHUP 表示退出，不表示 namespace reboot。
+[服务栈示例](servicectl.md)在 rootfs 内管理 Dinit/s6，不向 Kurumi 引入 Go 依赖。
 
 ## 运行时模块
 
@@ -111,9 +122,6 @@ src/
 | `container/environment.rs` | 确定性的 init 与会话环境 |
 | `container/init.rs` | init 家族检测和关机协议 |
 | `container/security.rs` | seccomp 和受保护的内核视图 |
-
-当前源码中的查询与持久化模块是文件（`query.rs` 和 `state/store.rs`），不是
-`query/` 或 `state/store/` 模块目录。
 
 宿主资源位于 host crate 的 `src/`：
 
@@ -151,7 +159,7 @@ TUI 将渲染、输入状态和操作验证与私有后端分离。`registry.rs`
 `CommandTask` 同时持有子进程和输出文件。轮询返回退出状态，以及最多 1 MiB 的合并
 stdout/stderr，使用有损 UTF-8 解码。临时文件与轮询 I/O 错误向上传播；启动子进程失败则
 作为可恢复的界面反馈。应用负责单个可选任务、忙碌状态、刷新时机和反馈，不自行构造命令
-或读取捕获文件。后端沿用 [CLI 用法](usage_CN.md)中说明的 CLI 参数和终端选择行为。
+或读取捕获文件。后端沿用 [CLI 用法](usage.md)中说明的 CLI 参数和终端选择行为。
 
 ## 嵌套用户命名空间
 
@@ -174,6 +182,11 @@ proc 视图可能暴露宿主内核 sysctl。只对可信容器启用该选项�
 临时文件、fsync 和原子重命名。恢复要求同时存在受保护的宿主恢复记录，以及容器内部
 `/run/kurumi-containerd` 下匹配的身份标记；仅扫描到存活的 PID 1 并不足够。
 
+共享恢复不通过 `NSpid=1` 或 PID namespace inode 猜测 supervisor，而是验证已记录的
+init/启动时间、boot ID、worker/monitor 链、私有 mount namespace、UUID/代次标记及专属
+cgroup 所有权。持久化隔离模式控制已有代次的进入、查看、停止和恢复，即使 JSON 已修改。
+资源统计对专属 cgroup 子树成员递归计数并去重，包含嵌套服务和执行叶节点。
+
 状态发布、删除和恢复提交共用状态目录中的每容器持久化锁。恢复在持锁时再次比较原始记录，
 丢弃已被生命周期操作修改或删除的候选项。此锁独立于生命周期锁，因此安装或备份期间的
 扫描不会重复进入生命周期锁，也不会干扰重启协调。`StateStore` 统一管理这些路径、锁和
@@ -182,4 +195,4 @@ proc 视图可能暴露宿主内核 sysctl。只对可信容器启用该选项�
 运行时安装 classic-BPF seccomp 过滤器，也可以通过只读挂载和绑定遮罩保护内核视图。
 容器 root 仍保留其 capabilities，特权容器机制仍共享宿主内核。这些控制措施不会让
 KurumiContainerd 成为面向恶意工作负载的沙箱。请使用可信 rootfs 和命令，并在部署前阅读
-[当前限制](status_CN.md#当前限制)。
+[当前限制](status.md#当前限制)。

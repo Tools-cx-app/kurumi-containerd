@@ -1,6 +1,6 @@
 # Android root module
 
-[[zh](android-module_CN.md) / [en](android-module.md)]
+[简体中文](../zh/android-module.md) | [English](../en/android-module.md)
 
 [Documentation](README.md)
 

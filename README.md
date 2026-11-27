@@ -80,8 +80,8 @@ target. Android artifacts use the default build without TUI.
 Run the benchmarks without root:
 
 ```bash
-cargo bench -p kurumi-containerd-host --bench archive --locked
-cargo bench -p kurumi-containerd-config --bench config --locked
+cargo bench -p kurumi-containerd-host --bench archive
+cargo bench -p kurumi-containerd-config --bench config
 ```
 
 The archive suite measures directory rootfs installation (format detection,
@@ -108,9 +108,9 @@ Each job also writes mean timings and throughput directly to the Actions Summary
 To compare changes on the same host:
 
 ```bash
-cargo bench -p kurumi-containerd-host --bench archive --locked -- --save-baseline before
+cargo bench -p kurumi-containerd-host --bench archive -- --save-baseline before
 # Make the change, then compare against the saved baseline.
-cargo bench -p kurumi-containerd-host --bench archive --locked -- --baseline before
+cargo bench -p kurumi-containerd-host --bench archive -- --baseline before
 ```
 
 ## Releases
@@ -176,14 +176,14 @@ sudo -H ./target/release/kurumi-containerd stop
 ```
 
 For interactive management of all registered containers, run
-`sudo -H ./target/release/kurumi-containerd tui`. See [CLI usage](docs/usage.md)
+`sudo -H ./target/release/kurumi-containerd tui`. See [CLI usage](docs/en/usage.md)
 for command details, configuration selection, and terminal requirements.
 
 Kernels without PID/IPC namespaces can explicitly use
 `"isolation": "shared-pid-ipc"` with a foreground service supervisor. There is no
 automatic fallback. This trusted mode shares host-visible PIDs and IPC, requires
 cgroup v2 (not `cgroup.kill`), and does not support a normal systemd system instance.
-The [deployable Dinit + s6/servicectl example](docs/servicectl.md) includes pinned
+The [deployable Dinit + s6/servicectl example](docs/en/servicectl.md) includes pinned
 upstream prerequisites, bootstrap/rollback, a demo unit and smoke commands. Go is
 only used to build the rootfs tools, never added to Kurumi's Rust dependencies.
 Actual isolation is persisted per running generation; editing config does not
@@ -192,13 +192,13 @@ HOME/config-independent and reports each mode's requirements.
 
 
 The JSON configuration format and path rules are documented in
-[Configuration](docs/configuration.md). For migration from the removed
-`-c/--config` entry points, see the [migration guide](docs/migration-config-pointer.md).
+[Configuration](docs/en/configuration.md). For migration from the removed
+`-c/--config` entry points, see the [migration guide](docs/en/migration-config-pointer.md).
 
 Back up a stopped container with
 `sudo -H ./target/release/kurumi-containerd backup debian ./debian.zst`, or select
 Backup in the TUI. The ID is the same `container.name` used by the runtime and TUI.
-See [backup and restore](docs/usage.md#back-up-a-container) for metadata limits
+See [backup and restore](docs/en/usage.md#back-up-a-container) for metadata limits
 and configuration files that must be saved separately.
 
 ## Commands
@@ -223,18 +223,20 @@ check                   Probe required host capabilities
 
 ## Documentation
 
-Full documentation: [[zh](docs/README_CN.md) / [en](docs/README.md)].
+Start with [Getting started](docs/en/getting-started.md), or browse the full documentation: [[zh](docs/zh/README.md) / [en](docs/en/README.md)].
 
 | Guide | Language |
 | --- | --- |
-| CLI usage | [[zh](docs/usage_CN.md) / [en](docs/usage.md)] |
-| Configuration reference | [[zh](docs/configuration_CN.md) / [en](docs/configuration.md)] |
-| Runtime architecture | [[zh](docs/architecture_CN.md) / [en](docs/architecture.md)] |
-| Implementation status | [[zh](docs/status_CN.md) / [en](docs/status.md)] |
-| Android root module | [[zh](docs/android-module_CN.md) / [en](docs/android-module.md)] |
-| Configuration migration | [[zh](docs/migration-config-pointer_CN.md) / [en](docs/migration-config-pointer.md)] |
-| Shared-mode services and privileged acceptance | [guide](docs/servicectl.md) |
-| Shared-isolation compatibility notes | [guide](docs/shared-isolation-release.md) |
+| CLI usage | [[zh](docs/zh/usage.md) / [en](docs/en/usage.md)] |
+| Configuration reference | [[zh](docs/zh/configuration.md) / [en](docs/en/configuration.md)] |
+| Runtime architecture | [[zh](docs/zh/architecture.md) / [en](docs/en/architecture.md)] |
+| Implementation status | [[zh](docs/zh/status.md) / [en](docs/en/status.md)] |
+| Android root module | [[zh](docs/zh/android-module.md) / [en](docs/en/android-module.md)] |
+| Configuration migration | [[zh](docs/zh/migration-config-pointer.md) / [en](docs/en/migration-config-pointer.md)] |
+| Troubleshooting | [[zh](docs/zh/troubleshooting.md) / [en](docs/en/troubleshooting.md)] |
+| Development and verification | [[zh](docs/zh/development.md) / [en](docs/en/development.md)] |
+| Shared-mode services and privileged acceptance | [[zh](docs/zh/servicectl.md) / [en](docs/en/servicectl.md)] |
+| Shared-isolation compatibility notes | [[zh](docs/zh/shared-isolation-release.md) / [en](docs/en/shared-isolation-release.md)] |
 
 ## Acknowledgments
 

@@ -1,8 +1,8 @@
 # CLI 使用
 
-[[zh](usage_CN.md) / [en](usage.md)]
+[简体中文](../zh/usage.md) | [English](../en/usage.md)
 
-[文档目录](README_CN.md)
+[文档目录](README.md)
 
 本文介绍如何选择已配置的容器、安装 rootfs、管理生命周期，以及导出和恢复容器。
 KurumiContainerd 需要执行特权主机操作；请只运行可信的 rootfs 和命令。
@@ -23,8 +23,8 @@ kurumi-containerd [--name NAME] [--verbose] COMMAND
 本文示例使用 `sudo -H`，因此使用 root 的 HOME 下的登记文件。`install` 可自动创建
 登记文件及缺失项。更改 HOME 就会选择另一份登记文件。大多数操作需要 root 来创建
 namespace、挂载、设备、cgroup 或网络接口。
-JSON 和路径规则见[配置参考](configuration_CN.md)，已删除的配置入口见
-[迁移指南](migration-config-pointer_CN.md)。
+JSON 和路径规则见[配置参考](configuration.md)，已删除的配置入口见
+[迁移指南](migration-config-pointer.md)。
 
 ```text
 install ARCHIVE [--size SIZE] [--force]
@@ -33,7 +33,7 @@ start [--foreground]
 stop
 restart [--foreground]
 enter [USER] [--shell COMMAND]
-run COMMAND...
+run COMMAND...          # 别名：exec
 info
 pid
 show
@@ -195,23 +195,15 @@ stop 根据检测到的 init 家族选择关机协议，并在 `runtime.stop_tim
 自定义 init 先收到 `SIGTERM` 以执行清理，超时仍未退出则收到 `SIGKILL`。
 Alpine 使用 BusyBox 作为 PID 1 时，即使服务由 OpenRC 管理，也会收到 BusyBox 关机信号。
 
-`.github/workflows/tests.yml` 中的特权生命周期 CI 在 Ubuntu 上运行，使用
-`images.linuxcontainers.org` 提供的 Debian Bookworm（systemd）和 Alpine 3.22（OpenRC）
-rootfs 归档。下载内容按镜像索引中的 SHA-256 校验。测试用 CLI 安装归档，覆盖 init 就绪、
-命令执行及退出状态、重启、优雅停止、进程/状态/cgroup 清理、挂载隔离，以及停止后重新启动。
-由 init 管理的服务记录启动和关机，因此强制终止不算优雅停止成功。网络模式为 `none`。
+生命周期回归覆盖 systemd 和 OpenRC 的就绪、执行、重启、优雅停止及清理。
+运行脚本、环境要求与覆盖范围见[开发与验证](development.md)。
 
-使用与主机架构匹配的 LXC rootfs 运行同一集成脚本：
-
-```bash
-cargo build --release --locked -p kurumi-containerd --features servicectl
-sudo target/release/kurumi-containerd check
-sudo python3 tests/container_lifecycle.py target/release/kurumi-containerd ./rootfs.tar.xz systemd
-# Alpine 请将 systemd 改为 openrc。
-```
-
-脚本需要 root、namespace/挂载权限、Python 3 和归档文件。它会创建隔离的 HOME 登记文件
-及临时 rootfs，在退出时停止容器并清除临时文件。无需安装 LXC 或 Incus。
+缺少 PID/IPC namespace 的内核可显式选择 `container.isolation: "shared-pid-ipc"`，
+并使用前台 supervisor。该模式需要 `servicectl` feature，不支持普通 systemd 系统实例，
+始终要求专属可写的 cgroup v2，但不要求 `cgroup.kill`。它不会替代失败的独立隔离启动。
+详见[隔离配置](configuration.md#pid-and-ipc-isolation)和
+[Dinit/s6/servicectl 部署](servicectl.md)。共享模式的特权验收命令与环境覆盖限制见
+[开发与验证](development.md#特权集成验证)。
 
 <a id="nested-sandboxing"></a>
 ## 嵌套沙箱
@@ -262,8 +254,9 @@ CLI 中需引用整个命令；TUI 的 Shell command 字段直接填写 `/bin/bu
 Linux 上可运行 `python3 tests/exec_interposition.py`，通过预加载的 `execve` 拦截库验证该行为；
 需要 Cargo 和宿主 C 编译器，无需 root。
 
-两者都加入运行中容器实际使用的 namespace 和 cgroup。修改 config.json 中的网络或
-资源设置只在下次启动时生效，不会改变进入当前实例的命令所使用的隔离或资源限制。
+两者都加入运行中容器实际使用的 namespace 和 cgroup，并以持久化的实际隔离模式为准。
+共享模式不会打开或加入缺失的 PID/IPC namespace 接口。修改 config.json 中的隔离、网络或
+资源设置只在下次启动时生效，不会改变进入当前代次的命令所使用的隔离或资源限制。
 
 <a id="inspect-and-recover"></a>
 ## 查看与恢复状态
@@ -275,10 +268,13 @@ sudo -H kurumi-containerd show
 sudo -H kurumi-containerd scan
 ```
 
-`info` 显示容器身份、init 与 monitor PID、init 系统、运行时长、内存用量、进程数、
-代次、rootfs 和 UUID。`pid` 返回 init PID。`show` 读取配置工作目录中的实时状态。
-恢复缺失状态时，`scan` 在 procfs 中搜索 namespace PID 1 进程；只有容器内身份与
-root 所有的恢复记录一致时才会恢复。
+`info` 显示容器身份、实际隔离模式、init 与 monitor PID、init 系统、运行时长、内存用量、
+进程数、代次、rootfs 和 UUID。`pid` 返回 init PID。共享模式统计专属 cgroup 的递归成员，
+而不是宿主总量。`show` 读取运行时工作目录中的实时状态。
+
+`scan` 只有在容器内身份与受保护的宿主恢复记录一致时才恢复缺失状态。
+独立隔离恢复寻找 namespace PID 1；共享恢复验证已记录的 supervisor、worker 身份和
+专属 cgroup，不会从 procfs 猜测某个服务。修改当前 JSON 不会重定义运行中的实例。
 
 <a id="host-checks"></a>
 ## 主机能力检查
@@ -287,6 +283,8 @@ root 所有的恢复记录一致时才会恢复。
 sudo kurumi-containerd check
 ```
 
-`check` 不需要登记文件。它探测 mount、PID、UTS、IPC、network namespace，
-然后报告 OverlayFS、cgroup v2、pidfd、`ip`、`iptables` 的可用性。
-必需的 namespace 探测失败时返回错误。
+`check` 不读取 HOME 或配置，报告 namespace、OverlayFS、cgroup v2、pidfd、
+`ip` 和 `iptables` 能力，并区分独立/共享模式前提。共享模式还要求 cgroup namespace
+和专属可写的 cgroup v2。缺少 PID/IPC namespace 不会单独阻止共享模式，非 host 网络
+才需要 network namespace。`start` 仍会检查所选模式、rootfs/init、安全机制和 cgroup
+委派；通用检查成功不代表每个配置都能启动。

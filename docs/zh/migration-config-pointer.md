@@ -1,8 +1,8 @@
 # 迁移到单一 JSON 配置文件
 
-[[zh](migration-config-pointer_CN.md) / [en](migration-config-pointer.md)]
+[简体中文](../zh/migration-config-pointer.md) | [English](../en/migration-config-pointer.md)
 
-[文档目录](README_CN.md)
+[文档目录](README.md)
 
 ## 变更内容
 
@@ -33,7 +33,7 @@ PYTHON
 4. 根据各份旧 TOML 所在目录，将相对 `rootfs`、`rootfs_image`、挂载 `source` 和
    `environment_file` 转为主机绝对路径；否则它们会以新 `config.json` 所在目录为基准解析。
    init 和挂载目标仍然使用容器内路径。
-5. 按[配置参考](configuration_CN.md)检查所有转换后的对象，将合并列表保存到运行 CLI
+5. 按[配置参考](configuration.md)检查所有转换后的对象，将合并列表保存到运行 CLI
    所使用的 HOME。使用 root 时，编辑和运行都应一致地使用 `sudo -H`：
 
 ```sh

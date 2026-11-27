@@ -1,8 +1,8 @@
 # 配置参考
 
-[[zh](configuration_CN.md) / [en](configuration.md)]
+[简体中文](../zh/configuration.md) | [English](../en/configuration.md)
 
-[文档目录](README_CN.md)
+[文档目录](README.md)
 
 <a id="file-location-and-container-selection"></a>
 
@@ -10,8 +10,9 @@
 
 CLI 和 TUI 读取 `$HOME/.kurumi-containerd/config.json`。`HOME` 必须是绝对路径，
 以运行进程的环境为准；使用 `sudo -H` 时通常是 root 的 HOME。
-配置文件需要手动创建。文件缺失、JSON 无效、未知字段或非法值都会报错，
-不会自动创建配置或使用兜底配置。
+普通命令要求登记文件已存在；`install` 可以在解包前创建缺失的登记文件或新增指定名称的
+条目，详见[安装说明](usage.md#install-a-local-rootfs)。JSON 无效、未知字段或非法值
+都会报错，不会被兜底配置覆盖。
 
 顶层是非空列表，每项都是完整的容器配置：
 
@@ -33,7 +34,7 @@ CLI 和 TUI 读取 `$HOME/.kurumi-containerd/config.json`。`HOME` 必须是绝�
 `--name`。TUI 列出全部条目。`check` 不读取 HOME 或配置。
 
 不再支持外层 `name`/`file` 指针、独立 TOML 加载、`-c/--config` 或
-`KURUMI_CONTAINERD_CONFIG`。旧安装请参阅[迁移指南](migration-config-pointer_CN.md)。
+`KURUMI_CONTAINERD_CONFIG`。旧安装请参阅[迁移指南](migration-config-pointer.md)。
 
 <a id="paths-and-persistent-identity"></a>
 
@@ -71,6 +72,7 @@ UUID。请在 rootfs 归档之外单独备份这份 JSON。
 | `rootfs_image` | 未设置 | 主机文件系统镜像或块设备路径 |
 | `hostname` | 容器名称 | 省略或为空时使用 `name` |
 | `init` | `/sbin/init` | rootfs 内的绝对路径 |
+| `isolation` | `isolated` | 默认独立隔离；启用 `servicectl` feature 后可用可信共享模式 `shared-pid-ipc` |
 | `foreground` | `false` | start/restart 使用前台控制台 |
 | `volatile` | `false` | 将 OverlayFS 可写层放在 tmpfs，修改会被丢弃 |
 | `network` | `host` | `host`、`none`、`nat`、`gateway` 或 `dhcp` |
@@ -85,11 +87,56 @@ UUID。请在 rootfs 归档之外单独备份这份 JSON。
 普通加载要求 rootfs 已存在；目录 rootfs 还要求配置的 init 路径存在。
 `install` 允许目标缺失：将本地归档安装到 `rootfs`，或通过 `--size SIZE`
 创建稀疏 ext4 `rootfs_image`。覆盖已有目标需要 `--force`。
-参阅[安装 rootfs](usage_CN.md#install-a-local-rootfs)。
+参阅[安装 rootfs](usage.md#install-a-local-rootfs)。
 
 下列示例是合并到选中条目的对象片段，不是完整配置文件。
-[config.example.json](../config.example.json) 提供较完整的示例；
+[config.example.json](../../config.example.json) 提供较完整的示例；
 请调整其中的路径，并删除不需要的挂载。
+
+<a id="pid-and-ipc-isolation"></a>
+
+## PID 与 IPC 隔离
+
+`container.isolation` 默认 `isolated`，创建独立 PID/IPC namespace。
+启用 `servicectl` Cargo feature 后，还接受显式的 `shared-pid-ipc`。
+CI 只为 release 产物启用该 feature；本地构建需指定 `--features servicectl`，
+与 debug/release profile 无关。未知值报错，namespace 创建失败不会自动降级。
+
+```json
+{
+  "container": {
+    "name": "debian-services",
+    "rootfs": "/srv/kurumi/debian/rootfs",
+    "init": "/usr/local/sbin/kurumi-services",
+    "isolation": "shared-pid-ipc",
+    "network": "host"
+  }
+}
+```
+
+共享模式继承 Kurumi 所在环境的 PID/IPC 空间，包括外层容器的空间。
+mount/UTS namespace、私有 `/run`、`/dev`、`/dev/shm`、procfs 和安全过滤仍需可用。
+`network: "host"` 可避免 network namespace 要求。
+
+无论是否设置资源限制，共享模式都要求专属可写的 cgroup v2 子树，且能创建根在 init
+叶节点的 cgroup namespace。Kurumi 创建空的 namespace 根，将 supervisor 放到
+`bootstrap` 子节点。只在设置限制时要求对应 controller；不支持 cgroup v1。
+无需 `cgroup.kill`，旧内核使用反复枚举和可信进程句柄清理。
+允许缺失 PID/IPC namespace 的 procfs 接口。
+
+共享模式暴露主机可见进程，共享 SysV IPC 和 POSIX 消息队列，仅用于可信工作负载。
+私有 `/dev/shm` 不代表 IPC namespace 隔离。服务只能清理自己的 IPC 对象，Kurumi
+不会全局删除共享 IPC。普通 systemd 系统实例和其他依赖 PID 1 的 init 不受支持。
+入口必须作为前台 supervisor，处理 SIGTERM 并在清理后退出，不能调用宿主关机、
+`kill(-1)`、全局 `killall` 或全局 IPC 清理；任意脚本无法被完整静态检查。
+init 与 exec/login 均继承 reboot syscall 拒绝策略。重启使用 Kurumi `restart`，
+不使用 namespace reboot 或 SIGHUP。
+
+[Dinit + s6/servicectl 示例](servicectl.md)提供部署步骤；依赖位于 rootfs，
+Kurumi 不依赖 Go。只支持已实现的 unit 指令，不提供 `PrivateIPC=` 或完整 systemd
+发行版启动语义。实际隔离模式按运行代次持久化，修改 JSON 不改变已有实例的
+`run`、`enter`、`info`、`stop` 或 `scan`，新设置在下次启动生效。
+`check` 不依赖 HOME/配置，按模式报告能力；`start` 检查实际所选配置。
 
 <a id="networking"></a>
 
@@ -163,7 +210,8 @@ namespace 和 cgroup。
 }
 ```
 
-资源字段均为可选的无符号整数。可用时使用 cgroup v2，否则使用 cgroup v1。
+资源字段均为可选的无符号整数。独立隔离模式可用时使用 cgroup v2，否则使用 cgroup v1；
+共享模式始终要求 cgroup v2。
 `memory_bytes` 至少为 4194304（4 MiB）。CPU quota 和 period 的单位是微秒，
 必须同时配置；`cpu_quota` 至少为 1000，`cpu_period` 必须大于零。
 `pids` 必须在 1 到 4194304 之间。请求的 controller 不可用时会报错。
@@ -216,4 +264,4 @@ Podman、Flatpak 或 Bubblewrap。保留正常加固的 `/proc`、`/sys`，另�
 
 这些选项需要 Android 构建和相应主机资源；不支持的主机或缺失的所需资源会报错。
 它们用于暴露资源，不会安装或监管 Android 应用或对应的主机服务。
-安装与开机启动见 [Android root 模块](android-module_CN.md)。
+安装与开机启动见 [Android root 模块](android-module.md)。

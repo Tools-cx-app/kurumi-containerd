@@ -1,8 +1,8 @@
 # 实现状态
 
-[[zh](status_CN.md) / [en](status.md)]
+[简体中文](../zh/status.md) | [English](../en/status.md)
 
-[文档目录](README_CN.md)
+[文档目录](README.md)
 
 KurumiContainerd 是处于早期阶段的 Rust 实现，用于需要特权的 Linux 和 Android 系统容器。
 核心生命周期已经可用，但在依赖它之前，应先在可丢弃的系统上评估。它共享宿主内核，要求
@@ -31,11 +31,12 @@ KurumiContainerd 是处于早期阶段的 Rust 实现，用于需要特权的 Li
 - 备份流式写入权限为 `0600` 的私有临时文件，只在成功后发布，不覆盖现有路径或符号链接
 
 备份导出的是 rootfs 内容，而非原始磁盘镜像或完整容器包。容器选择规则、元数据保留范围、
-排除项和恢复限制见[备份与恢复说明](usage_CN.md)。
+排除项和恢复限制见[备份与恢复说明](usage.md)。
 
 ### 隔离与宿主集成
 
 - 挂载、UTS、IPC、PID，以及可选的网络命名空间
+- 显式的可信共享 PID/IPC 模式，要求专属 cgroup v2
 - 宿主网络、隔离网络、NAT 和现有网桥网络
 - TCP/UDP 单端口转发，支持回滚并清理由本工具持有的规则
 - cgroup v1/v2 内存、CPU 和 PID 数量限制
@@ -44,7 +45,7 @@ KurumiContainerd 是处于早期阶段的 Rust 实现，用于需要特权的 Li
 - 为嵌套用户命名空间沙箱提供可选的未遮罩 proc/sysfs 挂载
 - 运行时提供可选 Android 存储、设备和 socket 集成
 - 支持容器开机启动的 Magisk、KernelSU 和 APatch root 模块，参见
-  [Android 模块指南](android-module_CN.md)
+  [Android 模块指南](android-module.md)
 
 ### 可选终端管理器
 
@@ -101,5 +102,16 @@ KurumiContainerd 是处于早期阶段的 Rust 实现，用于需要特权的 Li
   上文所述的本地 rootfs 归档安装已经可用。
 
 配置字段只有存在实际运行时处理路径时才会写入文档。失败应作为错误处理，不要假设系统会
-降级回退。资源归属与信任规则见[架构说明](architecture_CN.md)，操作要求见
-[CLI 用法](usage_CN.md)。
+降级回退。资源归属与信任规则见[架构说明](architecture.md)，操作要求见
+[CLI 用法](usage.md)。
+
+## 共享模式的部署边界
+
+显式的 `shared-pid-ipc` 需要 `servicectl` feature，始终使用专属 cgroup v2。
+运行中实例按持久化模式进入、查看、停止和恢复，统计来自专属子树的递归成员。
+它暴露宿主可见 PID 并共享 IPC，不支持普通 systemd 或依赖 PID 1 的系统实例。
+
+[共享模式部署指南](servicectl.md)提供固定上游的外部 Dinit/s6/servicectl 栈及特权验收
+命令。脚本存在并不证明对应环境已运行：禁用 PID/IPC namespace 的内核、没有
+`cgroup.kill` 的旧内核、Android 委派/SELinux 和可选 VM seccomp 探针都需单独记录结果。
+缺少宿主权限或 cgroup v2 属于 SKIP，不是通过的生命周期覆盖。

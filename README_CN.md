@@ -76,8 +76,8 @@ Android 产物使用默认的不带 TUI 构建。
 无需 root 即可运行基准测试：
 
 ```bash
-cargo bench -p kurumi-containerd-host --bench archive --locked
-cargo bench -p kurumi-containerd-config --bench config --locked
+cargo bench -p kurumi-containerd-host --bench archive
+cargo bench -p kurumi-containerd-config --bench config
 ```
 
 归档基准通过实际 `Rootfs` 接口测量 tar、gzip、xz、zstd、ZIP 的目录 rootfs 安装
@@ -98,9 +98,9 @@ cargo bench -p kurumi-containerd-config --bench config --locked
 在同一台主机上对比修改前后的性能：
 
 ```bash
-cargo bench -p kurumi-containerd-host --bench archive --locked -- --save-baseline before
+cargo bench -p kurumi-containerd-host --bench archive -- --save-baseline before
 # 修改代码后，与保存的基线对比。
-cargo bench -p kurumi-containerd-host --bench archive --locked -- --baseline before
+cargo bench -p kurumi-containerd-host --bench archive -- --baseline before
 ```
 需要 root、静态 C 编译器和可写 cgroup v2 的 Linux 主机，直接对比原有独立 PID/IPC namespace
 与 `shared-pid-ipc` 的容器启动至 supervisor 就绪时间及 `run` 往返时间：
@@ -170,18 +170,18 @@ sudo -H ./target/release/kurumi-containerd stop
 
 使用 `sudo -H ./target/release/kurumi-containerd tui` 可打开 ratatui 管理界面，
 浏览所有已登记容器并执行现有 CLI 命令。按键、配置选择和终端要求见
-[CLI 使用](docs/usage_CN.md)。JSON 配置格式和路径规则见[配置参考](docs/configuration_CN.md)；
-从已删除的 `-c/--config` 入口迁移时，参阅[配置入口迁移指南](docs/migration-config-pointer_CN.md)。
+[CLI 使用](docs/zh/usage.md)。JSON 配置格式和路径规则见[配置参考](docs/zh/configuration.md)；
+从已删除的 `-c/--config` 入口迁移时，参阅[配置入口迁移指南](docs/zh/migration-config-pointer.md)。
 
 备份示例：`sudo -H ./target/release/kurumi-containerd backup debian ./debian.zst`。
 先停止容器；`debian` 统一使用 JSON 中的 `container.name`，与运行时、TUI 一致。
 TUI 选择容器后使用 Backup 输入输出路径；备份不包含 config.json，ZIP 有元数据限制，
-详见[备份与恢复说明](docs/usage_CN.md#back-up-a-container)。
+详见[备份与恢复说明](docs/zh/usage.md#back-up-a-container)。
 
 缺少 PID/IPC namespace 的内核可显式设置 `"isolation": "shared-pid-ipc"`，
 使用前台服务 supervisor；不会在隔离启动失败后自动降级。该模式共享宿主可见 PID
 和 IPC，仅供可信工作负载，必须有 cgroup v2，但不要求 `cgroup.kill`。不支持普通
-systemd 系统实例。[Dinit + s6/servicectl 部署示例](docs/servicectl.md)提供固定上游
+systemd 系统实例。[Dinit + s6/servicectl 部署示例](docs/zh/servicectl.md)提供固定上游
 提交、运行依赖、完整启动/回滚、最小业务 unit 和验收命令。Go 仅用于构建 rootfs
 服务工具，不加入 Kurumi 的 Rust 依赖。运行代际持久化实际隔离模式，修改 JSON
 不会改变现有实例的 run/enter/info/stop/scan 行为。`check` 不读取 HOME 或配置，
@@ -210,18 +210,20 @@ check                   检查主机能力
 
 ## 文档
 
-完整文档：[[zh](docs/README_CN.md) / [en](docs/README.md)]。
+从[快速开始](docs/zh/getting-started.md)开始，或查阅完整文档：[[zh](docs/zh/README.md) / [en](docs/en/README.md)]。
 
 | 指南 | 语言 |
 | --- | --- |
-| CLI 使用 | [[zh](docs/usage_CN.md) / [en](docs/usage.md)] |
-| 配置参考 | [[zh](docs/configuration_CN.md) / [en](docs/configuration.md)] |
-| 运行时架构 | [[zh](docs/architecture_CN.md) / [en](docs/architecture.md)] |
-| 实现状态 | [[zh](docs/status_CN.md) / [en](docs/status.md)] |
-| Android root 模块 | [[zh](docs/android-module_CN.md) / [en](docs/android-module.md)] |
-| 配置迁移 | [[zh](docs/migration-config-pointer_CN.md) / [en](docs/migration-config-pointer.md)] |
-- [共享模式服务部署与特权验收](docs/servicectl.md)
-- [共享模式兼容变更说明](docs/shared-isolation-release.md)
+| CLI 使用 | [[zh](docs/zh/usage.md) / [en](docs/en/usage.md)] |
+| 配置参考 | [[zh](docs/zh/configuration.md) / [en](docs/en/configuration.md)] |
+| 运行时架构 | [[zh](docs/zh/architecture.md) / [en](docs/en/architecture.md)] |
+| 实现状态 | [[zh](docs/zh/status.md) / [en](docs/en/status.md)] |
+| Android root 模块 | [[zh](docs/zh/android-module.md) / [en](docs/en/android-module.md)] |
+| 配置迁移 | [[zh](docs/zh/migration-config-pointer.md) / [en](docs/en/migration-config-pointer.md)] |
+| 故障排查 | [[zh](docs/zh/troubleshooting.md) / [en](docs/en/troubleshooting.md)] |
+| 开发与验证 | [[zh](docs/zh/development.md) / [en](docs/en/development.md)] |
+| 共享模式服务部署与特权验收 | [[zh](docs/zh/servicectl.md) / [en](docs/en/servicectl.md)] |
+| 共享模式兼容说明 | [[zh](docs/zh/shared-isolation-release.md) / [en](docs/en/shared-isolation-release.md)] |
 
 ## 致谢
 

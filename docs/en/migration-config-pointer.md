@@ -1,6 +1,6 @@
 # Migrate to one JSON configuration file
 
-[[zh](migration-config-pointer_CN.md) / [en](migration-config-pointer.md)]
+[简体中文](../zh/migration-config-pointer.md) | [English](../en/migration-config-pointer.md)
 
 [Documentation](README.md)
 

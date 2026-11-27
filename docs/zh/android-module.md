@@ -1,8 +1,8 @@
 # Android root 模块
 
-[[zh](android-module_CN.md) / [en](android-module.md)]
+[简体中文](../zh/android-module.md) | [English](../en/android-module.md)
 
-[文档目录](README_CN.md)
+[文档目录](README.md)
 
 ## 要求与安装
 
@@ -27,7 +27,7 @@ ZIP 包含 `arm64-v8a`、`armeabi-v7a`、`x86_64`、`x86` 二进制，
 └── tmp/
 ```
 
-按照[配置参考](configuration_CN.md)创建 `config.json`，每个条目包含容器的完整配置。
+按照[配置参考](configuration.md)创建 `config.json`，每个条目包含容器的完整配置。
 安装器创建私有目录和初始 `autostart.txt`，但不会生成容器配置或安装 rootfs。
 持久化目录不能是符号链接。
 
@@ -60,7 +60,7 @@ alpine
 
 开机启动失败后查看 `/data/adb/kurumi-containerd/boot.log`。
 存在自启动文件时，启动脚本将自身输出重定向到这个文件；它不是持久化的容器控制台日志。
-参阅 [CLI 输出说明](usage_CN.md#output-and-diagnostics)。
+参阅 [CLI 输出说明](usage.md#output-and-diagnostics)。
 
 ## 停止容器或禁用自启动
 
@@ -73,4 +73,4 @@ alpine
 从 `autostart.txt` 删除对应行会影响后续开机启动。在 root 管理器中禁用模块会禁用
 开机启动；停止当前运行的容器仍应显式使用 `stop`。
 备份 rootfs 时请单独保存 `config.json`。
-可选的存储、GPU、Binder 和 socket 集成见[配置参考](configuration_CN.md#android-integration)。
+可选的存储、GPU、Binder 和 socket 集成见[配置参考](configuration.md#android-integration)。

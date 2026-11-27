@@ -1,16 +1,16 @@
 # Dinit, s6-rc and servicectl in shared mode
 
-The assets in [examples/servicectl](../examples/servicectl) provide a foreground
+[简体中文](../zh/servicectl.md) | [English](../en/servicectl.md)
+
+[Documentation](README.md)
+
+The assets in [examples/servicectl](../../examples/servicectl) provide a foreground
 supervisor, a Dinit lifetime anchor, initialized s6-rc control plane, a confined
 cgroup helper and a demo unit. They are for trusted rootfs workloads. Normal
 systemd system instances are unsupported in `shared-pid-ipc` mode.
 
 ## Upstream contract and prerequisites
 
-The source contract was inspected at
-[`NEURAX-FX/servicectl@9bc7e99a4406a62b5dd745dac2f45472f6ed0b9a`](https://github.com/NEURAX-FX/servicectl/tree/9bc7e99a4406a62b5dd745dac2f45472f6ed0b9a).
-This is a source pin, not a claim of an executed deployment test. In particular,
-[upstream s6 bootstrap](https://github.com/NEURAX-FX/servicectl/blob/9bc7e99a4406a62b5dd745dac2f45472f6ed0b9a/s6_backend.go)
 uses `/s6/rc`, `/run/s6/state`, and `/run/s6/compiled.servicectl`; its installer
 alone does not start a live supervision tree. Its native Dinit client requires
 control protocol **v5 or newer**. Use a Dinit build with native cgroup support.
@@ -47,7 +47,7 @@ Cargo feature. CI and tagged release artifacts enable it in the release profile;
 debug artifacts omit it. For a local build:
 
 ```sh
-cargo build --release --locked -p kurumi-containerd --features servicectl
+cargo build --release -p kurumi-containerd --features servicectl
 ```
 
 The feature defaults to off. Cargo does not enable it automatically with
@@ -183,7 +183,7 @@ POSIX message queues remain shared, and Kurumi does not remove their objects.
 ## Privileged runtime acceptance
 
 ```sh
-cargo build --release --locked -p kurumi-containerd --features servicectl
+cargo build --release -p kurumi-containerd --features servicectl
 sudo python3 tests/shared_isolation.py target/release/kurumi-containerd
 ```
 

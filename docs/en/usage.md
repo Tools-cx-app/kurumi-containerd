@@ -1,6 +1,6 @@
 # CLI usage
 
-[[zh](usage_CN.md) / [en](usage.md)]
+[简体中文](../zh/usage.md) | [English](../en/usage.md)
 
 [Documentation](README.md)
 
@@ -35,7 +35,7 @@ start [--foreground]
 stop
 restart [--foreground]
 enter [USER] [--shell COMMAND]
-run COMMAND...
+run COMMAND...          # alias: exec
 info
 pid
 show
@@ -218,27 +218,9 @@ Stop chooses a shutdown protocol for the detected init family and escalates afte
 then `SIGKILL` if it has not exited by the timeout. Alpine with BusyBox PID 1
 receives the BusyBox shutdown signal even when OpenRC manages services.
 
-The privileged lifecycle CI in `.github/workflows/tests.yml` runs on Ubuntu using
-Debian Bookworm (systemd) and Alpine 3.22 (OpenRC) rootfs archives from
-`images.linuxcontainers.org`. Downloads are verified against the image index's
-SHA-256. The CLI installs each archive; tests cover init readiness, command
-execution and exit status, restart, graceful stop, process/state/cgroup cleanup,
-mount isolation, and starting again after stop. An init-managed service records
-startup and shutdown, so forced termination does not count as graceful stop.
-Networking is `none`.
-
-Use a matching host-architecture LXC rootfs to run the same integration script:
-
-```bash
-cargo build --release --locked -p kurumi-containerd --features servicectl
-sudo target/release/kurumi-containerd check
-sudo python3 tests/container_lifecycle.py target/release/kurumi-containerd ./rootfs.tar.xz systemd
-# Use openrc instead of systemd for Alpine.
-```
-
-The script needs root, namespace/mount privileges, Python 3, and the archive.
-It creates an isolated HOME registry and temporary rootfs, stops the container
-on exit, and removes temporary files. LXC and Incus need not be installed.
+Lifecycle regression coverage includes systemd and OpenRC readiness, execution,
+restart, graceful shutdown and cleanup. See [Development and verification](development.md)
+for scripts, prerequisites and coverage requirements.
 
 For kernels without PID/IPC namespaces, explicitly select
 `container.isolation: "shared-pid-ipc"` and a foreground supervisor, as described
@@ -318,10 +300,6 @@ Container init and commands use the kernel `execve` syscall directly, preventing
 host preload libraries such as `termux-exec` from rewriting container paths.
 On Linux, `python3 tests/exec_interposition.py` verifies this with a preloaded
 `execve` interposer; it requires Cargo and a host C compiler, without root.
-
-Both join the running container's actual namespaces and cgroups. Changes to
-network or resource settings in config.json take effect at the next start;
-they do not alter isolation or limits for commands entering the current instance.
 
 ## Inspect and recover
 

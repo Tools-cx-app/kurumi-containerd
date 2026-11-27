@@ -1,6 +1,6 @@
 # Configuration reference
 
-[[zh](configuration_CN.md) / [en](configuration.md)]
+[简体中文](../zh/configuration.md) | [English](../en/configuration.md)
 
 [Documentation](README.md)
 
@@ -8,8 +8,10 @@
 
 CLI and TUI read `$HOME/.kurumi-containerd/config.json`. `HOME` must be absolute
 and belongs to the running process; `sudo -H` normally selects root's HOME.
-Create the file yourself. Missing files, invalid JSON, unknown fields and invalid
-values produce errors without fallback or automatic configuration creation.
+Normal commands require an existing registry. The `install` command can create a
+missing registry or add a missing named entry before extraction; see
+[installation](usage.md#install-a-local-rootfs). Invalid JSON, unknown fields and
+invalid values produce errors and are never replaced with fallback settings.
 
 The top level is a nonempty list of complete configuration objects:
 
@@ -87,14 +89,14 @@ archive into `rootfs`, or creates a sparse ext4 `rootfs_image` with `--size SIZE
 Existing targets require `--force`. See [installation](usage.md#install-a-local-rootfs).
 
 The following examples are object fragments to merge into the selected entry,
-not complete configuration files. [config.example.json](../config.example.json)
+not complete configuration files. [config.example.json](../../config.example.json)
 provides a larger example; adapt its paths and remove mounts you do not need.
 
 ## PID and IPC isolation
 
 `container.isolation` accepts `isolated` (default). Builds with the optional
 `servicectl` Cargo feature also accept `shared-pid-ipc`; CI enables this feature
-only for release artifacts. Local builds require `--release --features servicectl`.
+only for release artifacts. Local builds require `--features servicectl`, independently of the build profile.
 Unknown values are rejected. There is no automatic fallback when namespace
 creation fails. Shared mode inherits the PID/IPC spaces of Kurumi's execution
 environment, including an outer container if one exists. Mount and UTS namespaces,
@@ -214,7 +216,7 @@ and `run` join the running container's actual namespaces and cgroups.
 }
 ```
 
-In isolated mode resource limits use cgroup v2 when available and otherwise fall back to cgroup v1. Shared mode always requires cgroup v2. Memory must be at least 4 MiB. CPU quota and period must be configured together; quota must be at least 1000, and period must be greater than zero. The PID limit must be between 1 and 4194304. Unavailable requested controllers are reported as errors.
+In isolated mode resource limits use cgroup v2 when available and otherwise fall back to cgroup v1. Shared mode always requires cgroup v2. Memory must be at least 4 MiB. CPU quota and period must be configured together; quota must be at least 1000, and period must be greater than zero. Both use microseconds. The PID limit must be between 1 and 4194304. Unavailable requested controllers are reported as errors.
 
 `read_only_sys` defaults to `true`; `allow_user_namespaces` defaults to `false`.
 Enable the latter only for trusted workloads needing unprivileged user

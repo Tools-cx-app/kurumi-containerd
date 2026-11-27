@@ -1,6 +1,6 @@
 # Implementation status
 
-[[zh](status_CN.md) / [en](status.md)]
+[简体中文](../zh/status.md) | [English](../en/status.md)
 
 [Documentation](README.md)
 
@@ -127,6 +127,8 @@ Configuration fields are documented only when they have an active runtime path.
 Treat failures as errors rather than assuming a degraded fallback. Consult the
 [architecture](architecture.md) for ownership and trust rules and
 [CLI usage](usage.md) for operational requirements.
+
+## Shared-mode deployment limits
 
 - Shared mode does not support normal systemd/PID-1-dependent system instances.
 - Shared mode exposes host-visible PIDs and shared IPC; it is not isolation from host workloads.
