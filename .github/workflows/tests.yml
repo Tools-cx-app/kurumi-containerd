@@ -49,7 +49,7 @@ jobs:
           save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Run tests
-        run: cargo test --workspace --locked
+        run: cargo test --workspace
 
   with-tui:
     name: CLI tests with TUI
@@ -70,7 +70,7 @@ jobs:
           save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Run CLI tests with TUI
-        run: cargo test -p kurumi-containerd --features tui --locked
+        run: cargo test -p kurumi-containerd --features tui
 
   shared:
     name: Shared PID and IPC lifecycle
@@ -88,9 +88,9 @@ jobs:
           cache-workspace-crates: "true"
           save-if: ${{ github.event_name != 'pull_request' }}
       - name: Build runtime
-        run: cargo build --release --features servicectl --locked -p kurumi-containerd
+        run: cargo build --release --features servicectl -p kurumi-containerd
       - name: Test servicectl feature
-        run: cargo test --workspace --release --features servicectl,tui --locked
+        run: cargo test --workspace --release --features servicectl,tui
       - name: Test disposable shared rootfs
         run: sudo python3 tests/shared_isolation.py target/release/kurumi-containerd
 
@@ -124,7 +124,7 @@ jobs:
           save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Build runtime
-        run: cargo build --release --features servicectl --locked -p kurumi-containerd
+        run: cargo build --release --features servicectl -p kurumi-containerd
 
       - name: Check host capabilities
         run: sudo target/release/kurumi-containerd check

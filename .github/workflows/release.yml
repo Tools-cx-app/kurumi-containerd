@@ -176,8 +176,8 @@ jobs:
           key: release-with-tui-${{ matrix.target }}
       - name: Build debug and release with TUI
         run: |
-          cargo build -p kurumi-containerd --features tui --locked --target "${{ matrix.target }}"
-          cargo build -p kurumi-containerd --features tui,servicectl --release --locked --target "${{ matrix.target }}"
+          cargo build -p kurumi-containerd --features tui --target "${{ matrix.target }}"
+          cargo build -p kurumi-containerd --features tui,servicectl --release --target "${{ matrix.target }}"
       - name: Package debug and release
         env:
           TARGET: ${{ matrix.target }}
