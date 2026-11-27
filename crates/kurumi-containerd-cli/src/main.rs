@@ -148,6 +148,11 @@ fn run(cli: Cli) -> Result<()> {
     if matches!(cli.command, Commands::Tui) {
         return kurumi_containerd_tui::run(&std::env::current_exe()?);
     }
+    if matches!(cli.command, Commands::Scan) {
+        let states = Runtime::scan_all()?;
+        output::write(|out| output::recovered(out, &states))?;
+        return Ok(());
+    }
     if let Commands::Install {
         archive,
         size,
@@ -226,10 +231,7 @@ fn run(cli: Cli) -> Result<()> {
             let states = runtime.list()?;
             output::write(|out| output::containers(out, &states))?;
         }
-        Commands::Scan => {
-            let states = runtime.scan()?;
-            output::write(|out| output::recovered(out, &states))?;
-        }
+        Commands::Scan => unreachable!("scan is handled before selecting a configuration"),
         Commands::Check => unreachable!("check is handled before loading configuration"),
         #[cfg(feature = "tui")]
         Commands::Tui => unreachable!("tui is handled before selecting a configuration"),

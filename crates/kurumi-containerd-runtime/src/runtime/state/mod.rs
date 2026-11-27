@@ -12,6 +12,7 @@ use std::{
 use crate::{
     Result, RuntimeError,
     error::{ErrorContext as _, bail, ensure},
+    runtime_workdir,
 };
 use kurumi_containerd_config::IsolationMode;
 #[cfg(test)]
@@ -74,6 +75,16 @@ impl Runtime {
         self.store.list()
     }
 
+    /// Scans the runtime work directory for live containers backed by trusted recovery metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the recovery directory or state cannot be read or written safely.
+    pub fn scan_all() -> Result<Vec<ContainerState>> {
+        let store = store::StateStore::new(&runtime_workdir()?, "scan");
+        Self::scan_with_store(&store)
+    }
+
     /// Scans procfs for live containers backed by trusted recovery metadata and
     /// reconstructs missing state files.
     ///
@@ -82,10 +93,14 @@ impl Runtime {
     /// Returns an error when the recovery directory or state cannot be read or
     /// written safely.
     pub fn scan(&self) -> Result<Vec<ContainerState>> {
+        Self::scan_with_store(&self.store)
+    }
+
+    fn scan_with_store(store: &store::StateStore) -> Result<Vec<ContainerState>> {
         Self::ensure_root()?;
-        self.store.ensure_layout()?;
+        store.ensure_layout()?;
         let mut candidates: BTreeMap<String, (ContainerState, ContainerState)> = BTreeMap::new();
-        for entry in fs::read_dir(self.store.recovery_dir())? {
+        for entry in fs::read_dir(store.recovery_dir())? {
             let entry = entry?;
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
@@ -94,7 +109,7 @@ impl Runtime {
                 continue;
             };
             if !valid_state_name(&original.name)
-                || entry.path() != self.store.recovery_path(original.uuid)
+                || entry.path() != store.recovery_path(original.uuid)
             {
                 continue;
             }
@@ -118,7 +133,7 @@ impl Runtime {
                 if host_boot_id().ok().as_deref() != Some(&state.host_boot_id)
                     || !validate_monitor_identity(&state)
                 {
-                    self.store.remove_recovery_if_unchanged(&original)?;
+                    store.remove_recovery_if_unchanged(&original)?;
                     continue;
                 }
                 let Some(init_pid) = find_generation_init(&state)? else {
@@ -143,7 +158,7 @@ impl Runtime {
         }
         let mut recovered = Vec::new();
         for (original, state) in candidates.into_values() {
-            if self.store.restore_state_if_unchanged(&original, &state)? {
+            if store.restore_state_if_unchanged(&original, &state)? {
                 recovered.push(state);
             }
         }
