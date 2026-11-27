@@ -5,7 +5,7 @@ use std::{
     collections::VecDeque,
     fs::{self, File, OpenOptions},
     io::Write,
-    os::unix::fs::{MetadataExt, OpenOptionsExt, chown},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, chown},
     path::{Component, Path, PathBuf},
 };
 
@@ -13,7 +13,8 @@ use fs2::FileExt;
 use uuid::Uuid;
 
 use crate::{
-    Config, NetworkMode, Protocol, Validate, environment::valid_env_key, parse_environment,
+    BinfmtConfig, Config, NetworkMode, Protocol, Validate, environment::valid_env_key,
+    parse_environment,
 };
 
 pub use kurumi_containerd_error::config::{ConfigError, Result};
@@ -112,6 +113,9 @@ impl Config {
         if let Some(environment_file) = &mut self.container.environment_file {
             *environment_file = absolute_from(base, environment_file)?;
         }
+        if let Some(binfmt) = &mut self.container.binfmt {
+            binfmt.interpreter = absolute_from(base, &binfmt.interpreter)?;
+        }
         Ok(())
     }
 }
@@ -162,6 +166,9 @@ impl Config {
             self.container.init.is_absolute(),
             "container.init must be an absolute path inside rootfs"
         );
+        if let Some(binfmt) = &self.container.binfmt {
+            binfmt.validate()?;
+        }
         ensure!(
             self.runtime.stop_timeout_seconds > 0,
             "runtime.stop_timeout_seconds must be greater than zero"
@@ -288,6 +295,41 @@ impl Config {
             self.container.environment = from_file;
             self.container.environment.extend(configured);
         }
+        Ok(())
+    }
+}
+
+impl BinfmtConfig {
+    /// Validates the target and interpreter without reading host runtime state.
+    ///
+    /// # Errors
+    /// Returns an error for a native target or an invalid interpreter path/file.
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.arch.is_native(),
+            "binfmt target must differ from the host architecture"
+        );
+        let path = self
+            .interpreter
+            .to_str()
+            .context("binfmt interpreter path must be UTF-8")?;
+        ensure!(
+            self.interpreter.is_absolute()
+                && !path
+                    .chars()
+                    .any(|ch| ch.is_control() || matches!(ch, ':' | '\\')),
+            "binfmt interpreter must be an absolute host path without control characters, ':' or '\\'"
+        );
+        let metadata =
+            fs::metadata(&self.interpreter).context("failed to inspect binfmt interpreter")?;
+        ensure!(
+            metadata.is_file(),
+            "binfmt interpreter must be a regular file"
+        );
+        ensure!(
+            metadata.permissions().mode() & 0o111 != 0,
+            "binfmt interpreter must be executable"
+        );
         Ok(())
     }
 }

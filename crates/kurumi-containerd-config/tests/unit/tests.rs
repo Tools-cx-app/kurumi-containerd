@@ -397,6 +397,100 @@ fn test_config() -> (tempfile::TempDir, Config) {
 }
 
 #[test]
+fn binfmt_is_optional_strict_and_normalizes_arch_aliases() {
+    let (_dir, config) = test_config();
+    assert!(config.container.binfmt.is_none());
+    let mut value = serde_json::to_value(config).unwrap();
+    for (alias, arch) in [
+        ("arm64", "aarch64"),
+        ("armhf", "arm"),
+        ("amd64", "x86_64"),
+        ("x86", "i386"),
+        ("loong64", "loongarch64"),
+    ] {
+        value["container"]["binfmt"] = serde_json::json!({"arch": alias, "interpreter": "/qemu"});
+        let config: Config = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(config).unwrap()["container"]["binfmt"]["arch"],
+            arch
+        );
+    }
+    for binfmt in [
+        serde_json::json!({"arch": "unknown", "interpreter": "/qemu"}),
+        serde_json::json!({"arch": "aarch64"}),
+        serde_json::json!({"interpreter": "/qemu"}),
+        serde_json::json!({"arch": "aarch64", "interpreter": "/qemu", "flags": "F"}),
+    ] {
+        value["container"]["binfmt"] = binfmt;
+        assert!(serde_json::from_value::<Config>(value.clone()).is_err());
+    }
+}
+
+#[test]
+fn binfmt_resolves_host_interpreter_and_validates_paths_and_permissions() {
+    let (dir, mut config) = test_config();
+    let interpreter = dir.path().join("qemu-static");
+    fs::write(&interpreter, b"test interpreter").unwrap();
+    fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o755)).unwrap();
+    let arch = if BinfmtArch::Aarch64.is_native() {
+        BinfmtArch::X86_64
+    } else {
+        BinfmtArch::Aarch64
+    };
+    config.container.binfmt = Some(BinfmtConfig {
+        arch,
+        interpreter: Path::new("qemu-static").to_path_buf(),
+    });
+    let path = dir.path().join("config.json");
+    fs::write(&path, serde_json::to_vec(&vec![config]).unwrap()).unwrap();
+    let mut config = Config::load(&path).unwrap();
+    let binfmt = config.container.binfmt.as_mut().unwrap();
+    assert_eq!(binfmt.interpreter, interpreter.canonicalize().unwrap());
+    fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        binfmt
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("executable")
+    );
+    for path in [
+        "relative",
+        "/bad:path",
+        "/bad\npath",
+        "/bad\0path",
+        "/bad\\path",
+    ] {
+        binfmt.interpreter = path.into();
+        assert!(
+            binfmt
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("absolute host path")
+        );
+    }
+    binfmt.interpreter = dir.path().into();
+    assert!(
+        binfmt
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("regular file")
+    );
+    binfmt.interpreter = dir.path().join("missing");
+    assert!(binfmt.validate().is_err());
+    binfmt.arch = serde_json::from_value(std::env::consts::ARCH.into()).unwrap();
+    assert!(
+        binfmt
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("differ from")
+    );
+}
+
+#[test]
 fn isolation_defaults_and_strict_values_round_trip() {
     let (_, config) = test_config();
     assert_eq!(config.container.isolation, IsolationMode::Isolated);

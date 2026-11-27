@@ -9,6 +9,7 @@ pub use kurumi_containerd_error::{Result, RuntimeError};
 #[cfg(target_os = "android")]
 pub mod android;
 mod archive;
+pub mod binfmt;
 pub mod cgroup;
 pub mod check;
 pub mod network;

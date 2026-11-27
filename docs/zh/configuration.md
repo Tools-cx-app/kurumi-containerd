@@ -41,7 +41,7 @@ CLI 和 TUI 读取 `$HOME/.kurumi-containerd/config.json`。`HOME` 必须是绝�
 ## 路径与持久化身份
 
 以下相对主机路径以 `config.json` 所在目录为基准：`rootfs`、`rootfs_image`、
-bind mount 的 `source`、`environment_file`。路径不会展开 `~` 或环境变量。
+bind mount 的 `source`、`environment_file`、`binfmt.interpreter`。路径不会展开 `~` 或环境变量。
 `init` 和挂载 `target` 是容器内部路径，即使以 `/` 开头也不是主机路径。
 
 普通运行时命令会为选中条目补写缺失的 UUID。原子重写保留其他条目、文件所有者、权限，
@@ -72,6 +72,7 @@ UUID。请在 rootfs 归档之外单独备份这份 JSON。
 | `rootfs_image` | 未设置 | 主机文件系统镜像或块设备路径 |
 | `hostname` | 容器名称 | 省略或为空时使用 `name` |
 | `init` | `/sbin/init` | rootfs 内的绝对路径 |
+| `binfmt` | 未设置 / `null` | 可选的外来 ELF 架构与主机静态解释器，见下文 |
 | `isolation` | `isolated` | 默认独立隔离；启用 `servicectl` feature 后可用可信共享模式 `shared-pid-ipc` |
 | `foreground` | `false` | start/restart 使用前台控制台 |
 | `volatile` | `false` | 将 OverlayFS 可写层放在 tmpfs，修改会被丢弃 |
@@ -92,6 +93,60 @@ UUID。请在 rootfs 归档之外单独备份这份 JSON。
 下列示例是合并到选中条目的对象片段，不是完整配置文件。
 [config.example.json](../../config.example.json) 提供较完整的示例；
 请调整其中的路径，并删除不需要的挂载。
+
+<a id="cross-architecture-execution-with-binfmt_misc"></a>
+
+## 使用 binfmt_misc 运行其他架构
+
+当 rootfs 内的程序使用其他架构时，设置 `container.binfmt`。例如，在 ARM64
+Linux/Android 主机上通过静态 x86-64 QEMU 用户态模拟器运行 x86-64 rootfs：
+
+```json
+{
+  "container": {
+    "binfmt": {
+      "arch": "x86_64",
+      "interpreter": "/usr/bin/qemu-x86_64-static"
+    }
+  }
+}
+```
+
+解释器是**主机路径**，相对路径以 `config.json` 所在目录为基准；必须是主机架构的、
+可执行的静态链接 ELF 普通文件。程序不会自动下载解释器，也不需要将它复制进 rootfs。
+内核必须支持 `CONFIG_BINFMT_MISC` 和 `F` 标志（Linux 4.8 及更新版本）；不支持或注册表
+被禁用时启动会报告错误。原生容器省略 `binfmt` 或设为 `null`；目标为运行时自身架构时
+会拒绝注册。
+
+支持与 [ruri](https://github.com/RuriOSS/ruri) 一致的架构：`aarch64`、`alpha`、`arm`、
+`armeb`、`cris`、`hexagon`、`hppa`、`i386`、`loongarch64`、`m68k`、`microblaze`、
+`mips`、`mips64`、`mips64el`、`mipsel`、`mipsn32`、`mipsn32el`、`ppc`、`ppc64`、
+`ppc64le`、`riscv32`、`riscv64`、`s390x`、`sh4`、`sh4eb`、`sparc`、`sparc32plus`、
+`sparc64`、`x86_64`、`xtensa`、`xtensaeb`。也接受 `arm64`/`armv8`、
+`armhf`/`arm32`/`armel`/`armv7`、`x86`、`amd64`、`loong64`/`loongarch` 等别名。
+
+监控进程通过 ELF 魔数和掩码注册 `OCF` 规则：固定打开解释器，由内核传递目标文件描述符
+及其凭据，QEMU 使用常规参数布局。此机制覆盖 init、后续 `run`/`enter` 和容器内部重启。
+每个监控进程拥有唯一的 `kurumi-*` 条目，在正常停止或启动失败时仅注销自身规则，
+保留其他注册项，不会清空或全局启用注册表。
+
+规则在主机 user namespace 内共享；旧内核没有 binfmt_misc 的 user namespace 隔离。
+其他进程也可能使用此解释器，最新匹配的规则优先。同一目标架构的并发容器应使用兼容的
+解释器。若监控进程被 `SIGKILL` 强制结束，析构清理无法执行，规则可能保留到手动通过
+主机 binfmt_misc 文件系统注销，或主机重启。
+
+特权回归脚本会编译最小外来架构静态 init，验证启动、`run`、带 PTY 的 `enter`、
+重启、并发注册，以及停止和启动失败时的清理。在已准备相应 QEMU 与交叉编译器的
+ARM64 主机上运行：
+
+```sh
+cargo build --release -p kurumi-containerd
+sudo python3 tests/binfmt.py target/release/kurumi-containerd \
+  /usr/bin/qemu-x86_64-static x86_64 x86_64-linux-gnu-gcc
+```
+
+脚本使用临时 rootfs 和独立挂载命名空间。额外编译器参数可通过重复的
+`--cflag=OPTION` 传入。
 
 <a id="pid-and-ipc-isolation"></a>
 

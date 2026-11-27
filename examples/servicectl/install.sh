@@ -1,6 +1,7 @@
 #!/bin/sh
 # Copyright (C) 2026 Tools-cx-app
 # SPDX-License-Identifier: GPL-v3-only
+
 set -eu
 [ "$#" -eq 2 ] || { echo "usage: $0 ROOTFS PINNED_SERVICECTL_SOURCE" >&2; exit 2; }
 root=$(realpath "$1")

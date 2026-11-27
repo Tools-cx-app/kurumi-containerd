@@ -38,6 +38,7 @@ use crate::{
     ContainerState, Runtime,
     container::init,
     host::{
+        binfmt::Binfmt,
         cgroup::Cgroup,
         network::Network,
         process::{
@@ -171,6 +172,13 @@ impl Runtime {
         .context("failed to make monitor mount tree private")?;
         let rootfs = self.rootfs.prepare()?;
         self.init.prepare(rootfs.as_ref())?;
+        let _binfmt = self
+            .config
+            .container
+            .binfmt
+            .as_ref()
+            .map(|config| Binfmt::register(config, &self.workdir))
+            .transpose()?;
         let init_system = self.init.detect(rootfs.as_ref());
         #[cfg(feature = "servicectl")]
         if shared {

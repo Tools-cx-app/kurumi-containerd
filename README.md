@@ -244,6 +244,7 @@ Special thanks to the following projects and their contributors:
 
 - [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS)
 - [lxc](https://github.com/lxc/lxc)
+- [ruri](https://github.com/RuriOSS/ruri) — reference for `binfmt_misc` setup and ELF architecture magic/mask data
 
 ## License
 

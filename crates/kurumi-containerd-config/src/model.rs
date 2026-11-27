@@ -34,6 +34,8 @@ pub struct ContainerConfig {
     pub hostname: String,
     #[serde(default = "default_init")]
     pub init: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binfmt: Option<BinfmtConfig>,
     #[serde(default)]
     pub isolation: IsolationMode,
     #[serde(default)]
@@ -56,6 +58,83 @@ pub struct ContainerConfig {
     pub environment: BTreeMap<String, String>,
     #[serde(default)]
     pub environment_file: Option<PathBuf>,
+}
+
+/// An ELF architecture and a host-native, statically linked userspace interpreter.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BinfmtConfig {
+    pub arch: BinfmtArch,
+    pub interpreter: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BinfmtArch {
+    #[serde(alias = "arm64", alias = "armv8")]
+    Aarch64,
+    Alpha,
+    #[serde(alias = "armhf", alias = "arm32", alias = "armel", alias = "armv7")]
+    Arm,
+    Armeb,
+    Cris,
+    Hexagon,
+    Hppa,
+    #[serde(alias = "x86")]
+    I386,
+    #[serde(alias = "loong64", alias = "loongarch")]
+    Loongarch64,
+    M68k,
+    Microblaze,
+    Mips,
+    Mips64,
+    Mips64el,
+    Mipsel,
+    Mipsn32,
+    Mipsn32el,
+    Ppc,
+    Ppc64,
+    Ppc64le,
+    Riscv32,
+    Riscv64,
+    S390x,
+    Sh4,
+    Sh4eb,
+    Sparc,
+    Sparc32plus,
+    Sparc64,
+    #[serde(alias = "amd64")]
+    X86_64,
+    Xtensa,
+    Xtensaeb,
+}
+
+impl BinfmtArch {
+    /// Returns whether this target uses the runtime binary's native ELF ABI.
+    #[must_use]
+    pub const fn is_native(self) -> bool {
+        match self {
+            Self::Aarch64 => cfg!(target_arch = "aarch64"),
+            Self::Arm => cfg!(all(target_arch = "arm", target_endian = "little")),
+            Self::Armeb => cfg!(all(target_arch = "arm", target_endian = "big")),
+            Self::I386 => cfg!(target_arch = "x86"),
+            Self::Loongarch64 => cfg!(target_arch = "loongarch64"),
+            Self::Mips => cfg!(all(target_arch = "mips", target_endian = "big")),
+            Self::Mipsel => cfg!(all(target_arch = "mips", target_endian = "little")),
+            Self::Mips64 => cfg!(all(target_arch = "mips64", target_endian = "big")),
+            Self::Mips64el => cfg!(all(target_arch = "mips64", target_endian = "little")),
+            Self::Ppc => cfg!(target_arch = "powerpc"),
+            Self::Ppc64 => cfg!(all(target_arch = "powerpc64", target_endian = "big")),
+            Self::Ppc64le => cfg!(all(target_arch = "powerpc64", target_endian = "little")),
+            Self::Riscv32 => cfg!(target_arch = "riscv32"),
+            Self::Riscv64 => cfg!(target_arch = "riscv64"),
+            Self::S390x => cfg!(target_arch = "s390x"),
+            Self::Sparc => cfg!(target_arch = "sparc"),
+            Self::Sparc64 => cfg!(target_arch = "sparc64"),
+            Self::X86_64 => cfg!(target_arch = "x86_64"),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]

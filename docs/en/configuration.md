@@ -40,7 +40,7 @@ There are no outer `name`/`file` pointers, standalone TOML loading,
 ## Paths and persistent identity
 
 Relative host paths resolve from the directory containing `config.json`:
-`rootfs`, `rootfs_image`, bind-mount `source`, and `environment_file`.
+`rootfs`, `rootfs_image`, bind-mount `source`, `environment_file`, and `binfmt.interpreter`.
 Paths do not expand `~` or environment variables. `init` and mount `target`
 refer to paths inside the container, even when they begin with `/`.
 
@@ -71,6 +71,7 @@ work-directory field.
 | `rootfs_image` | Absent | Host filesystem image or block-device path |
 | `hostname` | Container name | Empty or omitted values use `name` |
 | `init` | `/sbin/init` | Absolute path inside rootfs |
+| `binfmt` | Absent / `null` | Optional foreign ELF architecture and static host interpreter, described below |
 | `isolation` | `isolated` | `isolated` or trusted `shared-pid-ipc`; shared mode requires cgroup v2 |
 | `foreground` | `false` | Connect start/restart to a foreground console |
 | `volatile` | `false` | Put writable OverlayFS layers on tmpfs; changes are discarded |
@@ -91,6 +92,64 @@ Existing targets require `--force`. See [installation](usage.md#install-a-local-
 The following examples are object fragments to merge into the selected entry,
 not complete configuration files. [config.example.json](../../config.example.json)
 provides a larger example; adapt its paths and remove mounts you do not need.
+
+## Cross-architecture execution with binfmt_misc
+
+Set `container.binfmt` when the rootfs contains programs for another architecture.
+For example, on an ARM64 Linux/Android host with a static x86-64 QEMU user emulator:
+
+```json
+{
+  "container": {
+    "binfmt": {
+      "arch": "x86_64",
+      "interpreter": "/usr/bin/qemu-x86_64-static"
+    }
+  }
+}
+```
+
+The interpreter is a **host** path, resolved relative to `config.json` when relative.
+Supply a regular executable ELF file, statically linked for the host architecture.
+It is not downloaded or copied into rootfs. The kernel must support
+`CONFIG_BINFMT_MISC` and the `F` flag (Linux 4.8 or newer); an unavailable or disabled
+registry causes startup to fail with an error. Omit `binfmt` or set it to `null`
+for native containers. Specifying the runtime's native architecture is rejected.
+
+Supported architectures match [ruri](https://github.com/RuriOSS/ruri): `aarch64`,
+`alpha`, `arm`, `armeb`, `cris`, `hexagon`, `hppa`, `i386`, `loongarch64`, `m68k`,
+`microblaze`, `mips`, `mips64`, `mips64el`, `mipsel`, `mipsn32`, `mipsn32el`,
+`ppc`, `ppc64`, `ppc64le`, `riscv32`, `riscv64`, `s390x`, `sh4`, `sh4eb`, `sparc`,
+`sparc32plus`, `sparc64`, `x86_64`, `xtensa`, and `xtensaeb`.
+Aliases include `arm64`/`armv8`, `armhf`/`arm32`/`armel`/`armv7`, `x86`,
+`amd64`, and `loong64`/`loongarch`.
+
+The monitor registers ELF magic/mask rules with `OCF`: the interpreter stays open
+across root changes, the kernel supplies the executable descriptor and credentials,
+and QEMU receives its normal argument layout. This covers init and subsequent
+`run`/`enter` commands, including across container reboots. Each monitor owns a
+unique `kurumi-*` entry and unregisters it after shutdown or startup failure.
+Existing entries are preserved, and the registry is never globally cleared or enabled.
+
+Rules are shared within the host user namespace, including on kernels without
+user-namespace support for binfmt_misc. Other processes can use the registered
+interpreter; the newest matching rule takes precedence. Concurrent containers
+for the same guest architecture should use a compatible interpreter. If the
+monitor is killed with `SIGKILL`, its destructor cannot run: a rule may remain
+until explicitly unregistered through the host's binfmt_misc filesystem or reboot.
+
+The privileged regression script builds a minimal foreign static init and checks
+boot, `run`, PTY `enter`, reboot, concurrent registrations, and cleanup after stop
+or failed boot. On an ARM64 host with the corresponding QEMU and cross compiler:
+
+```sh
+cargo build --release -p kurumi-containerd
+sudo python3 tests/binfmt.py target/release/kurumi-containerd \
+  /usr/bin/qemu-x86_64-static x86_64 x86_64-linux-gnu-gcc
+```
+
+It uses temporary rootfs directories and a private mount namespace. Extra compiler
+options can be supplied as repeatable `--cflag=OPTION` arguments.
 
 ## PID and IPC isolation
 

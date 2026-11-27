@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (C) 2026 Tools-cx-app
 # SPDX-License-Identifier: GPL-v3-only
+
 """sudo python3 examples/servicectl/smoke.py BINARY PREPARED_DISPOSABLE_ROOTFS.
 
 The rootfs must already contain install.sh assets and all runtime prerequisites.

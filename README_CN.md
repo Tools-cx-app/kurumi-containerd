@@ -231,6 +231,7 @@ check                   检查主机能力
 
 - [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS)
 - [lxc](https://github.com/lxc/lxc)
+- [ruri](https://github.com/RuriOSS/ruri) — 参考其 `binfmt_misc` 注册机制及 ELF 架构魔数、掩码数据
 
 ## 许可证
 

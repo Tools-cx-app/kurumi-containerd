@@ -1,5 +1,6 @@
 # Copyright (C) 2026 Tools-cx-app
 # SPDX-License-Identifier: GPL-v3-only
+
 """sudo python3 tests/shared_isolation.py BINARY [--vm-reboot-filter-probe].
 
 Builds a disposable static rootfs. Never issues a valid reboot request. The
