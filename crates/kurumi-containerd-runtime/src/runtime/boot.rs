@@ -57,6 +57,9 @@ impl Runtime {
                 directory,
                 kurumi_containerd_helper::process::current_pid(),
             )?;
+            // Root the namespace at kurumi-init before moving into bootstrap,
+            // leaving the visible root empty so services can enable controllers.
+            unshare(NamespaceFlags::CGROUP).context("failed to create shared cgroup namespace")?;
             crate::host::cgroup::attach_shared_bootstrap(
                 directory,
                 kurumi_containerd_helper::process::current_pid(),

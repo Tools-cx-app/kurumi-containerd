@@ -26,6 +26,7 @@ INIT = r"""
 #include <string.h>
 #include <sys/prctl.h>
 #include <sys/reboot.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -82,6 +83,15 @@ int main(int argc, char **argv) {
             return result == -1 && errno == EPERM ? 0 : 99;
         }
         if (!strcmp(argv[1], "exec-check")) { marker("/exec-ready"); return 0; }
+        if (!strcmp(argv[1], "cgroup-check")) {
+            char ns[128];
+            struct stat root;
+            ssize_t length = readlink("/proc/self/ns/cgroup", ns, sizeof(ns) - 1);
+            if (length < 0 || stat("/sys/fs/cgroup", &root)) return 86;
+            ns[length] = '\0';
+            printf("%s\n%llu\n", ns, (unsigned long long)root.st_ino);
+            return 0;
+        }
         if (!strcmp(argv[1], "login")) return 0;
         return 89;
     }
@@ -190,6 +200,20 @@ class Container:
         self.group = Path("/sys/fs/cgroup") / membership.lstrip("/")
         assert self.group.is_dir(), self.group
         assert pid in members(self.group)
+        namespace = os.readlink(f"/proc/{pid}/ns/cgroup")
+        assert namespace != os.readlink("/proc/self/ns/cgroup"), "inherited host cgroup namespace"
+        cgroup_root = Path(f"/proc/{pid}/root/sys/fs/cgroup")
+        assert cgroup_root.samefile(self.group / "kurumi-init"), (
+            "cgroup mount is not rooted at the dedicated init subtree"
+        )
+        assert not (cgroup_root / "cgroup.procs").read_text().strip(), "namespace root is populated"
+        assert pid in map(int, (cgroup_root / "bootstrap/cgroup.procs").read_text().split())
+        mounted = [line.split() for line in Path(f"/proc/{pid}/mountinfo").read_text().splitlines()
+                   if line.split()[4] == "/sys/fs/cgroup"]
+        assert len(mounted) == 1 and mounted[0][3] == membership + "/kurumi-init", mounted
+        assert self.cli("run", "/init", "cgroup-check").stdout.splitlines() == [
+            namespace, str(cgroup_root.stat().st_ino)
+        ], "run did not join the init cgroup namespace and mount"
         self.cli("run", "/init", "exec-check")
         assert (self.root / "exec-ready").exists()
         assert "shared-pid-ipc" in self.cli("info").stdout
