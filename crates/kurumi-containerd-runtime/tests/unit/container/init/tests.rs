@@ -129,6 +129,7 @@ fn builds_sysvinit_poweroff_request() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_mode_rejects_pid_one_init_through_custom_symlink() {
     let root = tempfile::tempdir().unwrap();
     create(root.path(), "usr/lib/systemd/systemd", b"binary");
@@ -154,6 +155,7 @@ fn shared_mode_rejects_pid_one_init_through_custom_symlink() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_mode_rejects_pid_one_target_but_allows_sbin_supervisor() {
     let root = tempfile::tempdir().unwrap();
     create(root.path(), "usr/lib/systemd/systemd", b"binary");

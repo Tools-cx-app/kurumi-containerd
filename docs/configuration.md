@@ -92,7 +92,9 @@ provides a larger example; adapt its paths and remove mounts you do not need.
 
 ## PID and IPC isolation
 
-`container.isolation` accepts exactly `isolated` (default) or `shared-pid-ipc`.
+`container.isolation` accepts `isolated` (default). Builds with the optional
+`servicectl` Cargo feature also accept `shared-pid-ipc`; CI enables this feature
+only for release artifacts. Local builds require `--release --features servicectl`.
 Unknown values are rejected. There is no automatic fallback when namespace
 creation fails. Shared mode inherits the PID/IPC spaces of Kurumi's execution
 environment, including an outer container if one exists. Mount and UTS namespaces,

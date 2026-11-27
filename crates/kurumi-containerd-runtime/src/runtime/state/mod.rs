@@ -99,6 +99,7 @@ impl Runtime {
                 continue;
             }
             let mut state = original.clone();
+            #[cfg(feature = "servicectl")]
             if state.isolation == IsolationMode::SharedPidIpc {
                 // Shared generations never replace their recorded supervisor with a service.
                 if !shared_metadata_valid(&state)
@@ -112,7 +113,8 @@ impl Runtime {
                     // Keep residual metadata even when supervision cannot be authenticated.
                     continue;
                 }
-            } else {
+            }
+            if state.isolation == IsolationMode::Isolated {
                 if host_boot_id().ok().as_deref() != Some(&state.host_boot_id)
                     || !validate_monitor_identity(&state)
                 {
@@ -209,6 +211,7 @@ impl Runtime {
     }
 
     pub(crate) fn wait_for_monitor_cleanup(&self, state: &ContainerState) -> Result<()> {
+        #[cfg(feature = "servicectl")]
         let shared_directory = if state.isolation == IsolationMode::SharedPidIpc {
             shared_cgroup_directory(state)?
         } else {
@@ -217,6 +220,7 @@ impl Runtime {
         let monitor = match require_handle(state.monitor_pid) {
             Ok(monitor) => monitor,
             Err(_) if !validate_monitor_identity(state) => {
+                #[cfg(feature = "servicectl")]
                 ensure_shared_empty(shared_directory.as_ref())?;
                 self.remove_state_for(state)?;
                 return Ok(());
@@ -228,6 +232,7 @@ impl Runtime {
             "container monitor identity changed before pidfd validation"
         );
         if monitor.wait_for_exit(Duration::from_secs(5))? {
+            #[cfg(feature = "servicectl")]
             ensure_shared_empty(shared_directory.as_ref())?;
             self.remove_state_for(state)?;
             return Ok(());
@@ -250,26 +255,29 @@ pub(crate) fn validate_process_identity_for(state: &ContainerState, process: &Pr
     {
         return false;
     }
-    if state.isolation == IsolationMode::Isolated {
-        return state.pid_namespace_inode.is_some_and(|expected| {
-            process_namespace_inode(process, "pid").ok() == Some(expected)
-        });
+    match state.isolation {
+        IsolationMode::Isolated => state
+            .pid_namespace_inode
+            .is_some_and(|expected| process_namespace_inode(process, "pid").ok() == Some(expected)),
+        #[cfg(feature = "servicectl")]
+        IsolationMode::SharedPidIpc => {
+            shared_metadata_valid(state)
+                && process_marker_matches(process, "uuid", &state.uuid.to_string())
+                && process_namespace_inode(process, "mnt").ok() == state.mount_namespace_inode
+                && state
+                    .worker_pid
+                    .and_then(|pid| Process::new(pid).ok())
+                    .is_some_and(|worker| {
+                        process_namespace_inode(&worker, "mnt")
+                            .is_ok_and(|inode| Some(inode) != state.mount_namespace_inode)
+                    })
+                && shared_membership_matches(state, process)
+                && validate_worker_identity(state)
+                && process
+                    .stat()
+                    .is_ok_and(|stat| Some(stat.ppid) == state.worker_pid)
+        }
     }
-    shared_metadata_valid(state)
-        && process_marker_matches(process, "uuid", &state.uuid.to_string())
-        && process_namespace_inode(process, "mnt").ok() == state.mount_namespace_inode
-        && state
-            .worker_pid
-            .and_then(|pid| Process::new(pid).ok())
-            .is_some_and(|worker| {
-                process_namespace_inode(&worker, "mnt")
-                    .is_ok_and(|inode| Some(inode) != state.mount_namespace_inode)
-            })
-        && shared_membership_matches(state, process)
-        && validate_worker_identity(state)
-        && process
-            .stat()
-            .is_ok_and(|stat| Some(stat.ppid) == state.worker_pid)
 }
 
 fn process_marker_matches(process: &Process, marker: &str, expected: &str) -> bool {
@@ -284,6 +292,7 @@ fn process_marker_matches(process: &Process, marker: &str, expected: &str) -> bo
         .is_ok_and(|value| value.trim() == expected)
 }
 
+#[cfg(feature = "servicectl")]
 fn shared_metadata_valid(state: &ContainerState) -> bool {
     state.init_pid > 0
         && state.monitor_pid > 0
@@ -313,6 +322,7 @@ fn shared_metadata_valid(state: &ContainerState) -> bool {
         })
 }
 
+#[cfg(feature = "servicectl")]
 fn shared_membership_matches(state: &ContainerState, process: &Process) -> bool {
     state.cgroup_path.as_deref().is_some_and(|root| {
         process.cgroups().is_ok_and(|groups| {
@@ -324,6 +334,7 @@ fn shared_membership_matches(state: &ContainerState, process: &Process) -> bool 
     })
 }
 
+#[cfg(feature = "servicectl")]
 fn validate_worker_identity(state: &ContainerState) -> bool {
     state
         .worker_pid
@@ -346,6 +357,7 @@ fn validate_worker_identity(state: &ContainerState) -> bool {
 }
 
 fn state_is_present(state: &ContainerState) -> bool {
+    #[cfg(feature = "servicectl")]
     if state.isolation == IsolationMode::SharedPidIpc {
         // A dead supervisor is not proof that its cgroup has finished cleanup.
         return shared_metadata_valid(state)
@@ -354,6 +366,7 @@ fn state_is_present(state: &ContainerState) -> bool {
     validate_process_identity(state) || validate_monitor_identity(state)
 }
 
+#[cfg(feature = "servicectl")]
 pub(crate) fn shared_cgroup_directory(state: &ContainerState) -> Result<Option<File>> {
     use crate::host::cgroup::Cgroup;
     ensure!(
@@ -401,6 +414,7 @@ pub(crate) fn shared_cgroup_directory(state: &ContainerState) -> Result<Option<F
     }
 }
 
+#[cfg(feature = "servicectl")]
 fn shared_cgroup_missing(error: &RuntimeError) -> bool {
     let mut source: &(dyn std::error::Error + 'static) = error;
     loop {
@@ -421,6 +435,7 @@ fn shared_cgroup_missing(error: &RuntimeError) -> bool {
     }
 }
 
+#[cfg(feature = "servicectl")]
 fn ensure_shared_empty(directory: Option<&File>) -> Result<()> {
     if let Some(directory) = directory {
         ensure!(
@@ -479,6 +494,7 @@ fn read_state(path: &Path) -> Result<ContainerState> {
     ensure!(
         match state.isolation {
             IsolationMode::Isolated => state.pid_namespace_inode.is_some_and(|inode| inode > 0),
+            #[cfg(feature = "servicectl")]
             IsolationMode::SharedPidIpc => shared_metadata_valid(&state),
         },
         "container state has incomplete isolation identity metadata"

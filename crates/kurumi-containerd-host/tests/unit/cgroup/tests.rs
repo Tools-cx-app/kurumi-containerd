@@ -1,7 +1,9 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use std::{fs::File, os::unix::fs::MetadataExt, path::PathBuf};
+#[cfg(feature = "servicectl")]
+use std::os::unix::fs::MetadataExt;
+use std::{fs::File, path::PathBuf};
 
 use kurumi_containerd_config::ResourceConfig;
 use procfs::{FromRead, ProcessCGroups, process::MountInfo};
@@ -19,6 +21,7 @@ fn cleanup_removes_nested_groups_and_retains_failed_paths() {
     let mut cgroup = Cgroup {
         paths: vec![root.clone()],
         unified: true,
+        #[cfg(feature = "servicectl")]
         shared: None,
     };
     cgroup.remove().unwrap();
@@ -114,6 +117,7 @@ fn cleanup_continues_after_error() {
     let mut cgroup = Cgroup {
         paths: vec![blocked, removable.clone()],
         unified: false,
+        #[cfg(feature = "servicectl")]
         shared: None,
     };
 
@@ -207,6 +211,7 @@ fn captured_execution_membership_keeps_limits_and_survives_directory_rename() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_mode_requests_no_controllers_without_limits() {
     assert_eq!(requested_controllers(&ResourceConfig::default(), false), []);
     let resources = ResourceConfig {
@@ -220,6 +225,7 @@ fn shared_mode_requests_no_controllers_without_limits() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_membership_resolves_monitor_mount_root_and_rejects_traversal() {
     let mounts =
         [
@@ -244,6 +250,7 @@ fn shared_membership_resolves_monitor_mount_root_and_rejects_traversal() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn recursive_membership_deduplicates_and_survives_rename() {
     let temporary = tempfile::tempdir().unwrap();
     let original = temporary.path().join("original");
@@ -260,6 +267,7 @@ fn recursive_membership_deduplicates_and_survives_rename() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn recursive_membership_rejects_bad_files_and_does_not_follow_symlinks() {
     let temporary = tempfile::tempdir().unwrap();
     let directory = File::open(temporary.path()).unwrap();
@@ -282,6 +290,7 @@ fn recursive_membership_rejects_bad_files_and_does_not_follow_symlinks() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn recursive_membership_propagates_unreadable_descendants() {
     let temporary = tempfile::tempdir().unwrap();
     std::fs::write(temporary.path().join("cgroup.procs"), "").unwrap();
@@ -307,6 +316,7 @@ fn trusted_directory_walk_rejects_symlinks_and_writable_directories() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn termination_refuses_own_process_before_using_cgroup_kill() {
     let temporary = tempfile::tempdir().unwrap();
     std::fs::create_dir(temporary.path().join("nested")).unwrap();
@@ -330,6 +340,7 @@ fn termination_refuses_own_process_before_using_cgroup_kill() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn termination_reports_timeout_and_kill_errors() {
     let temporary = tempfile::tempdir().unwrap();
     std::fs::write(temporary.path().join("cgroup.procs"), "2147483647\n").unwrap();
@@ -343,6 +354,7 @@ fn termination_reports_timeout_and_kill_errors() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn fallback_signals_nested_member_through_pidfd_and_waits_for_empty() {
     use std::{process::Command, time::Duration};
     let temporary = tempfile::tempdir().unwrap();
@@ -384,6 +396,7 @@ fn fallback_signals_nested_member_through_pidfd_and_waits_for_empty() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_removal_uses_captured_directories_after_mount_path_moves() {
     let temporary = tempfile::tempdir().unwrap();
     let original = temporary.path().join("original");
@@ -409,6 +422,7 @@ fn shared_removal_uses_captured_directories_after_mount_path_moves() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn termination_requires_populated_confirmation_even_for_empty_membership() {
     let temporary = tempfile::tempdir().unwrap();
     std::fs::write(temporary.path().join("cgroup.procs"), "").unwrap();
@@ -421,6 +435,7 @@ fn termination_requires_populated_confirmation_even_for_empty_membership() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn recursive_membership_preserves_permission_denied() {
     use std::{os::unix::fs::PermissionsExt, process::Command};
     const CHILD: &str = "KURUMI_CGROUP_PERMISSION_TEST";
@@ -456,6 +471,7 @@ fn recursive_membership_preserves_permission_denied() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_creation_rejects_names_that_escape_dedicated_parent() {
     for name in ["", ".", "..", "/absolute", "nested/name", "name/"] {
         let result = Cgroup::create_shared(
@@ -471,6 +487,7 @@ fn shared_creation_rejects_names_that_escape_dedicated_parent() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn recursive_scan_tolerates_a_captured_descendant_removed_midwalk() {
     let temporary = tempfile::tempdir().unwrap();
     std::fs::write(temporary.path().join("cgroup.procs"), "").unwrap();
@@ -508,6 +525,7 @@ fn execution_leaf_rejects_symlink_escape() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn recovery_removal_refuses_members_and_preserves_siblings() {
     let temporary = tempfile::tempdir().unwrap();
     let container = temporary.path().join("demo");
@@ -533,6 +551,7 @@ fn recovery_removal_refuses_members_and_preserves_siblings() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn termination_does_not_fall_back_on_kill_permission_denied() {
     use std::{os::unix::fs::PermissionsExt, process::Command};
     const CHILD: &str = "KURUMI_CGROUP_KILL_PERMISSION_TEST";

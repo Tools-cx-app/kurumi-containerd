@@ -52,6 +52,7 @@ impl Runtime {
             let slave = console.open_slave()?;
             terminal::configure_child(&slave)?;
         }
+        #[cfg(feature = "servicectl")]
         if let Some(directory) = &shared_directory {
             crate::host::cgroup::attach_shared_init(
                 directory,
@@ -140,6 +141,7 @@ impl Runtime {
             None,
         )
         .context("failed to mount sysfs")?;
+        #[cfg(feature = "servicectl")]
         if shared_directory.is_some() {
             fs::create_dir_all("/sys/fs/cgroup")?;
             mount(

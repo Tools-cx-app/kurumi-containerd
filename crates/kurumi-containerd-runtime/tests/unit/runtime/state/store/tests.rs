@@ -234,6 +234,7 @@ fn stop_request_lock_rejects_symlinks() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_recovery_never_substitutes_a_new_init_or_generation() {
     let (_directory, store, mut state) = fixture();
     state.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
@@ -256,6 +257,7 @@ fn shared_recovery_never_substitutes_a_new_init_or_generation() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_residual_persistence_does_not_depend_on_init_or_monitor_liveness() {
     let (_directory, store, mut state) = fixture();
     state.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
@@ -273,6 +275,7 @@ fn shared_residual_persistence_does_not_depend_on_init_or_monitor_liveness() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_worker_cleanup_preserves_other_generations_and_boots() {
     let (_directory, store, mut state) = fixture();
     state.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;

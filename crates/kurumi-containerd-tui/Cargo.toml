@@ -7,6 +7,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+servicectl = [
+  "kurumi-containerd-config/servicectl",
+  "kurumi-containerd-runtime/servicectl",
+]
+
 [dependencies]
 anyhow.workspace = true
 crossterm = "0.29"

@@ -120,7 +120,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build runtime
-        run: cargo build --release --locked -p kurumi-containerd
+        run: cargo build --release --features servicectl --locked -p kurumi-containerd
 
       - name: Compare isolated and shared PID/IPC
         run: |

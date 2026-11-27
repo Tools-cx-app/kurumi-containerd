@@ -124,6 +124,7 @@ fn captures_actual_network_and_cgroup_namespaces_without_configuration() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_namespace_capture_omits_pid_and_ipc() {
     let process = Process::myself().unwrap();
     let namespaces = capture_namespaces(&process, IsolationMode::SharedPidIpc).unwrap();

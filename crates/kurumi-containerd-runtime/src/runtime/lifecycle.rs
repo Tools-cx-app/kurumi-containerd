@@ -9,16 +9,20 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(feature = "servicectl")]
+use super::supervisor::supervise_shared;
 use crate::{
     Result, RuntimeError,
     error::{ErrorContext as _, bail, ensure},
 };
 use kurumi_containerd_config::{IsolationMode, NetworkMode};
+#[cfg(feature = "servicectl")]
+use kurumi_containerd_helper::process::set_child_subreaper;
 use kurumi_containerd_helper::{
     fs::{MountFlags, mount},
     process::{
-        ForkResult, NamespaceFlags, WaitStatus, current_pid, fork, pipe, set_child_subreaper,
-        setsid, unshare, waitpid, write,
+        ForkResult, NamespaceFlags, WaitStatus, current_pid, fork, pipe, setsid, unshare, waitpid,
+        write,
     },
     signal::{Signal, kill},
 };
@@ -26,7 +30,7 @@ use uuid::Uuid;
 
 use super::supervisor::{
     configure_monitor_signals, ignore_foreground_parent_signals, is_reboot_status, read_retry,
-    redirect_stdio_to_null, reset_init_signals, supervise_shared, wait_status_code, waitpid_retry,
+    redirect_stdio_to_null, reset_init_signals, wait_status_code, waitpid_retry,
 };
 #[cfg(target_os = "android")]
 use crate::host::android;
@@ -103,7 +107,11 @@ impl Runtime {
                 if let Err(error) = result {
                     if self.config.container.isolation == IsolationMode::Isolated {
                         self.remove_state().ok();
-                    } else if let Err(cleanup_error) = self.cleanup_shared_monitor_cgroup() {
+                    }
+                    #[cfg(feature = "servicectl")]
+                    if self.config.container.isolation == IsolationMode::SharedPidIpc
+                        && let Err(cleanup_error) = self.cleanup_shared_monitor_cgroup()
+                    {
                         tracing::error!(error = %format_args!("{cleanup_error:#}"), "failed to clean shared monitor cgroup");
                     }
                     let message = format!("{error:#}");
@@ -117,6 +125,7 @@ impl Runtime {
         }
     }
 
+    #[cfg(feature = "servicectl")]
     fn cleanup_shared_monitor_cgroup(&self) -> Result<()> {
         use crate::host::cgroup::{remove_cgroup, terminate_cgroup};
         let state = self
@@ -141,7 +150,10 @@ impl Runtime {
         #[cfg(target_os = "android")]
         let _selinux = android::SelinuxGuard::apply(&self.config.container.android, &self.workdir)?;
         let isolation = self.config.container.isolation;
+        #[cfg(feature = "servicectl")]
         let shared = isolation == IsolationMode::SharedPidIpc;
+        #[cfg(not(feature = "servicectl"))]
+        let shared = false;
         let host_netns =
             File::open("/proc/self/ns/net").context("failed to capture host network namespace")?;
         let mut monitor_flags = NamespaceFlags::UTS | NamespaceFlags::MOUNT;
@@ -160,29 +172,33 @@ impl Runtime {
         let rootfs = self.rootfs.prepare()?;
         self.init.prepare(rootfs.as_ref())?;
         let init_system = self.init.detect(rootfs.as_ref());
+        #[cfg(feature = "servicectl")]
         if shared {
             self.init.validate_shared(rootfs.as_ref())?;
         }
-        let mut cgroup = if shared {
-            Cgroup::create_shared(
+        let mut cgroup = match isolation {
+            #[cfg(feature = "servicectl")]
+            IsolationMode::SharedPidIpc => Cgroup::create_shared(
                 &self.workdir,
                 &self.config.container.name,
                 &self.config.container.resources,
-            )?
-        } else {
-            Cgroup::create(
+            )?,
+            IsolationMode::Isolated => Cgroup::create(
                 &self.workdir,
                 &self.config.container.name,
                 &self.config.container.resources,
                 init_system == init::InitSystem::Systemd,
                 true,
-            )?
+            )?,
         };
+        #[cfg(feature = "servicectl")]
         let shared_directory = if shared {
             Some(cgroup.directory()?)
         } else {
             None
         };
+        #[cfg(not(feature = "servicectl"))]
+        let shared_directory: Option<File> = None;
         let uuid = self.config.container.uuid.unwrap_or_else(Uuid::new_v4);
         let host_boot_id = host_boot_id()?;
         let monitor_pid = current_pid();
@@ -212,6 +228,7 @@ impl Runtime {
                     drop(pid_reader);
                     drop(result_reader);
                     drop(lifetime_writer);
+                    #[cfg(feature = "servicectl")]
                     if shared {
                         set_child_subreaper().unwrap_or_else(|error| {
                             tracing::error!(%error, "failed to configure shared child reaper");
@@ -248,15 +265,15 @@ impl Runtime {
                                 if !foreground {
                                     redirect_stdio_to_null();
                                 }
-                                let status = if shared {
-                                    supervise_shared(
+                                let status = match isolation {
+                                    #[cfg(feature = "servicectl")]
+                                    IsolationMode::SharedPidIpc => supervise_shared(
                                         child,
                                         &lifetime_reader,
                                         &mut cgroup,
                                         &self.store,
-                                    )
-                                } else {
-                                    waitpid_retry(child).map_err(RuntimeError::from)
+                                    ),
+                                    IsolationMode::Isolated => waitpid_retry(child).map_err(RuntimeError::from),
                                 }.unwrap_or_else(|error| {
                                     tracing::error!(error = %format_args!("{error:#}"), "generation cleanup failed");
                                     std::process::exit(125);
@@ -376,10 +393,10 @@ impl Runtime {
                 } else {
                     None
                 },
-                cgroup_path: if shared {
-                    Some(shared_cgroup_path(init_pid)?)
-                } else {
-                    None
+                cgroup_path: match isolation {
+                    #[cfg(feature = "servicectl")]
+                    IsolationMode::SharedPidIpc => Some(shared_cgroup_path(init_pid)?),
+                    IsolationMode::Isolated => None,
                 },
             };
             if let Err(error) = self.write_state(&state) {
@@ -479,6 +496,7 @@ impl Runtime {
         let _lock = self.lock()?;
         let state = self.state_for_stop()?;
         let _stop_request = self.store.request_stop()?;
+        #[cfg(feature = "servicectl")]
         if state.isolation == IsolationMode::SharedPidIpc {
             return self.stop_shared(&state);
         }
@@ -504,6 +522,7 @@ impl Runtime {
         self.wait_for_monitor_cleanup(&state)
     }
 
+    #[cfg(feature = "servicectl")]
     fn stop_shared(&self, state: &ContainerState) -> Result<()> {
         use crate::host::cgroup::terminate_cgroup;
         let directory = crate::runtime::state::shared_cgroup_directory(state)
@@ -590,6 +609,7 @@ fn shutdown_init(
     Ok(())
 }
 
+#[cfg(feature = "servicectl")]
 fn shared_cgroup_path(pid: i32) -> Result<String> {
     let groups = procfs::process::Process::new(pid)?.cgroups()?;
     groups
@@ -632,6 +652,9 @@ impl Drop for GenerationProcesses<'_> {
                 Err(error) => tracing::error!(%error, "failed to wait for generation init cleanup"),
             }
         }
+        #[cfg(not(feature = "servicectl"))]
+        debug_assert!(self.shared.is_none());
+        #[cfg(feature = "servicectl")]
         if let Some(directory) = self.shared {
             if let Err(error) =
                 crate::host::cgroup::terminate_cgroup(directory, Duration::from_secs(5))

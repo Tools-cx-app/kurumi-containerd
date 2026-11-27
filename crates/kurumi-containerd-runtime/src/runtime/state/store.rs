@@ -110,6 +110,7 @@ impl StateStore {
         recovered: &ContainerState,
     ) -> Result<bool> {
         let _lock = self.lock_updates(&original.name)?;
+        #[cfg(feature = "servicectl")]
         if original.isolation == kurumi_containerd_config::IsolationMode::SharedPidIpc
             && original != recovered
         {
@@ -147,6 +148,7 @@ impl StateStore {
         remove_if_exists(&self.recovery_path(state.uuid))
     }
 
+    #[cfg(feature = "servicectl")]
     pub(crate) fn remove_shared_state_for_worker(
         &self,
         worker_pid: i32,

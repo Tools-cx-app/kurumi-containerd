@@ -400,10 +400,12 @@ fn test_config() -> (tempfile::TempDir, Config) {
 fn isolation_defaults_and_strict_values_round_trip() {
     let (_, config) = test_config();
     assert_eq!(config.container.isolation, IsolationMode::Isolated);
-    for (name, expected) in [
+    let modes = [
         ("isolated", IsolationMode::Isolated),
+        #[cfg(feature = "servicectl")]
         ("shared-pid-ipc", IsolationMode::SharedPidIpc),
-    ] {
+    ];
+    for (name, expected) in modes {
         let mut value = serde_json::to_value(&config).unwrap();
         value["container"]["isolation"] = name.into();
         let parsed: Config = serde_json::from_value(value).unwrap();
@@ -417,4 +419,14 @@ fn isolation_defaults_and_strict_values_round_trip() {
     let mut value = serde_json::to_value(config).unwrap();
     value["container"]["isolation"] = "auto".into();
     assert!(serde_json::from_value::<Config>(value).is_err());
+}
+
+#[cfg(not(feature = "servicectl"))]
+#[test]
+fn shared_isolation_requires_servicectl_feature() {
+    let (_, config) = test_config();
+    let mut value = serde_json::to_value(config).unwrap();
+    value["container"]["isolation"] = "shared-pid-ipc".into();
+    let error = serde_json::from_value::<Config>(value).unwrap_err();
+    assert!(error.to_string().contains("shared-pid-ipc"));
 }

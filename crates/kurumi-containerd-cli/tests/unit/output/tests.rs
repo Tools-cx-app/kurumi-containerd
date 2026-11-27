@@ -34,12 +34,18 @@ fn container_info_output_preserves_running_and_inactive_details() {
             .contains("active (cleanup pending)")
     );
     container.active = false;
-    container.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
+    #[cfg(feature = "servicectl")]
+    {
+        container.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
+    }
     let mut out = Vec::new();
     info(&mut out, &container).unwrap();
     assert_eq!(
-        out,
-        b"Name: test\nIsolation: shared-pid-ipc\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned\n"
+        String::from_utf8(out).unwrap(),
+        format!(
+            "Name: test\nIsolation: {}\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned\n",
+            container.isolation
+        )
     );
     let mut full = &mut [][..];
     assert!(info(&mut full, &container).is_err());

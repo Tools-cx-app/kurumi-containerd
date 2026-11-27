@@ -240,10 +240,10 @@ fn capture_namespaces(
     process: &Process,
     isolation: IsolationMode,
 ) -> Result<Vec<(&'static str, File)>> {
-    let required = if isolation == IsolationMode::SharedPidIpc {
-        &["mnt", "uts"][..]
-    } else {
-        &["mnt", "uts", "ipc", "pid"][..]
+    let required = match isolation {
+        #[cfg(feature = "servicectl")]
+        IsolationMode::SharedPidIpc => &["mnt", "uts"][..],
+        IsolationMode::Isolated => &["mnt", "uts", "ipc", "pid"][..],
     };
     let mut namespaces = required
         .iter()

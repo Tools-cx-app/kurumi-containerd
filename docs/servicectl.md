@@ -40,6 +40,20 @@ this rootfs. Optional D-Bus activation requires a separately configured private
 bus; it is not needed for the demo. Absent journald/syslog may cause log
 spill/degraded status; the example does not bind a host logging socket.
 
+## Runtime build
+
+Shared mode requires a Kurumi binary built with the optional `servicectl`
+Cargo feature. CI and tagged release artifacts enable it in the release profile;
+debug artifacts omit it. For a local build:
+
+```sh
+cargo build --release --locked -p kurumi-containerd --features servicectl
+```
+
+The feature defaults to off. Cargo does not enable it automatically with
+`--release`. Without the feature, configuration parsing rejects
+`shared-pid-ipc` and shared runtime APIs are excluded from the build.
+
 ## Install
 
 Prepare a matching-architecture Linux rootfs and install its Python/Dinit/s6/
@@ -169,7 +183,7 @@ POSIX message queues remain shared, and Kurumi does not remove their objects.
 ## Privileged runtime acceptance
 
 ```sh
-cargo build --release --locked -p kurumi-containerd
+cargo build --release --locked -p kurumi-containerd --features servicectl
 sudo python3 tests/shared_isolation.py target/release/kurumi-containerd
 ```
 

@@ -43,21 +43,26 @@ Linux namespace、挂载、cgroup、网络及持久化 JSON 配置管理轻量�
 启动容器前可检查主机能力：
 
 ```bash
-sudo cargo run --release -p kurumi-containerd -- check
+sudo cargo run --release -p kurumi-containerd --features servicectl -- check
 ```
 
 ## 构建
 
 ```bash
-cargo build --release -p kurumi-containerd
+cargo build --release -p kurumi-containerd --features servicectl
 ```
+
+`servicectl` feature 默认关闭，用于启用 `shared-pid-ipc` 支持。
+CI 和标签发布仅为 release 产物启用它，debug 产物不包含该功能。
+Cargo profile 不会自动选择 feature，本地 release 构建也需显式添加
+`--features servicectl`。
 
 生成的二进制位于 `target/release/kurumi-containerd`。
 
 `tui` Cargo feature 默认关闭。构建时启用终端管理界面：
 
 ```bash
-cargo build --release -p kurumi-containerd --features tui
+cargo build --release -p kurumi-containerd --features tui,servicectl
 ```
 
 未启用该 feature 时，`tui` 子命令不可用。

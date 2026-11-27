@@ -144,6 +144,7 @@ impl Runtime {
 }
 
 fn collect_usage(state: &ContainerState) -> Result<(u64, usize)> {
+    #[cfg(feature = "servicectl")]
     if state.isolation == IsolationMode::SharedPidIpc {
         let Some(directory) = super::shared_cgroup_directory(state)? else {
             return Ok((0, 0));

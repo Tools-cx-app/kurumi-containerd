@@ -63,6 +63,7 @@ pub struct ContainerConfig {
 pub enum IsolationMode {
     #[default]
     Isolated,
+    #[cfg(feature = "servicectl")]
     SharedPidIpc,
 }
 
@@ -70,6 +71,7 @@ impl std::fmt::Display for IsolationMode {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
             Self::Isolated => "isolated",
+            #[cfg(feature = "servicectl")]
             Self::SharedPidIpc => "shared-pid-ipc",
         })
     }

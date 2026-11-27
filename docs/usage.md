@@ -73,7 +73,7 @@ The `tui` Cargo feature is disabled by default. Enable it when building to inclu
 the manager and its dependencies:
 
 ```bash
-cargo build --release -p kurumi-containerd --features tui
+cargo build --release -p kurumi-containerd --features tui,servicectl
 sudo -H kurumi-containerd tui
 ```
 
@@ -230,7 +230,7 @@ Networking is `none`.
 Use a matching host-architecture LXC rootfs to run the same integration script:
 
 ```bash
-cargo build --release --locked -p kurumi-containerd
+cargo build --release --locked -p kurumi-containerd --features servicectl
 sudo target/release/kurumi-containerd check
 sudo python3 tests/container_lifecycle.py target/release/kurumi-containerd ./rootfs.tar.xz systemd
 # Use openrc instead of systemd for Alpine.

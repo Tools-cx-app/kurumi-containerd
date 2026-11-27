@@ -46,21 +46,26 @@ resources when compiled for and executed on Android.
 Run the host capability checks before starting a container:
 
 ```bash
-sudo cargo run --release -p kurumi-containerd -- check
+sudo cargo run --release -p kurumi-containerd --features servicectl -- check
 ```
 
 ## Build
 
 ```bash
-cargo build --release -p kurumi-containerd
+cargo build --release -p kurumi-containerd --features servicectl
 ```
+
+The optional `servicectl` feature enables `shared-pid-ipc` support. It is disabled
+by default. CI and tag releases enable it only for release artifacts; debug
+artifacts omit it. Cargo profiles do not select features automatically, so local
+release builds also need `--features servicectl`.
 
 The binary is written to `target/release/kurumi-containerd`.
 
 The `tui` Cargo feature is disabled by default. To include the terminal manager:
 
 ```bash
-cargo build --release -p kurumi-containerd --features tui
+cargo build --release -p kurumi-containerd --features tui,servicectl
 ```
 
 Without this feature, the `tui` subcommand is unavailable.

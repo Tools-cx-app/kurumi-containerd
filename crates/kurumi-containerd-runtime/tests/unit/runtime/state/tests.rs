@@ -75,6 +75,7 @@ fn rejects_symlink_state_file() {
     assert!(read_state(&path).is_err());
 }
 
+#[cfg(feature = "servicectl")]
 pub(super) fn shared_state() -> ContainerState {
     ContainerState {
         name: "test".into(),
@@ -98,6 +99,7 @@ pub(super) fn shared_state() -> ContainerState {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_records_require_complete_identity_but_no_pid_namespace() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("state.json");
@@ -118,6 +120,7 @@ fn shared_records_require_complete_identity_but_no_pid_namespace() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_residual_state_is_retained_without_live_supervision() {
     let state = shared_state();
     assert!(state_is_present(&state));
@@ -129,6 +132,7 @@ fn shared_residual_state_is_retained_without_live_supervision() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_identity_rejects_other_container_and_unsafe_cgroup_paths() {
     let mut state = shared_state();
     for path in [
@@ -144,6 +148,7 @@ fn shared_identity_rejects_other_container_and_unsafe_cgroup_paths() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_membership_matches_only_recorded_unified_subtree() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join(std::process::id().to_string());
@@ -168,6 +173,7 @@ fn shared_membership_matches_only_recorded_unified_subtree() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_identity_uses_recorded_ancestry_mount_and_markers_without_nspid() {
     use std::os::unix::fs::MetadataExt;
     let current = Process::myself().unwrap();

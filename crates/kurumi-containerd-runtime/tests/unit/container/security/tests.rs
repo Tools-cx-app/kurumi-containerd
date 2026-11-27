@@ -106,6 +106,7 @@ fn namespace_opt_in_preserves_architecture_and_host_syscall_restrictions() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_pid_mode_denies_host_reboot_regardless_of_user_namespace_opt_in() {
     for allow_user_namespaces in [false, true] {
         let config = SecurityConfig {

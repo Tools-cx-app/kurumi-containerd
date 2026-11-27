@@ -11,9 +11,12 @@ use kurumi_containerd_helper::{
         ADDRESS_FAMILY_ALG, FilterInstruction, SECCOMP_ALLOW, SECCOMP_ERRNO_NOT_IMPLEMENTED,
         SECCOMP_ERRNO_PERMISSION, SECCOMP_KILL_PROCESS, blocked_syscalls,
         install_seccomp as install_seccomp_filter, namespace_user_flag, syscall_clone,
-        syscall_clone3, syscall_reboot, syscall_socket, syscall_unshare,
+        syscall_clone3, syscall_socket, syscall_unshare,
     },
 };
+
+#[cfg(feature = "servicectl")]
+use kurumi_containerd_helper::security::syscall_reboot;
 
 const BPF_LD_W_ABS: u16 = 0x20;
 const BPF_JMP_JEQ_K: u16 = 0x15;
@@ -103,7 +106,12 @@ fn seccomp_filter(
     config: &SecurityConfig,
     isolation: IsolationMode,
 ) -> Result<Vec<FilterInstruction>> {
-    let mut blocked = blocked_syscalls();
+    let blocked = blocked_syscalls();
+    #[cfg(feature = "servicectl")]
+    let mut blocked = blocked;
+    #[cfg(not(feature = "servicectl"))]
+    let _ = isolation;
+    #[cfg(feature = "servicectl")]
     if isolation == IsolationMode::SharedPidIpc {
         blocked.push(syscall_reboot());
     }

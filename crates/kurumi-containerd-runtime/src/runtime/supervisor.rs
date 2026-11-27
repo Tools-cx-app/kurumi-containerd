@@ -1,24 +1,25 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
+#[cfg(feature = "servicectl")]
 use super::state::store::StateStore;
+#[cfg(feature = "servicectl")]
 use crate::host::{
     cgroup::{Cgroup, terminate_cgroup},
     process::ProcessHandle,
 };
 use crate::{Result, error::ErrorContext as _};
+#[cfg(feature = "servicectl")]
 use kurumi_containerd_helper::terminal::{PollEvents, poll};
 use kurumi_containerd_helper::{
     process::{WaitStatus, dup_stdio, is_interrupted, read, waitpid},
     signal::{Signal, SignalActionFlags, SignalHandler, set_signal_handler},
 };
-use std::{
-    fs::File,
-    io,
-    os::fd::AsFd,
-    time::{Duration, Instant},
-};
+#[cfg(feature = "servicectl")]
+use std::time::{Duration, Instant};
+use std::{fs::File, io, os::fd::AsFd};
 
+#[cfg(feature = "servicectl")]
 pub(super) fn supervise_shared(
     child: i32,
     monitor: &impl AsFd,
@@ -66,6 +67,7 @@ pub(super) fn supervise_shared(
     main_status.context("shared supervisor exited without a wait status")
 }
 
+#[cfg(feature = "servicectl")]
 fn reap_children(main_pid: i32, main_status: &mut Option<WaitStatus>) -> Result<bool> {
     loop {
         match waitpid(-1, true) {

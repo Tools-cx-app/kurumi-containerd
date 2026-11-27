@@ -35,11 +35,17 @@ fn details_preserve_running_and_inactive_container_fields() {
             .any(|line| line.contains("active (cleanup pending)"))
     );
     info.active = false;
-    info.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
+    #[cfg(feature = "servicectl")]
+    {
+        info.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
+    }
     info.uuid = None;
     assert_eq!(
         info_lines(&info).join("\n"),
-        "Name: test\nIsolation: shared-pid-ipc\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned"
+        format!(
+            "Name: test\nIsolation: {}\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned",
+            info.isolation
+        )
     );
 }
 

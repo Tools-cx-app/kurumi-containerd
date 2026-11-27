@@ -49,11 +49,12 @@ impl HostCheck for HostCapabilities {
         let uts = probe_namespace(NamespaceFlags::UTS);
         let ipc = probe_namespace(NamespaceFlags::IPC);
         let net = probe_namespace(NamespaceFlags::NETWORK);
+        #[cfg(feature = "servicectl")]
         let cgroup = probe_namespace(NamespaceFlags::CGROUP);
         let mountinfo = procfs::process::Process::myself()?.mountinfo()?;
         let capabilities = vec![
-            capability("Mount namespace", mount, "required by both isolation modes"),
-            capability("UTS namespace", uts, "required by both isolation modes"),
+            capability("Mount namespace", mount, "required for container isolation"),
+            capability("UTS namespace", uts, "required for container isolation"),
             capability("PID namespace", pid, "required by isolated mode"),
             capability("IPC namespace", ipc, "required by isolated mode"),
             capability("Network namespace", net, "required by non-host networking"),
@@ -62,11 +63,9 @@ impl HostCheck for HostCapabilities {
                 mount && uts && pid && ipc,
                 "resource and init requirements checked at start",
             ),
-            capability(
-                "Cgroup namespace",
-                cgroup,
-                "required by shared mode and systemd cgroup isolation",
-            ),
+            #[cfg(feature = "servicectl")]
+            capability("Cgroup namespace", cgroup, "required by shared mode"),
+            #[cfg(feature = "servicectl")]
             capability(
                 "Shared PID/IPC namespaces",
                 mount && uts && cgroup && Path::new("/sys/fs/cgroup/cgroup.controllers").exists(),

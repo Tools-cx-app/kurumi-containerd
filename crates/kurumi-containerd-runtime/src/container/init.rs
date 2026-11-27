@@ -51,6 +51,7 @@ impl Init {
         Ok(())
     }
 
+    #[cfg(feature = "servicectl")]
     pub(crate) fn validate_shared(&self, rootfs: &Path) -> Result<()> {
         let relative = self
             .path

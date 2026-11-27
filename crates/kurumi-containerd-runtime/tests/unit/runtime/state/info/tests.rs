@@ -86,7 +86,10 @@ fn displays_container_info_lines() {
     );
     assert!(lines.iter().any(|line| line.starts_with("UUID: ")));
     let mut residual = info.clone();
-    residual.isolation = IsolationMode::SharedPidIpc;
+    #[cfg(feature = "servicectl")]
+    {
+        residual.isolation = IsolationMode::SharedPidIpc;
+    }
     residual.init_pid = None;
     assert!(
         residual
@@ -98,7 +101,7 @@ fn displays_container_info_lines() {
         residual
             .display_lines()
             .iter()
-            .any(|line| line == "Isolation: shared-pid-ipc")
+            .any(|line| line == &format!("Isolation: {}", residual.isolation))
     );
 
     let inactive = ContainerInfo {
@@ -132,6 +135,7 @@ fn reports_inactive_container_without_state() {
 }
 
 #[test]
+#[cfg(feature = "servicectl")]
 fn shared_usage_without_trusted_anchor_fails_instead_of_counting_host() {
     let mut state = super::super::tests::shared_state();
     state.pid_namespace_inode = procfs::process::Process::myself()

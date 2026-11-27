@@ -2,28 +2,33 @@
 // SPDX-License-Identifier: GPL-v3-only
 
 use std::{
-    collections::BTreeSet,
     fs::{self, File, OpenOptions},
-    io::{self, Read, Write},
+    io::{self, Write},
     os::{
         fd::AsRawFd,
-        unix::fs::{DirEntryExt, MetadataExt, OpenOptionsExt},
+        unix::fs::{MetadataExt, OpenOptionsExt},
     },
     path::{Component, Path, PathBuf},
+};
+
+#[cfg(feature = "servicectl")]
+use crate::process::ProcessHandle;
+#[cfg(feature = "servicectl")]
+use kurumi_containerd_helper::{process::current_pid, signal::Signal};
+#[cfg(feature = "servicectl")]
+use std::{
+    collections::BTreeSet,
+    io::Read,
+    os::unix::fs::DirEntryExt,
     time::{Duration, Instant},
 };
 
 use crate::{
     Result,
     error::{ErrorContext as _, ensure},
-    process::ProcessHandle,
 };
 use kurumi_containerd_config::ResourceConfig;
-use kurumi_containerd_helper::{
-    fs::{MountFlags, TMPFS_MAGIC, filesystem_type, mount, unmount},
-    process::current_pid,
-    signal::Signal,
-};
+use kurumi_containerd_helper::fs::{MountFlags, TMPFS_MAGIC, filesystem_type, mount, unmount};
 use procfs::{
     ProcessCGroup,
     process::{MountInfo, Process},
@@ -32,9 +37,11 @@ use procfs::{
 pub struct Cgroup {
     paths: Vec<PathBuf>,
     unified: bool,
+    #[cfg(feature = "servicectl")]
     shared: Option<SharedCgroup>,
 }
 
+#[cfg(feature = "servicectl")]
 struct SharedCgroup {
     directory: File,
     parent: File,
@@ -65,6 +72,7 @@ impl Cgroup {
     ///
     /// # Errors
     /// Returns errors for missing v2, unsafe ownership, reused groups, or unavailable limits.
+    #[cfg(feature = "servicectl")]
     pub fn create_shared(workdir: &Path, name: &str, resources: &ResourceConfig) -> Result<Self> {
         ensure!(
             !name.is_empty()
@@ -138,6 +146,7 @@ impl Cgroup {
     ///
     /// # Errors
     /// Returns errors when no sole v2 directory exists or its path is unsafe.
+    #[cfg(feature = "servicectl")]
     pub fn directory(&self) -> Result<File> {
         if let Some(shared) = &self.shared {
             return Ok(shared.directory.try_clone()?);
@@ -154,6 +163,7 @@ impl Cgroup {
     ///
     /// # Errors
     /// Returns errors for unsafe paths, ownership, symlinks, or missing v2 mounts.
+    #[cfg(feature = "servicectl")]
     pub fn capture_shared(monitor: &Process, membership: &str) -> Result<File> {
         let mounts = monitor.mountinfo()?;
         let path = shared_cgroup_path(membership, &mounts.0)?;
@@ -212,6 +222,7 @@ impl Cgroup {
             return Ok(Self {
                 paths: Vec::new(),
                 unified: false,
+                #[cfg(feature = "servicectl")]
                 shared: None,
             });
         }
@@ -227,6 +238,7 @@ impl Cgroup {
             let cgroup = Self {
                 paths: vec![path.clone()],
                 unified: true,
+                #[cfg(feature = "servicectl")]
                 shared: None,
             };
             write_limit(
@@ -254,6 +266,7 @@ impl Cgroup {
         let mut cgroup = Self {
             paths: Vec::new(),
             unified: false,
+            #[cfg(feature = "servicectl")]
             shared: None,
         };
         for (controller, root) in roots {
@@ -293,6 +306,7 @@ impl Cgroup {
     /// # Errors
     /// Returns errors when writing cgroup membership fails.
     pub fn attach(&self, pid: i32) -> Result<()> {
+        #[cfg(feature = "servicectl")]
         if let Some(shared) = &self.shared {
             let leaf = open_directory(&shared.directory, Path::new("kurumi-init"))?;
             write_cgroup_file(&leaf, "cgroup.procs", &pid.to_string())?;
@@ -343,6 +357,7 @@ impl Cgroup {
     /// # Errors
     /// Returns errors when cgroup cleanup fails.
     pub fn remove(&mut self) -> Result<()> {
+        #[cfg(feature = "servicectl")]
         if let Some(shared) = &self.shared {
             remove_cgroup_contents(&shared.directory)?;
             let path = fd_path(&shared.parent).join(&shared.name);
@@ -378,6 +393,7 @@ impl Cgroup {
 ///
 /// # Errors
 /// Returns errors when the captured cgroup's init leaf is unavailable.
+#[cfg(feature = "servicectl")]
 pub fn attach_shared_init(directory: &File, pid: i32) -> Result<()> {
     ensure!(pid > 0, "invalid shared init PID");
     let leaf = open_directory(directory, Path::new("kurumi-init"))?;
@@ -389,6 +405,7 @@ pub fn attach_shared_init(directory: &File, pid: i32) -> Result<()> {
 ///
 /// # Errors
 /// Returns errors when the bootstrap child cannot accept the process.
+#[cfg(feature = "servicectl")]
 pub fn attach_shared_bootstrap(directory: &File, pid: i32) -> Result<()> {
     ensure!(pid > 0, "invalid shared init PID");
     let leaf = open_directory(directory, Path::new("kurumi-init/bootstrap"))?;
@@ -438,6 +455,7 @@ fn open_trusted_directory(root: &File, path: &Path) -> Result<File> {
 ///
 /// # Errors
 /// Returns errors for live members, inaccessible directories, or replaced roots.
+#[cfg(feature = "servicectl")]
 pub fn remove_cgroup(directory: &File) -> Result<()> {
     let original = directory.metadata()?;
     if original.nlink() == 0 {
@@ -485,6 +503,7 @@ pub fn remove_cgroup(directory: &File) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "servicectl")]
 fn shared_cgroup_path(membership: &str, mounts: &[MountInfo]) -> Result<PathBuf> {
     let membership = Path::new(membership);
     ensure!(
@@ -515,6 +534,7 @@ fn shared_cgroup_path(membership: &str, mounts: &[MountInfo]) -> Result<PathBuf>
     Ok(path)
 }
 
+#[cfg(feature = "servicectl")]
 fn read_cgroup_file(directory: &File, name: &str) -> io::Result<String> {
     let mut file = OpenOptions::new()
         .read(true)
@@ -525,6 +545,7 @@ fn read_cgroup_file(directory: &File, name: &str) -> io::Result<String> {
     Ok(contents)
 }
 
+#[cfg(feature = "servicectl")]
 fn write_cgroup_file(directory: &File, name: &str, contents: &str) -> io::Result<()> {
     OpenOptions::new()
         .write(true)
@@ -533,6 +554,7 @@ fn write_cgroup_file(directory: &File, name: &str, contents: &str) -> io::Result
         .write_all(contents.as_bytes())
 }
 
+#[cfg(feature = "servicectl")]
 fn visit_cgroup_children(
     directory: &File,
     mut visit: impl FnMut(&File, &Path) -> io::Result<()>,
@@ -569,6 +591,7 @@ fn visit_cgroup_children(
     Ok(())
 }
 
+#[cfg(feature = "servicectl")]
 fn collect_cgroup_processes(directory: &File, processes: &mut BTreeSet<i32>) -> io::Result<()> {
     let contents = match read_cgroup_file(directory, "cgroup.procs") {
         Ok(contents) => contents,
@@ -600,12 +623,14 @@ fn collect_cgroup_processes(directory: &File, processes: &mut BTreeSet<i32>) -> 
 ///
 /// # Errors
 /// Returns errors for unreadable, malformed, or symlinked membership files.
+#[cfg(feature = "servicectl")]
 pub fn cgroup_processes(directory: &File) -> Result<Vec<i32>> {
     let mut processes = BTreeSet::new();
     collect_cgroup_processes(directory, &mut processes)?;
     Ok(processes.into_iter().collect())
 }
 
+#[cfg(feature = "servicectl")]
 fn process_disappeared(error: &crate::RuntimeError) -> bool {
     let mut source: &(dyn std::error::Error + 'static) = error;
     loop {
@@ -619,6 +644,7 @@ fn process_disappeared(error: &crate::RuntimeError) -> bool {
     }
 }
 
+#[cfg(feature = "servicectl")]
 fn cgroup_populated(directory: &File) -> io::Result<bool> {
     let contents = match read_cgroup_file(directory, "cgroup.events") {
         Ok(contents) => contents,
@@ -647,6 +673,7 @@ fn cgroup_populated(directory: &File) -> io::Result<bool> {
 ///
 /// # Errors
 /// Returns errors for own-process membership, access failures, or cleanup timeout.
+#[cfg(feature = "servicectl")]
 pub fn terminate_cgroup(directory: &File, timeout: Duration) -> Result<()> {
     let started = Instant::now();
     let mut use_kill = true;
@@ -711,6 +738,7 @@ pub fn terminate_cgroup(directory: &File, timeout: Duration) -> Result<()> {
     }
 }
 
+#[cfg(feature = "servicectl")]
 fn remove_cgroup_contents(directory: &File) -> io::Result<()> {
     visit_cgroup_children(directory, |child, name| {
         remove_cgroup_contents(child)?;
