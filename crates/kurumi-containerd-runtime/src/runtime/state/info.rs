@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::{Result, error::ErrorContext as _};
+use kurumi_containerd_config::IsolationMode;
 use procfs::process::all_processes;
 use serde::Serialize;
 use uuid::Uuid;
@@ -18,6 +19,7 @@ use crate::{Runtime, container::init::InitSystem};
 pub struct ContainerInfo {
     pub name: String,
     pub active: bool,
+    pub isolation: IsolationMode,
     pub init_pid: Option<i32>,
     pub monitor_pid: Option<i32>,
     pub rootfs: PathBuf,
@@ -41,10 +43,16 @@ impl ContainerInfo {
     #[must_use]
     pub fn display_lines(&self) -> Vec<String> {
         let mut lines = vec![format!("Name: {}", self.name)];
+        lines.push(format!("Isolation: {}", self.isolation));
         if self.active {
             lines.extend([
                 format!(
-                    "Active: active (running) for {}",
+                    "Active: {} for {}",
+                    if self.init_pid.is_some() {
+                        "active (running)"
+                    } else {
+                        "active (cleanup pending)"
+                    },
                     format_duration(self.uptime_seconds.unwrap_or_default())
                 ),
                 format!(
@@ -94,6 +102,7 @@ impl Runtime {
             return Ok(ContainerInfo {
                 name: self.config.container.name.clone(),
                 active: false,
+                isolation: self.config.container.isolation,
                 init_pid: None,
                 monitor_pid: None,
                 rootfs,
@@ -106,11 +115,13 @@ impl Runtime {
             });
         };
         let (memory_kb, processes) = collect_usage(&state)?;
+        let init_alive = super::validate_process_identity(&state);
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         Ok(ContainerInfo {
             name: state.name,
             active: true,
-            init_pid: Some(state.init_pid),
+            isolation: state.isolation,
+            init_pid: init_alive.then_some(state.init_pid),
             monitor_pid: Some(state.monitor_pid),
             rootfs: state.rootfs,
             uuid: Some(state.uuid),
@@ -133,13 +144,37 @@ impl Runtime {
 }
 
 fn collect_usage(state: &ContainerState) -> Result<(u64, usize)> {
+    #[cfg(feature = "servicectl")]
+    if state.isolation == IsolationMode::SharedPidIpc {
+        let Some(directory) = super::shared_cgroup_directory(state)? else {
+            return Ok((0, 0));
+        };
+        let members = crate::host::cgroup::cgroup_processes(&directory)?;
+        let mut memory_kb = 0;
+        let mut processes = 0;
+        for pid in members {
+            let Ok(process) = procfs::process::Process::new(pid) else {
+                continue;
+            };
+            if !super::shared_membership_matches(state, &process) {
+                continue;
+            }
+            processes += 1;
+            if let Ok(status) = process.status() {
+                memory_kb += status.vmrss.unwrap_or(0);
+            }
+        }
+        return Ok((memory_kb, processes));
+    }
     let mut memory_kb = 0;
     let mut processes = 0;
     for process in all_processes()? {
         let Ok(process) = process else {
             continue;
         };
-        if process_namespace_inode(&process, "pid").ok() != Some(state.pid_namespace_inode) {
+        if state.pid_namespace_inode.is_none()
+            || process_namespace_inode(&process, "pid").ok() != state.pid_namespace_inode
+        {
             continue;
         }
         processes += 1;

@@ -7,6 +7,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+servicectl = ["kurumi-containerd-config/servicectl"]
+
 [dependencies]
 kurumi-containerd-config = { path = "../kurumi-containerd-config" }
 kurumi-containerd-error = { workspace = true, features = ["runtime"] }

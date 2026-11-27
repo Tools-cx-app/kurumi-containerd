@@ -1,0 +1,3 @@
+#!/bin/sh
+# Keep upstream ensure-s6/enable regeneration confined to Kurumi's delegated mount.
+exec /usr/local/bin/sys-cgroupd.real "$@" --no-auto-mount --cgroup-root /sys/fs/cgroup/servicectl.slice

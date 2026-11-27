@@ -75,16 +75,18 @@ The registry implementation is `registry.rs`, not the former `pointer.rs` name.
 
 ## Lifecycle
 
-Starting validates the configuration, takes the container's lifecycle lock,
-prepares its rootfs, allocates long-lived resources, and creates a monitor.
-For each boot generation, an intermediate process creates fresh PID and optional
-network namespaces before forking init.
+A start operation validates configuration, locks the container identity,
+prepares the root filesystem, allocates long-lived resources, and creates a
+monitor. Each boot generation uses an intermediate worker to create mount/UTS
+and optional network namespaces before forking init. Default `isolated` mode also
+creates PID/IPC namespaces; explicit `shared-pid-ipc` inherits those spaces.
 
-The monitor owns rootfs mounts, the console PTY, cgroups, and applicable Android
-SELinux state across internal container reboots. Init and monitor identities
-include the host boot ID, process start time, and PID namespace inode; a numeric
-PID alone is never sufficient evidence that the expected process is still alive.
-Init signaling and waiting use pidfds when available.
+The monitor owns resources that must survive an internal container reboot:
+rootfs mounts, console PTY, cgroup, and Android SELinux state where applicable.
+It records init and monitor identities using the host boot ID and process start
+times. Isolated mode additionally requires a PID namespace inode. Shared mode
+persists the actual mode, worker identity, mount namespace and exclusive cgroup
+path; missing PID/IPC namespace interfaces are allowed.
 
 Stop and restart share the per-container lifecycle lock. Stop additionally holds
 a separate stop-request lock while waiting for the monitor. An internal reboot
@@ -99,6 +101,24 @@ which keeps privately bootstrapped hierarchies reachable, and join execution
 leaves beneath the captured groups without changing resource limits. Editing
 network or resource configuration affects the next start, not commands entering
 the current generation.
+
+Shared mode unconditionally allocates a dedicated cgroup v2 subtree, even without
+limits. Init, services and exec leaves belong to it; the monitor and generation
+worker stay outside. The worker is a child subreaper and keeps an open cgroup
+directory plus a monitor-lifetime pipe. Monitor EOF triggers generation cleanup.
+After graceful supervisor shutdown, cleanup terminates remaining recursive cgroup
+members and waits for emptiness and child reaping before publishing a stopped
+state or allowing another generation. `cgroup.kill` is optional: older kernels
+use repeated enumeration and trusted process handles. Cleanup errors preserve
+recoverable records rather than reporting a successful stop.
+
+The shared rootfs sees only its delegated cgroup subtree. It retains private
+mount/UTS and runtime directories but sees host PIDs and shares SysV IPC/POSIX
+message queues. Both init and entered workloads receive reboot syscall denial.
+SIGHUP is terminal for a shared supervisor; it is not a namespace reboot request.
+The [service-stack example](servicectl.md) owns Dinit/s6 startup and shutdown in
+the rootfs, with no Go dependency in Kurumi's Cargo graph.
+
 
 ## Runtime modules
 
@@ -203,6 +223,8 @@ State updates use no-follow opens, random temporary files, fsync, and atomic
 rename. Recovery requires a protected host recovery record and matching identity
 markers under `/run/kurumi-containerd` inside the container; scanning a live PID 1
 without that record is not enough.
+
+Shared recovery never guesses a supervisor from `NSpid=1` or a PID namespace inode. It validates the recorded init/start time, boot ID, worker/monitor chain, private mount namespace, UUID/generation markers and exclusive cgroup ownership. The running generation's persisted isolation controls entry, status, stopping and recovery even after JSON is edited. Statistics count and deduplicate members of its recursive cgroup subtree, including nested service and execution leaves.
 
 State publication, removal, and recovery commits share a per-container
 persistence lock in the state directory. While holding it, recovery compares the

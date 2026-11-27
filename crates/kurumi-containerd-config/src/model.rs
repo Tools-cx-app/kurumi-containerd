@@ -35,6 +35,8 @@ pub struct ContainerConfig {
     #[serde(default = "default_init")]
     pub init: PathBuf,
     #[serde(default)]
+    pub isolation: IsolationMode,
+    #[serde(default)]
     pub foreground: bool,
     #[serde(default)]
     pub volatile: bool,
@@ -54,6 +56,25 @@ pub struct ContainerConfig {
     pub environment: BTreeMap<String, String>,
     #[serde(default)]
     pub environment_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum IsolationMode {
+    #[default]
+    Isolated,
+    #[cfg(feature = "servicectl")]
+    SharedPidIpc,
+}
+
+impl std::fmt::Display for IsolationMode {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Isolated => "isolated",
+            #[cfg(feature = "servicectl")]
+            Self::SharedPidIpc => "shared-pid-ipc",
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

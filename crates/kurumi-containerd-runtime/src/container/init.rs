@@ -51,6 +51,36 @@ impl Init {
         Ok(())
     }
 
+    #[cfg(feature = "servicectl")]
+    pub(crate) fn validate_shared(&self, rootfs: &Path) -> Result<()> {
+        let relative = self
+            .path
+            .strip_prefix("/")
+            .map_err(|_| RuntimeError::Message("container.init must be an absolute path".into()))?;
+        let resolved = kurumi_containerd_config::resolve_container_path(rootfs, relative)?;
+        let is_pid_one_program = |path: &Path| {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            matches!(
+                name,
+                "systemd" | "openrc-init" | "procd" | "runit" | "busybox" | "init.sysv"
+            ) || (name == "init"
+                && matches!(
+                    path.parent().and_then(Path::to_str),
+                    Some("/sbin" | "/usr/sbin" | "/bin" | "/usr/bin")
+                ))
+        };
+        if is_pid_one_program(&self.path) || is_pid_one_program(&resolved) {
+            bail!(
+                "shared-pid-ipc requires a foreground service supervisor, not a PID 1 init: {}",
+                self.path.display()
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) fn detect(&self, rootfs: &Path) -> InitSystem {
         detect(rootfs, &self.path)
     }

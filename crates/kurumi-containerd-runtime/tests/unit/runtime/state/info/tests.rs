@@ -23,6 +23,7 @@ fn displays_container_info() {
     let info = ContainerInfo {
         name: "test".to_owned(),
         active: true,
+        isolation: IsolationMode::Isolated,
         init_pid: Some(123),
         monitor_pid: Some(122),
         rootfs: PathBuf::from("/rootfs"),
@@ -35,7 +36,7 @@ fn displays_container_info() {
     };
     assert_eq!(
         info.to_string(),
-        "Name: test\nActive: active (running) for 1h 02m 03s\nMain PID: 123 (systemd)\nMonitor PID: 122\nTasks: 4\nMemory: 1.5 MiB\nGeneration: 1\nRootfs: /rootfs\nUUID: 00000000-0000-0000-0000-000000000000"
+        "Name: test\nIsolation: isolated\nActive: active (running) for 1h 02m 03s\nMain PID: 123 (systemd)\nMonitor PID: 122\nTasks: 4\nMemory: 1.5 MiB\nGeneration: 1\nRootfs: /rootfs\nUUID: 00000000-0000-0000-0000-000000000000"
     );
 }
 
@@ -44,6 +45,7 @@ fn displays_inactive_container_info() {
     let info = ContainerInfo {
         name: "test".to_owned(),
         active: false,
+        isolation: IsolationMode::Isolated,
         init_pid: None,
         monitor_pid: None,
         rootfs: PathBuf::from("/rootfs"),
@@ -56,7 +58,7 @@ fn displays_inactive_container_info() {
     };
     assert_eq!(
         info.to_string(),
-        "Name: test\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: 00000000-0000-0000-0000-000000000000"
+        "Name: test\nIsolation: isolated\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: 00000000-0000-0000-0000-000000000000"
     );
 }
 
@@ -65,6 +67,7 @@ fn displays_container_info_lines() {
     let info = ContainerInfo {
         name: "test".to_owned(),
         active: true,
+        isolation: IsolationMode::Isolated,
         init_pid: Some(123),
         monitor_pid: Some(122),
         rootfs: PathBuf::from("/a/very/long/rootfs/path"),
@@ -82,6 +85,24 @@ fn displays_container_info_lines() {
             .any(|line| line == "Rootfs: /a/very/long/rootfs/path")
     );
     assert!(lines.iter().any(|line| line.starts_with("UUID: ")));
+    let mut residual = info.clone();
+    #[cfg(feature = "servicectl")]
+    {
+        residual.isolation = IsolationMode::SharedPidIpc;
+    }
+    residual.init_pid = None;
+    assert!(
+        residual
+            .display_lines()
+            .iter()
+            .any(|line| line.starts_with("Active: active (cleanup pending)"))
+    );
+    assert!(
+        residual
+            .display_lines()
+            .iter()
+            .any(|line| line == &format!("Isolation: {}", residual.isolation))
+    );
 
     let inactive = ContainerInfo {
         active: false,
@@ -111,4 +132,14 @@ fn reports_inactive_container_without_state() {
     assert_eq!(info.name, "test");
     assert_eq!(info.rootfs, PathBuf::from("/rootfs"));
     assert_eq!(info.init_pid, None);
+}
+
+#[test]
+#[cfg(feature = "servicectl")]
+fn shared_usage_without_trusted_anchor_fails_instead_of_counting_host() {
+    let mut state = super::super::tests::shared_state();
+    state.pid_namespace_inode = procfs::process::Process::myself()
+        .ok()
+        .and_then(|process| process_namespace_inode(&process, "pid").ok());
+    assert!(collect_usage(&state).is_err());
 }

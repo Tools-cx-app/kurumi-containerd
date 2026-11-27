@@ -127,3 +127,60 @@ fn builds_sysvinit_poweroff_request() {
     );
     assert_eq!(request.len(), 384);
 }
+
+#[test]
+#[cfg(feature = "servicectl")]
+fn shared_mode_rejects_pid_one_init_through_custom_symlink() {
+    let root = tempfile::tempdir().unwrap();
+    create(root.path(), "usr/lib/systemd/systemd", b"binary");
+    fs::create_dir_all(root.path().join("usr/local/bin")).unwrap();
+    std::os::unix::fs::symlink(
+        "/usr/lib/systemd/systemd",
+        root.path().join("usr/local/bin/manager"),
+    )
+    .unwrap();
+    let init = Init {
+        path: PathBuf::from("/usr/local/bin/manager"),
+    };
+    assert!(init.validate_shared(root.path()).is_err());
+    create(
+        root.path(),
+        "usr/local/bin/services",
+        b"#!/bin/sh\nexec dinit --system --container\n",
+    );
+    let init = Init {
+        path: PathBuf::from("/usr/local/bin/services"),
+    };
+    assert!(init.validate_shared(root.path()).is_ok());
+}
+
+#[test]
+#[cfg(feature = "servicectl")]
+fn shared_mode_rejects_pid_one_target_but_allows_sbin_supervisor() {
+    let root = tempfile::tempdir().unwrap();
+    create(root.path(), "usr/lib/systemd/systemd", b"binary");
+    create(
+        root.path(),
+        "usr/local/bin/kurumi-services",
+        b"#!/bin/sh\nexec dinit --system --container\n",
+    );
+    fs::create_dir_all(root.path().join("sbin")).unwrap();
+    std::os::unix::fs::symlink(
+        "/usr/lib/systemd/systemd",
+        root.path().join("sbin/services"),
+    )
+    .unwrap();
+    let init = Init {
+        path: PathBuf::from("/sbin/services"),
+    };
+    assert!(init.validate_shared(root.path()).is_err());
+    std::os::unix::fs::symlink(
+        "/usr/local/bin/kurumi-services",
+        root.path().join("sbin/kurumi-services"),
+    )
+    .unwrap();
+    let init = Init {
+        path: PathBuf::from("/sbin/kurumi-services"),
+    };
+    assert!(init.validate_shared(root.path()).is_ok());
+}

@@ -498,10 +498,16 @@ fn draw_form(frame: &mut Frame<'_>, state: &UiState, kind: ActionKind, entry: Op
 
 fn info_lines(info: &ContainerInfo) -> Vec<String> {
     let mut lines = vec![format!("Name: {}", info.name)];
+    lines.push(format!("Isolation: {}", info.isolation));
     if info.active {
         lines.extend([
             format!(
-                "Active: active (running) for {}",
+                "Active: {} for {}",
+                if info.init_pid.is_some() {
+                    "active (running)"
+                } else {
+                    "active (cleanup pending)"
+                },
                 format_duration(info.uptime_seconds.unwrap_or_default())
             ),
             format!(

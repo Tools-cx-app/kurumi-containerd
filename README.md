@@ -22,6 +22,7 @@ resources when compiled for and executed on Android.
 - Local tar/ZIP rootfs installation into directories or sparse ext4 images
 - CLI/TUI rootfs backup for stopped containers in `.zst`, `.xz`, `.zip`, or `.tar`
 - Mount, PID, UTS, IPC, and optional network namespaces
+- Explicit shared PID/IPC mode for trusted services on kernels without those namespaces
 - Host, isolated, NAT, and existing-bridge networking
 - cgroup v1 and v2 memory, CPU, and process limits
 - Bind mounts and volatile OverlayFS
@@ -39,27 +40,32 @@ resources when compiled for and executed on Android.
 - Root privileges
 - Rust 1.85 or newer for the 2024 edition
 - `ip` and `iptables` for NAT or bridge networking
-- cgroup v1 or v2 when resource limits are configured
+- cgroup v1/v2 for isolated resource limits; writable exclusive cgroup v2 always in shared mode
 - A prepared Linux root filesystem containing an init executable
 
 Run the host capability checks before starting a container:
 
 ```bash
-sudo cargo run --release -p kurumi-containerd -- check
+sudo cargo run --release -p kurumi-containerd --features servicectl -- check
 ```
 
 ## Build
 
 ```bash
-cargo build --release -p kurumi-containerd
+cargo build --release -p kurumi-containerd --features servicectl
 ```
+
+The optional `servicectl` feature enables `shared-pid-ipc` support. It is disabled
+by default. CI and tag releases enable it only for release artifacts; debug
+artifacts omit it. Cargo profiles do not select features automatically, so local
+release builds also need `--features servicectl`.
 
 The binary is written to `target/release/kurumi-containerd`.
 
 The `tui` Cargo feature is disabled by default. To include the terminal manager:
 
 ```bash
-cargo build --release -p kurumi-containerd --features tui
+cargo build --release -p kurumi-containerd --features tui,servicectl
 ```
 
 Without this feature, the `tui` subcommand is unavailable.
@@ -173,6 +179,18 @@ For interactive management of all registered containers, run
 `sudo -H ./target/release/kurumi-containerd tui`. See [CLI usage](docs/usage.md)
 for command details, configuration selection, and terminal requirements.
 
+Kernels without PID/IPC namespaces can explicitly use
+`"isolation": "shared-pid-ipc"` with a foreground service supervisor. There is no
+automatic fallback. This trusted mode shares host-visible PIDs and IPC, requires
+cgroup v2 (not `cgroup.kill`), and does not support a normal systemd system instance.
+The [deployable Dinit + s6/servicectl example](docs/servicectl.md) includes pinned
+upstream prerequisites, bootstrap/rollback, a demo unit and smoke commands. Go is
+only used to build the rootfs tools, never added to Kurumi's Rust dependencies.
+Actual isolation is persisted per running generation; editing config does not
+change `run`, `enter`, `info`, `stop` or recovery `scan`. `check` remains
+HOME/config-independent and reports each mode's requirements.
+
+
 The JSON configuration format and path rules are documented in
 [Configuration](docs/configuration.md). For migration from the removed
 `-c/--config` entry points, see the [migration guide](docs/migration-config-pointer.md).
@@ -215,6 +233,8 @@ Full documentation: [[zh](docs/README_CN.md) / [en](docs/README.md)].
 | Implementation status | [[zh](docs/status_CN.md) / [en](docs/status.md)] |
 | Android root module | [[zh](docs/android-module_CN.md) / [en](docs/android-module.md)] |
 | Configuration migration | [[zh](docs/migration-config-pointer_CN.md) / [en](docs/migration-config-pointer.md)] |
+| Shared-mode services and privileged acceptance | [guide](docs/servicectl.md) |
+| Shared-isolation compatibility notes | [guide](docs/shared-isolation-release.md) |
 
 ## Acknowledgments
 

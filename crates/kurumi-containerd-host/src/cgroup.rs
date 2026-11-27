@@ -2,9 +2,25 @@
 // SPDX-License-Identifier: GPL-v3-only
 
 use std::{
-    fs::{self, File},
-    os::fd::AsRawFd,
+    fs::{self, File, OpenOptions},
+    io::{self, Write},
+    os::{
+        fd::AsRawFd,
+        unix::fs::{MetadataExt, OpenOptionsExt},
+    },
     path::{Component, Path, PathBuf},
+};
+
+#[cfg(feature = "servicectl")]
+use crate::process::ProcessHandle;
+#[cfg(feature = "servicectl")]
+use kurumi_containerd_helper::{process::current_pid, signal::Signal};
+#[cfg(feature = "servicectl")]
+use std::{
+    collections::BTreeSet,
+    io::Read,
+    os::unix::fs::DirEntryExt,
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -21,6 +37,15 @@ use procfs::{
 pub struct Cgroup {
     paths: Vec<PathBuf>,
     unified: bool,
+    #[cfg(feature = "servicectl")]
+    shared: Option<SharedCgroup>,
+}
+
+#[cfg(feature = "servicectl")]
+struct SharedCgroup {
+    directory: File,
+    parent: File,
+    name: String,
 }
 
 /// Open container cgroups captured from a running init process.
@@ -43,6 +68,114 @@ impl CgroupMembership {
 }
 
 impl Cgroup {
+    /// Creates a fresh, dedicated cgroup v2 subtree, even without resource limits.
+    ///
+    /// # Errors
+    /// Returns errors for missing v2, unsafe ownership, reused groups, or unavailable limits.
+    #[cfg(feature = "servicectl")]
+    pub fn create_shared(workdir: &Path, name: &str, resources: &ResourceConfig) -> Result<Self> {
+        ensure!(
+            !name.is_empty()
+                && !name.contains('/')
+                && matches!(
+                    Path::new(name).components().next(),
+                    Some(Component::Normal(_))
+                ),
+            "invalid shared cgroup name"
+        );
+        let root =
+            cgroup2_root().context("shared-pid-ipc requires a mounted cgroup v2 hierarchy")?;
+        let root = open_trusted_directory(&File::open("/")?, &root)?;
+        ensure!(
+            filesystem_type(&fd_path(&root))? == 0x6367_7270,
+            "shared-pid-ipc requires cgroup v2"
+        );
+        let controllers = requested_controllers(resources, false);
+        enable_controllers(&fd_path(&root), &controllers)?;
+        let parent_path = fd_path(&root).join("kurumi-containerd");
+        match fs::create_dir(&parent_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        let parent = open_trusted_directory(&root, Path::new("kurumi-containerd"))?;
+        enable_controllers(&fd_path(&parent), &controllers)?;
+        fs::create_dir(fd_path(&parent).join(name)).context(
+            "shared cgroup already exists or cannot be created; recover it before starting",
+        )?;
+        let directory = open_trusted_directory(&parent, Path::new(name))?;
+        let path = fd_path(&directory);
+        let cgroup = Self {
+            paths: Vec::new(),
+            unified: true,
+            shared: Some(SharedCgroup {
+                directory,
+                parent,
+                name: name.to_owned(),
+            }),
+        };
+        write_limit(
+            &path.join("memory.max"),
+            resources.memory_bytes.map(|value| value.to_string()),
+            "max",
+        )?;
+        write_limit(
+            &path.join("pids.max"),
+            resources.pids.map(|value| value.to_string()),
+            "max",
+        )?;
+        write_limit(
+            &path.join("cpu.max"),
+            resources
+                .cpu_quota
+                .map(|quota| format!("{quota} {}", resources.cpu_period.unwrap_or(100_000))),
+            "max 100000",
+        )?;
+        enable_controllers(&path, &controllers)?;
+        let init = path.join("kurumi-init");
+        fs::create_dir(&init)?;
+        enable_controllers(&init, &controllers)?;
+        let bootstrap = init.join("bootstrap");
+        fs::create_dir(&bootstrap)?;
+        enable_controllers(&bootstrap, &controllers)?;
+        fs::create_dir_all(workdir)?;
+        Ok(cgroup)
+    }
+
+    /// Captures the sole v2 container directory before its mount namespace exits.
+    ///
+    /// # Errors
+    /// Returns errors when no sole v2 directory exists or its path is unsafe.
+    #[cfg(feature = "servicectl")]
+    pub fn directory(&self) -> Result<File> {
+        if let Some(shared) = &self.shared {
+            return Ok(shared.directory.try_clone()?);
+        }
+        ensure!(
+            self.unified && self.paths.len() == 1,
+            "no sole cgroup v2 directory"
+        );
+        open_trusted_directory(&File::open("/")?, &self.paths[0])
+    }
+
+    /// Resolves an absolute container-root membership in the monitor's mount view.
+    /// The caller validates the monitor identity and exact container membership.
+    ///
+    /// # Errors
+    /// Returns errors for unsafe paths, ownership, symlinks, or missing v2 mounts.
+    #[cfg(feature = "servicectl")]
+    pub fn capture_shared(monitor: &Process, membership: &str) -> Result<File> {
+        let mounts = monitor.mountinfo()?;
+        let path = shared_cgroup_path(membership, &mounts.0)?;
+        let root = monitor.open_relative("root")?;
+        let directory = open_trusted_directory(&root, &path)?;
+        ensure!(
+            filesystem_type(&fd_path(&directory))? == 0x6367_7270,
+            "shared cgroup is not on cgroup v2"
+        );
+        Ok(directory)
+    }
+
     /// Captures init's actual container cgroups through the monitor's mount view.
     ///
     /// The caller must validate both process identities around this capture.
@@ -67,11 +200,8 @@ impl Cgroup {
         let directories = execution_cgroup_paths(name, &groups.0, &mounts.0)?
             .into_iter()
             .map(|path| {
-                monitor
-                    .open_relative(Path::new("root").join(path.strip_prefix("/")?))
-                    .with_context(|| {
-                        format!("failed to capture container cgroup {}", path.display())
-                    })
+                let root = monitor.open_relative("root")?;
+                open_trusted_directory(&root, &path)
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(CgroupMembership { directories })
@@ -92,6 +222,8 @@ impl Cgroup {
             return Ok(Self {
                 paths: Vec::new(),
                 unified: false,
+                #[cfg(feature = "servicectl")]
+                shared: None,
             });
         }
         if let Some(root) = ensure_cgroup2_root(bootstrap)? {
@@ -106,6 +238,8 @@ impl Cgroup {
             let cgroup = Self {
                 paths: vec![path.clone()],
                 unified: true,
+                #[cfg(feature = "servicectl")]
+                shared: None,
             };
             write_limit(
                 &path.join("memory.max"),
@@ -132,6 +266,8 @@ impl Cgroup {
         let mut cgroup = Self {
             paths: Vec::new(),
             unified: false,
+            #[cfg(feature = "servicectl")]
+            shared: None,
         };
         for (controller, root) in roots {
             let path = root.join("kurumi-containerd").join(name);
@@ -170,6 +306,12 @@ impl Cgroup {
     /// # Errors
     /// Returns errors when writing cgroup membership fails.
     pub fn attach(&self, pid: i32) -> Result<()> {
+        #[cfg(feature = "servicectl")]
+        if let Some(shared) = &self.shared {
+            let leaf = open_directory(&shared.directory, Path::new("kurumi-init"))?;
+            write_cgroup_file(&leaf, "cgroup.procs", &pid.to_string())?;
+            return Ok(());
+        }
         for path in &self.paths {
             fs::write(path.join("cgroup.procs"), pid.to_string())
                 .with_context(|| format!("failed to attach PID {pid} to cgroup"))?;
@@ -215,6 +357,20 @@ impl Cgroup {
     /// # Errors
     /// Returns errors when cgroup cleanup fails.
     pub fn remove(&mut self) -> Result<()> {
+        #[cfg(feature = "servicectl")]
+        if let Some(shared) = &self.shared {
+            remove_cgroup_contents(&shared.directory)?;
+            let path = fd_path(&shared.parent).join(&shared.name);
+            let current = open_directory(&shared.parent, Path::new(&shared.name))?;
+            let original = shared.directory.metadata()?;
+            let current = current.metadata()?;
+            ensure!(
+                original.dev() == current.dev() && original.ino() == current.ino(),
+                "shared cgroup directory was replaced"
+            );
+            fs::remove_dir(path)?;
+            self.shared = None;
+        }
         let mut first_error = None;
         self.paths.retain(|path| match remove_cgroup_tree(path) {
             Ok(()) => false,
@@ -231,6 +387,363 @@ impl Cgroup {
     pub fn unified(&self) -> bool {
         self.unified
     }
+}
+
+/// Attaches the single-threaded boot process before its first exec.
+///
+/// # Errors
+/// Returns errors when the captured cgroup's init leaf is unavailable.
+#[cfg(feature = "servicectl")]
+pub fn attach_shared_init(directory: &File, pid: i32) -> Result<()> {
+    ensure!(pid > 0, "invalid shared init PID");
+    let leaf = open_directory(directory, Path::new("kurumi-init"))?;
+    write_cgroup_file(&leaf, "cgroup.procs", &pid.to_string())?;
+    Ok(())
+}
+
+/// Moves the init process below the cgroup namespace root.
+///
+/// # Errors
+/// Returns errors when the bootstrap child cannot accept the process.
+#[cfg(feature = "servicectl")]
+pub fn attach_shared_bootstrap(directory: &File, pid: i32) -> Result<()> {
+    ensure!(pid > 0, "invalid shared init PID");
+    let leaf = open_directory(directory, Path::new("kurumi-init/bootstrap"))?;
+    write_cgroup_file(&leaf, "cgroup.procs", &pid.to_string())?;
+    Ok(())
+}
+
+fn fd_path(directory: &File) -> PathBuf {
+    PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()))
+}
+
+fn open_directory(parent: &File, path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(fd_path(parent).join(path))
+}
+
+fn open_trusted_directory(root: &File, path: &Path) -> Result<File> {
+    let mut directory = root.try_clone()?;
+    let metadata = directory.metadata()?;
+    ensure!(
+        metadata.uid() == 0 && metadata.mode() & 0o022 == 0,
+        "cgroup root must be root-owned and not writable by group or others"
+    );
+    for part in path.components() {
+        match part {
+            Component::RootDir => continue,
+            Component::Normal(part) => directory = open_directory(&directory, Path::new(part))?,
+            _ => {
+                return Err(
+                    io::Error::new(io::ErrorKind::InvalidInput, "unsafe cgroup path").into(),
+                );
+            }
+        }
+        let metadata = directory.metadata()?;
+        ensure!(
+            metadata.uid() == 0 && metadata.mode() & 0o022 == 0,
+            "cgroup path must be root-owned and not writable by group or others"
+        );
+    }
+    Ok(directory)
+}
+
+/// Removes an empty captured cgroup subtree, including its root directory.
+/// Works after the mount namespace which supplied the handle has exited.
+///
+/// # Errors
+/// Returns errors for live members, inaccessible directories, or replaced roots.
+#[cfg(feature = "servicectl")]
+pub fn remove_cgroup(directory: &File) -> Result<()> {
+    let original = directory.metadata()?;
+    if original.nlink() == 0 {
+        return Ok(());
+    }
+    ensure!(
+        cgroup_processes(directory)?.is_empty() && !cgroup_populated(directory)?,
+        "refusing to remove a populated cgroup"
+    );
+    let parent = open_directory(directory, Path::new(".."))?;
+    let parent_metadata = parent.metadata()?;
+    ensure!(
+        original.dev() == parent_metadata.dev() && original.ino() != parent_metadata.ino(),
+        "refusing to remove a cgroup hierarchy root"
+    );
+    let mut name = None;
+    for entry in fs::read_dir(fd_path(&parent))? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() || entry.ino() != original.ino() {
+            continue;
+        }
+        let candidate = match open_directory(&parent, Path::new(&entry.file_name())) {
+            Ok(candidate) => candidate,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let metadata = candidate.metadata()?;
+        if metadata.dev() == original.dev() && metadata.ino() == original.ino() {
+            name = Some(entry.file_name());
+            break;
+        }
+    }
+    let name = name.context("captured cgroup no longer has a matching parent entry")?;
+    remove_cgroup_contents(directory)?;
+    let current = open_directory(&parent, Path::new(&name))?.metadata()?;
+    ensure!(
+        original.dev() == current.dev() && original.ino() == current.ino(),
+        "captured cgroup directory was replaced"
+    );
+    ensure!(
+        cgroup_processes(directory)?.is_empty() && !cgroup_populated(directory)?,
+        "cgroup became populated during removal"
+    );
+    fs::remove_dir(fd_path(&parent).join(name))?;
+    Ok(())
+}
+
+#[cfg(feature = "servicectl")]
+fn shared_cgroup_path(membership: &str, mounts: &[MountInfo]) -> Result<PathBuf> {
+    let membership = Path::new(membership);
+    ensure!(
+        membership.is_absolute()
+            && membership != Path::new("/")
+            && membership
+                .components()
+                .all(|part| matches!(part, Component::RootDir | Component::Normal(_))),
+        "unsafe shared cgroup membership"
+    );
+    let path = mounts
+        .iter()
+        .filter(|mount| mount.fs_type == "cgroup2")
+        .find_map(|mount| {
+            membership
+                .strip_prefix(&mount.root)
+                .ok()
+                .map(|relative| mount.mount_point.join(relative))
+        })
+        .context("shared cgroup v2 mount is unavailable in monitor mount view")?;
+    ensure!(
+        path.is_absolute()
+            && path
+                .components()
+                .all(|part| matches!(part, Component::RootDir | Component::Normal(_))),
+        "unsafe cgroup mount path"
+    );
+    Ok(path)
+}
+
+#[cfg(feature = "servicectl")]
+fn read_cgroup_file(directory: &File, name: &str) -> io::Result<String> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(fd_path(directory).join(name))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
+#[cfg(feature = "servicectl")]
+fn write_cgroup_file(directory: &File, name: &str, contents: &str) -> io::Result<()> {
+    OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(fd_path(directory).join(name))?
+        .write_all(contents.as_bytes())
+}
+
+#[cfg(feature = "servicectl")]
+fn visit_cgroup_children(
+    directory: &File,
+    mut visit: impl FnMut(&File, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let device = directory.metadata()?.dev();
+    for entry in fs::read_dir(fd_path(directory))? {
+        let entry = entry?;
+        let kind = match entry.file_type() {
+            Ok(kind) => kind,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        if !kind.is_dir() {
+            continue;
+        }
+        let name = PathBuf::from(entry.file_name());
+        let child = match open_directory(directory, &name) {
+            Ok(child) => child,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        if child.metadata()?.dev() != device {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cgroup descendant crosses a filesystem boundary",
+            ));
+        }
+        match visit(&child, &name) {
+            Err(error)
+                if error.kind() == io::ErrorKind::NotFound && child.metadata()?.nlink() == 0 => {}
+            result => result?,
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "servicectl")]
+fn collect_cgroup_processes(directory: &File, processes: &mut BTreeSet<i32>) -> io::Result<()> {
+    let contents = match read_cgroup_file(directory, "cgroup.procs") {
+        Ok(contents) => contents,
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound && directory.metadata()?.nlink() == 0 =>
+        {
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
+    for line in contents.lines() {
+        let pid = line
+            .parse::<i32>()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        if pid <= 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid PID in cgroup.procs",
+            ));
+        }
+        processes.insert(pid);
+    }
+    visit_cgroup_children(directory, |child, _| {
+        collect_cgroup_processes(child, processes)
+    })
+}
+
+/// Lists all live members of the captured subtree, including nested service groups.
+///
+/// # Errors
+/// Returns errors for unreadable, malformed, or symlinked membership files.
+#[cfg(feature = "servicectl")]
+pub fn cgroup_processes(directory: &File) -> Result<Vec<i32>> {
+    let mut processes = BTreeSet::new();
+    collect_cgroup_processes(directory, &mut processes)?;
+    Ok(processes.into_iter().collect())
+}
+
+#[cfg(feature = "servicectl")]
+fn process_disappeared(error: &crate::RuntimeError) -> bool {
+    let mut source: &(dyn std::error::Error + 'static) = error;
+    loop {
+        if let Some(error) = source.downcast_ref::<io::Error>() {
+            return matches!(error.raw_os_error(), Some(libc::ESRCH | libc::ENOENT));
+        }
+        match source.source() {
+            Some(next) => source = next,
+            None => return false,
+        }
+    }
+}
+
+#[cfg(feature = "servicectl")]
+fn cgroup_populated(directory: &File) -> io::Result<bool> {
+    let contents = match read_cgroup_file(directory, "cgroup.events") {
+        Ok(contents) => contents,
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound && directory.metadata()?.nlink() == 0 =>
+        {
+            return Ok(false);
+        }
+        Err(error) => return Err(error),
+    };
+    match contents
+        .lines()
+        .find_map(|line| line.strip_prefix("populated "))
+    {
+        Some("0") => Ok(false),
+        Some("1") => Ok(true),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid populated value in cgroup.events",
+        )),
+    }
+}
+
+/// Kills and waits for an entire captured cgroup subtree to become empty.
+/// The caller must remain outside the subtree and separately reap its children.
+///
+/// # Errors
+/// Returns errors for own-process membership, access failures, or cleanup timeout.
+#[cfg(feature = "servicectl")]
+pub fn terminate_cgroup(directory: &File, timeout: Duration) -> Result<()> {
+    let started = Instant::now();
+    let mut use_kill = true;
+    loop {
+        let processes = cgroup_processes(directory)?;
+        ensure!(
+            !processes.contains(&current_pid()),
+            "refusing to terminate cgroup containing the cleanup process"
+        );
+        if processes.is_empty() && !cgroup_populated(directory)? {
+            return Ok(());
+        }
+        if use_kill {
+            match write_cgroup_file(directory, "cgroup.kill", "1") {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => use_kill = false,
+                Err(error) => return Err(error).context("failed to kill shared cgroup"),
+            }
+        }
+        if !use_kill {
+            for pid in processes {
+                if started.elapsed() >= timeout {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "shared cgroup termination timed out while rescanning members",
+                    )
+                    .into());
+                }
+                let process = match ProcessHandle::open(pid) {
+                    Ok(process) => process,
+                    Err(error) if process_disappeared(&error) => continue,
+                    Err(error) => return Err(error),
+                };
+                // Re-read after opening the pidfd so PID reuse cannot target a nonmember.
+                let members = cgroup_processes(directory)?;
+                ensure!(
+                    !members.contains(&current_pid()),
+                    "refusing to terminate cgroup containing the cleanup process"
+                );
+                if !members.contains(&pid) {
+                    continue;
+                }
+                match process.send_signal(Signal::Kill) {
+                    Ok(()) => {}
+                    Err(error) if process_disappeared(&error) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        if !cgroup_populated(directory)? && cgroup_processes(directory)?.is_empty() {
+            return Ok(());
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "shared cgroup remained populated after termination timeout",
+            )
+            .into());
+        }
+        std::thread::sleep(remaining.min(Duration::from_millis(10)));
+    }
+}
+
+#[cfg(feature = "servicectl")]
+fn remove_cgroup_contents(directory: &File) -> io::Result<()> {
+    visit_cgroup_children(directory, |child, name| {
+        remove_cgroup_contents(child)?;
+        fs::remove_dir(fd_path(directory).join(name))
+    })
 }
 
 fn execution_cgroup_paths(
@@ -292,13 +805,20 @@ fn execution_cgroup_paths(
 
 fn attach_execution_leaf(container: &Path, pid: i32) -> Result<()> {
     // Systemd enables subtree controllers, so commands need a leaf cgroup.
-    let leaf = container.join("kurumi-exec");
-    match fs::create_dir(&leaf) {
+    let directory = File::open(container)?;
+    match fs::create_dir(fd_path(&directory).join("kurumi-exec")) {
         Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error.into()),
     }
-    fs::write(leaf.join("cgroup.procs"), pid.to_string())
+    let leaf = open_directory(&directory, Path::new("kurumi-exec"))?;
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(fd_path(&leaf).join("cgroup.procs"))?
+        .write_all(pid.to_string().as_bytes())
         .context("failed to attach command to container cgroup")
 }
 

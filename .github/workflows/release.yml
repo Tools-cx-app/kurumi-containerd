@@ -106,12 +106,12 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           cargo build --workspace --target "${{ matrix.target }}"
-          cargo build --workspace --release --target "${{ matrix.target }}"
+          cargo build --workspace --release --features servicectl --target "${{ matrix.target }}"
       - name: Build Android debug and release
         if: matrix.platform == 'android'
         run: |
           cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace
-          cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --release
+          cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --release --features servicectl
       - name: Package debug and release
         env:
           TARGET: ${{ matrix.target }}
@@ -177,7 +177,7 @@ jobs:
       - name: Build debug and release with TUI
         run: |
           cargo build -p kurumi-containerd --features tui --locked --target "${{ matrix.target }}"
-          cargo build -p kurumi-containerd --features tui --release --locked --target "${{ matrix.target }}"
+          cargo build -p kurumi-containerd --features tui,servicectl --release --locked --target "${{ matrix.target }}"
       - name: Package debug and release
         env:
           TARGET: ${{ matrix.target }}

@@ -68,7 +68,7 @@ debug 构建将诊断日志写入 stdout，release 构建写入 stderr。默认�
 `tui` Cargo feature 默认关闭。构建时启用它以包含管理界面及其依赖：
 
 ```bash
-cargo build --release -p kurumi-containerd --features tui
+cargo build --release -p kurumi-containerd --features tui,servicectl
 sudo -H kurumi-containerd tui
 ```
 
@@ -204,7 +204,7 @@ rootfs 归档。下载内容按镜像索引中的 SHA-256 校验。测试用 CLI
 使用与主机架构匹配的 LXC rootfs 运行同一集成脚本：
 
 ```bash
-cargo build --release --locked -p kurumi-containerd
+cargo build --release --locked -p kurumi-containerd --features servicectl
 sudo target/release/kurumi-containerd check
 sudo python3 tests/container_lifecycle.py target/release/kurumi-containerd ./rootfs.tar.xz systemd
 # Alpine 请将 systemd 改为 openrc。

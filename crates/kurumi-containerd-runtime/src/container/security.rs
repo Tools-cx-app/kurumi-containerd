@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use crate::{Result, error::ErrorContext as _};
-use kurumi_containerd_config::SecurityConfig;
+use kurumi_containerd_config::{IsolationMode, SecurityConfig};
 use kurumi_containerd_helper::{
     fs::{MountFlags, mount},
     security::{
@@ -14,6 +14,9 @@ use kurumi_containerd_helper::{
         syscall_clone3, syscall_socket, syscall_unshare,
     },
 };
+
+#[cfg(feature = "servicectl")]
+use kurumi_containerd_helper::security::syscall_reboot;
 
 const BPF_LD_W_ABS: u16 = 0x20;
 const BPF_JMP_JEQ_K: u16 = 0x15;
@@ -93,14 +96,25 @@ pub fn harden_mounts(config: &SecurityConfig) -> Result<()> {
     Ok(())
 }
 
-pub fn install_seccomp(config: &SecurityConfig) -> Result<()> {
-    let mut instructions = seccomp_filter(config)?;
+pub fn install_seccomp(config: &SecurityConfig, isolation: IsolationMode) -> Result<()> {
+    let mut instructions = seccomp_filter(config, isolation)?;
     install_seccomp_filter(&mut instructions).context("failed to install seccomp filter")
 }
 
 #[allow(clippy::too_many_lines)]
-fn seccomp_filter(config: &SecurityConfig) -> Result<Vec<FilterInstruction>> {
+fn seccomp_filter(
+    config: &SecurityConfig,
+    isolation: IsolationMode,
+) -> Result<Vec<FilterInstruction>> {
     let blocked = blocked_syscalls();
+    #[cfg(feature = "servicectl")]
+    let mut blocked = blocked;
+    #[cfg(not(feature = "servicectl"))]
+    let _ = isolation;
+    #[cfg(feature = "servicectl")]
+    if isolation == IsolationMode::SharedPidIpc {
+        blocked.push(syscall_reboot());
+    }
 
     let mut instructions = vec![
         statement(BPF_LD_W_ABS, SECCOMP_DATA_ARCH_OFFSET),

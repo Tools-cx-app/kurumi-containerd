@@ -37,27 +37,34 @@ impl Runtime {
         init_system: init::InitSystem,
         host_cgroup_v2: bool,
         uuid: Uuid,
+        shared_cgroup: Option<&File>,
     ) -> Result<()> {
         // SAFETY: this is the single-threaded init child. It exits directly on
         // every error, so inherited descriptor owners are never used or dropped.
+        let shared_directory = shared_cgroup;
+        let mut keep = vec![boot_status.as_fd(), network_status.as_fd()];
+        if let Some(directory) = &shared_directory {
+            keep.push(directory.as_fd());
+        }
         #[allow(unsafe_code)]
-        unsafe { close_fds_except(&[boot_status.as_fd(), network_status.as_fd()]) }
-            .context("failed to close inherited host descriptors")?;
+        unsafe { close_fds_except(&keep) }.context("failed to close inherited host descriptors")?;
         if let Some(console) = console {
             let slave = console.open_slave()?;
             terminal::configure_child(&slave)?;
         }
-        let mut status = String::new();
-        File::from(network_status).read_to_string(&mut status)?;
-        ensure!(!status.is_empty(), "host network setup did not complete");
-        Network::setup_child_with(
-            &self.config.container.name,
-            self.config.container.network,
-            &self.config.container.network_options,
-            &status,
-        )?;
-        if init_system == init::InitSystem::Systemd && host_cgroup_v2 {
-            unshare(NamespaceFlags::CGROUP).context("failed to create systemd cgroup namespace")?;
+        #[cfg(feature = "servicectl")]
+        if let Some(directory) = &shared_directory {
+            crate::host::cgroup::attach_shared_init(
+                directory,
+                kurumi_containerd_helper::process::current_pid(),
+            )?;
+            // Root the namespace at kurumi-init before moving into bootstrap,
+            // leaving the visible root empty so services can enable controllers.
+            unshare(NamespaceFlags::CGROUP).context("failed to create shared cgroup namespace")?;
+            crate::host::cgroup::attach_shared_bootstrap(
+                directory,
+                kurumi_containerd_helper::process::current_pid(),
+            )?;
         }
         unshare(NamespaceFlags::MOUNT).context("failed to create mount namespace")?;
         mount(
@@ -134,6 +141,18 @@ impl Runtime {
             None,
         )
         .context("failed to mount sysfs")?;
+        #[cfg(feature = "servicectl")]
+        if shared_directory.is_some() {
+            fs::create_dir_all("/sys/fs/cgroup")?;
+            mount(
+                Some(Path::new("cgroup2")),
+                Path::new("/sys/fs/cgroup"),
+                Some("cgroup2"),
+                MountFlags::NOSUID | MountFlags::NODEV | MountFlags::NOEXEC,
+                None,
+            )
+            .context("failed to mount empty cgroup namespace root")?;
+        }
         if init_system == init::InitSystem::Systemd {
             fs::create_dir_all("/sys/fs/cgroup")?;
             mount(
@@ -165,6 +184,15 @@ impl Runtime {
                 .context("failed to mount legacy systemd cgroup hierarchy")?;
             }
         }
+        let mut status = String::new();
+        File::from(network_status).read_to_string(&mut status)?;
+        ensure!(!status.is_empty(), "host network setup did not complete");
+        Network::setup_child_with(
+            &self.config.container.name,
+            self.config.container.network,
+            &self.config.container.network_options,
+            &status,
+        )?;
         mount(
             Some(Path::new("tmpfs")),
             Path::new("/tmp"),
@@ -206,6 +234,15 @@ impl Runtime {
                 .with_context(|| format!("failed to bind {}", target.display()))?;
         }
         std::os::unix::fs::symlink("pts/ptmx", "/dev/ptmx")?;
+        fs::create_dir_all("/dev/shm")?;
+        mount(
+            Some(Path::new("tmpfs")),
+            Path::new("/dev/shm"),
+            Some("tmpfs"),
+            MountFlags::NOSUID | MountFlags::NODEV,
+            Some("mode=1777"),
+        )
+        .context("failed to mount private shared memory directory")?;
         std::os::unix::fs::symlink("/proc/self/fd", "/dev/fd")?;
         std::os::unix::fs::symlink("/proc/self/fd/0", "/dev/stdin")?;
         std::os::unix::fs::symlink("/proc/self/fd/1", "/dev/stdout")?;
@@ -245,7 +282,10 @@ impl Runtime {
             )
             .context("failed to enable systemd container mount propagation")?;
         }
-        security::install_seccomp(&self.config.container.security)?;
+        security::install_seccomp(
+            &self.config.container.security,
+            self.config.container.isolation,
+        )?;
 
         let init =
             std::ffi::CString::new(self.config.container.init.as_os_str().as_encoded_bytes())?;

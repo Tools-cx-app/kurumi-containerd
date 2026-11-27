@@ -8,6 +8,9 @@ on:
     branches: ["master"]
     paths:
       - "crates/**"
+      - "tests/shared_isolation.py"
+      - "tests/shared_pid_ipc_bench.py"
+      - "README_CN.md"
       - "Cargo.*"
       - "config.example.json"
       - ".github/workflows/benchmarks.yml"
@@ -15,6 +18,9 @@ on:
     branches: ["master"]
     paths:
       - "crates/**"
+      - "tests/shared_isolation.py"
+      - "tests/shared_pid_ipc_bench.py"
+      - "README_CN.md"
       - "Cargo.*"
       - "config.example.json"
       - ".github/workflows/benchmarks.yml"
@@ -101,3 +107,28 @@ jobs:
           name: benchmark-results-${{ matrix.bench }}
           path: ${{ env.CRITERION_HOME }}/
           if-no-files-found: error
+
+  shared-pid-ipc:
+    name: Shared PID and IPC comparison
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build runtime
+        run: cargo build --release --features servicectl --locked -p kurumi-containerd
+
+      - name: Compare isolated and shared PID/IPC
+        run: |
+          set -o pipefail
+          {
+            echo "## Shared PID and IPC comparison"
+            echo
+            echo '```text'
+            sudo python3 tests/shared_pid_ipc_bench.py target/release/kurumi-containerd --iterations 20
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"

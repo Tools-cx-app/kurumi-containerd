@@ -1,0 +1,148 @@
+#!/usr/bin/python3
+# Copyright (C) 2026 Tools-cx-app
+# SPDX-License-Identifier: GPL-v3-only
+"""Foreground Dinit/s6 transaction for a private Kurumi rootfs."""
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+RUN = Path("/run/kurumi-services")
+LIVE = "/run/s6/state"
+SCAN = str(RUN / "scan")
+stopping = False
+children = []
+logs = []
+
+
+def request_stop(signum, frame):
+    global stopping
+    stopping = True
+
+
+def command(*args, timeout=20):
+    subprocess.run(args, check=True, timeout=timeout)
+
+
+def start(*args, log):
+    stream = (RUN / log).open("ab", buffering=0)
+    logs.append(stream)
+    child = subprocess.Popen(args, stdout=stream, stderr=subprocess.STDOUT)
+    children.append(child)
+    return child
+
+
+def ready(predicate, description):
+    deadline = time.monotonic() + 20
+    while not predicate():
+        if stopping or any(child.poll() is not None for child in children):
+            raise RuntimeError("supervisor exited or shutdown requested during " + description)
+        if time.monotonic() >= deadline:
+            raise RuntimeError("timed out: " + description)
+        time.sleep(0.05)
+
+
+def shutdown(dinit, scan):
+    failed = False
+    # Stop orchestrators before workloads so they cannot start workloads again.
+    steps = []
+    if Path(LIVE).exists():
+        steps.append(("s6-rc", "-l", LIVE, "-t", "5000", "-d", "change", "servicectl-enabled"))
+    if dinit is not None and dinit.poll() is None:
+        steps.append(("dinitctl", "--system", "-p", "/run/dinitctl", "shutdown"))
+    for args in steps:
+        try:
+            command(*args, timeout=7)
+        except (OSError, subprocess.SubprocessError) as error:
+            print("shutdown:", error, file=sys.stderr)
+            failed = True
+    if dinit is not None:
+        try:
+            dinit.wait(timeout=7)
+        except subprocess.TimeoutExpired:
+            failed = True
+    if Path(LIVE).exists():
+        try:
+            command("s6-rc", "-l", LIVE, "-t", "5000", "-da", "change", timeout=7)
+        except (OSError, subprocess.SubprocessError) as error:
+            print("shutdown:", error, file=sys.stderr)
+            failed = True
+    if scan is not None and scan.poll() is None:
+        try:
+            command("s6-svscanctl", "-t", SCAN, timeout=2)
+        except (OSError, subprocess.SubprocessError):
+            scan.terminate()
+            failed = True
+    for child in children:
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+            failed = True
+    # Kurumi owns the cgroup-wide final cleanup, including orphan descendants.
+    return failed
+
+
+def main():
+    os.umask(0o077)
+    os.environ["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    os.environ["DINIT_SOCKET_PATH"] = "/run/dinitctl"
+    for name in ("DBUS_SYSTEM_BUS_ADDRESS", "DBUS_SESSION_BUS_ADDRESS", "DINIT_CS_FD"):
+        os.environ.pop(name, None)
+    for name in ("TERM", "INT", "HUP"):
+        signal.signal(getattr(signal, "SIG" + name), request_stop)
+    dinit = scan = None
+    result = 0
+    owned = False
+    cgroup = Path("/sys/fs/cgroup/servicectl.slice")
+    try:
+        if not (cgroup / "cgroup.controllers").exists():
+            raise RuntimeError("a delegated cgroup v2 subtree is required")
+        owned = True
+        Path(SCAN).mkdir()
+        Path("/run/dinit.d/generated").mkdir(parents=True, exist_ok=True)
+        Path("/run/servicectl").mkdir(mode=0o700, exist_ok=True)
+        Path("/run/s6").mkdir(exist_ok=True)
+        # Upstream orchestrators depend on the externally owned Dinit manager.
+        dependency = Path("/s6/rc/dinit")
+        dependency.mkdir(parents=True, exist_ok=True)
+        (dependency / "type").write_text("bundle\n")
+        (dependency / "contents").write_text("")
+        command("servicectl", "ensure-s6")
+        command("s6-rc-compile", str(RUN / "bootdb"), "/s6/rc")
+        dinit = start("dinit", "--system", "--container", "--services-dir", "/etc/dinit.d",
+                     "--services-dir", "/run/dinit.d/generated", "--socket-path", "/run/dinitctl",
+                     "--log-file", str(RUN / "dinit-events.log"), "kurumi-anchor", log="dinit.log")
+        ready(lambda: Path("/run/dinitctl").is_socket(), "Dinit control socket")
+        command("servicectl", "dinit", "list")  # Validates control protocol >= 5.
+        scan = start("s6-svscan", SCAN, log="control-plane.log")
+        ready(lambda: Path(SCAN, ".s6-svscan/control").exists(), "s6-svscan")
+        command("s6-rc-init", "-t", "10000", "-c", str(RUN / "bootdb"), "-l", LIVE, SCAN)
+        command("s6-rc", "-l", LIVE, "-t", "15000", "-u", "change",
+                "sys-propertyd", "servicectl-api", "sysvisiond", "sys-cgroupd", "sys-logd")
+        ready(lambda: Path("/run/servicectl/sys-cgroupd.sock").is_socket(), "cgroup tracking socket")
+        command("s6-rc", "-l", LIVE, "-t", "15000", "-u", "change", "default")
+        (RUN / "ready").touch()
+        while not stopping:
+            if any(child.poll() is not None for child in children):
+                raise RuntimeError("Dinit or s6-svscan exited unexpectedly")
+            time.sleep(0.1)
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        print("kurumi-services:", error, file=sys.stderr)
+        result = 1
+    finally:
+        if owned:
+            if shutdown(dinit, scan):
+                result = 1
+            (RUN / "ready").unlink(missing_ok=True)
+            (RUN / "stopped").write_text(str(result) + "\n")
+        for stream in logs:
+            stream.close()
+    return result
+
+
+if __name__ == "__main__":
+    sys.exit(main())

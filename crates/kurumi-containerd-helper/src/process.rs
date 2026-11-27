@@ -55,6 +55,21 @@ pub fn parent_pid() -> i32 {
     unsafe { libc::getppid() }
 }
 
+/// Adopts orphaned descendants so the generation worker can reap them.
+pub fn set_child_subreaper() -> io::Result<()> {
+    // SAFETY: PR_SET_CHILD_SUBREAPER takes an integer flag and unused zero arguments.
+    cvt(unsafe {
+        libc::prctl(
+            libc::PR_SET_CHILD_SUBREAPER,
+            1 as libc::c_ulong,
+            0 as libc::c_ulong,
+            0 as libc::c_ulong,
+            0 as libc::c_ulong,
+        )
+    })
+    .map(drop)
+}
+
 /// # Safety
 ///
 /// The caller must ensure the process is single-threaded or otherwise obey

@@ -9,6 +9,12 @@ license.workspace = true
 
 [features]
 default = []
+servicectl = [
+  "kurumi-containerd-config/servicectl",
+  "kurumi-containerd-host/servicectl",
+  "kurumi-containerd-runtime/servicectl",
+  "kurumi-containerd-tui?/servicectl",
+]
 tui = ["dep:kurumi-containerd-tui"]
 
 [dependencies]

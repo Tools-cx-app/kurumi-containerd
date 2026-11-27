@@ -13,6 +13,7 @@ fn details_preserve_running_and_inactive_container_fields() {
     let mut info = ContainerInfo {
         name: "test".into(),
         active: true,
+        isolation: kurumi_containerd_config::IsolationMode::Isolated,
         init_pid: Some(123),
         monitor_pid: Some(122),
         rootfs: "/rootfs".into(),
@@ -25,13 +26,26 @@ fn details_preserve_running_and_inactive_container_fields() {
     };
     assert_eq!(
         info_lines(&info).join("\n"),
-        "Name: test\nActive: active (running) for 1d 02h 03m 04s\nMain PID: 123 (systemd)\nMonitor PID: 122\nTasks: 4\nMemory: 1.5 GiB\nGeneration: 1\nRootfs: /rootfs\nUUID: 00000000-0000-0000-0000-000000000000"
+        "Name: test\nIsolation: isolated\nActive: active (running) for 1d 02h 03m 04s\nMain PID: 123 (systemd)\nMonitor PID: 122\nTasks: 4\nMemory: 1.5 GiB\nGeneration: 1\nRootfs: /rootfs\nUUID: 00000000-0000-0000-0000-000000000000"
+    );
+    info.init_pid = None;
+    assert!(
+        info_lines(&info)
+            .iter()
+            .any(|line| line.contains("active (cleanup pending)"))
     );
     info.active = false;
+    #[cfg(feature = "servicectl")]
+    {
+        info.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
+    }
     info.uuid = None;
     assert_eq!(
         info_lines(&info).join("\n"),
-        "Name: test\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned"
+        format!(
+            "Name: test\nIsolation: {}\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned",
+            info.isolation
+        )
     );
 }
 
@@ -187,6 +201,7 @@ fn narrow_details_wrap_long_container_info() {
         info: Ok(ContainerInfo {
             name: "small-screen".into(),
             active: false,
+            isolation: kurumi_containerd_config::IsolationMode::Isolated,
             init_pid: None,
             monitor_pid: None,
             rootfs: PathBuf::from("/a/very/long/rootfs/path/that/must/wrap/on/small/screens"),
