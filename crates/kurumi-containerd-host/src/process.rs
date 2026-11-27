@@ -6,15 +6,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{
-    Result,
-    error::{ErrorContext as _, bail},
-};
 use kurumi_containerd_helper::{
     process::{is_interrupted, pidfd_open},
     signal::{SignalNumber, pidfd_send_signal},
 };
 use mio::{Events, Interest, Poll, Token, unix::SourceFd};
+
+use crate::{
+    Result,
+    error::{ErrorContext as _, bail},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProcessId(i32);

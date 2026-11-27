@@ -7,16 +7,15 @@ mod config;
 mod environment;
 mod model;
 mod registry;
-pub use registry::ConfigEntry;
 
-pub use config::resolve_container_path;
-pub use config::{ConfigError, Result};
+pub use config::{ConfigError, Result, resolve_container_path};
 pub use environment::parse_environment;
 pub use model::{
     AndroidConfig, BindMount, BinfmtArch, BinfmtConfig, Config, ContainerConfig, IsolationMode,
     NetworkConfig, NetworkMode, PortForward, Protocol, ResourceConfig, RuntimeConfig,
     SecurityConfig,
 };
+pub use registry::ConfigEntry;
 
 /// Validates a configuration value, including any normalization required by
 /// the configuration format.

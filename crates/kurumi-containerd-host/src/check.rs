@@ -3,10 +3,11 @@
 
 use std::{os::unix::fs::PermissionsExt, path::Path};
 
-use crate::{Result, process::ProcessHandle};
 use kurumi_containerd_helper::process::{
     ForkResult, NamespaceFlags, WaitStatus, fork, unshare, waitpid,
 };
+
+use crate::{Result, process::ProcessHandle};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Capability {

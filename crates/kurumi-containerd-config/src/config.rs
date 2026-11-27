@@ -10,16 +10,13 @@ use std::{
 };
 
 use fs2::FileExt;
+use kurumi_containerd_error::{config::ErrorContext as _, config_bail as bail, config_ensure as ensure};
+pub use kurumi_containerd_error::config::{ConfigError, Result};
 use uuid::Uuid;
 
 use crate::{
     BinfmtConfig, Config, NetworkMode, Protocol, Validate, environment::valid_env_key,
     parse_environment,
-};
-
-pub use kurumi_containerd_error::config::{ConfigError, Result};
-use kurumi_containerd_error::{
-    config::ErrorContext as _, config_bail as bail, config_ensure as ensure,
 };
 
 impl Config {

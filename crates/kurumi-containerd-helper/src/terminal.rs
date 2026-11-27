@@ -1,14 +1,14 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
+use std::{
+    io,
+    os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd},
+};
 #[cfg(target_os = "android")]
 use std::{
     fs::OpenOptions,
     os::{fd::AsFd, unix::fs::OpenOptionsExt},
-};
-use std::{
-    io,
-    os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd},
 };
 
 use crate::syscall::cvt;

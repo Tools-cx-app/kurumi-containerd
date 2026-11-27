@@ -3,8 +3,7 @@
 
 use tempfile::tempdir;
 
-use super::super::detect_filesystem;
-use super::*;
+use super::{super::detect_filesystem, *};
 
 #[test]
 fn directory_install_commits_valid_archive() {

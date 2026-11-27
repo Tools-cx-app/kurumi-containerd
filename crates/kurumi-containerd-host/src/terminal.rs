@@ -7,11 +7,6 @@ use std::{
     sync::atomic::{AtomicI32, Ordering},
 };
 
-use super::process::ProcessHandle;
-use crate::{
-    Result,
-    error::{ErrorContext as _, bail},
-};
 use kurumi_containerd_helper::{
     fs::set_file_mode,
     process::{
@@ -25,6 +20,12 @@ use kurumi_containerd_helper::{
         set_terminal_settings, set_terminal_size, socket_pair, terminal_settings, terminal_size,
     },
 };
+
+use crate::{
+    Result,
+    error::{ErrorContext as _, bail},
+};
+use super::process::ProcessHandle;
 
 static FORWARDED_SIGNAL: AtomicI32 = AtomicI32::new(0);
 const PTY_MODE: u32 = 0o620;

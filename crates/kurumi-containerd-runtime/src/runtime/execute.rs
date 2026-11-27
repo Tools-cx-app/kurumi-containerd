@@ -15,10 +15,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{
-    Result,
-    error::{ErrorContext as _, bail, ensure},
-};
 use kurumi_containerd_config::{AndroidConfig, IsolationMode};
 use kurumi_containerd_helper::{
     process::{
@@ -31,8 +27,9 @@ use kurumi_containerd_helper::{
 use procfs::process::Process;
 
 use crate::{
-    Runtime,
+    Result, Runtime,
     container::{environment, security},
+    error::{ErrorContext as _, bail, ensure},
     host::{cgroup::Cgroup, terminal},
     runtime::state::{validate_monitor_identity_for, validate_process_identity_for},
 };
@@ -446,7 +443,10 @@ fn exec_failure(message: &str) -> ! {
     std::process::exit(126)
 }
 
-fn result_or_exit<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -> T {
+fn result_or_exit<T, E>(result: std::result::Result<T, E>) -> T
+where
+    E: std::fmt::Display,
+{
     result.unwrap_or_else(|error| exec_failure(&format!("{error:#}")))
 }
 

@@ -1,9 +1,11 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use super::{create_mountpoint_file, make_bind_tree_read_only};
-use kurumi_containerd_helper::fs::{MountFlags, mount, unmount};
 use std::{fs, path::Path};
+
+use kurumi_containerd_helper::fs::{MountFlags, mount, unmount};
+
+use super::{create_mountpoint_file, make_bind_tree_read_only};
 
 #[test]
 fn existing_mountpoint_file_is_not_truncated() {

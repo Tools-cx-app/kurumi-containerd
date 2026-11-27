@@ -1,8 +1,6 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use super::*;
-
 use std::{
     io::BufRead,
     os::unix::process::ExitStatusExt,
@@ -10,6 +8,8 @@ use std::{
     sync::mpsc::{self, RecvTimeoutError},
     thread,
 };
+
+use super::*;
 
 #[test]
 fn startup_errors_reach_parent_or_require_fallback_logging() {

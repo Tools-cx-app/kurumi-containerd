@@ -3,8 +3,10 @@
 
 use std::os::unix::fs::{PermissionsExt, symlink};
 
-use super::state::{NatLease, NatLeaseOwner, network_state_dir};
-use super::*;
+use super::{
+    state::{NatLease, NatLeaseOwner, network_state_dir},
+    *,
+};
 
 #[test]
 fn network_state_uses_supplied_directory_for_cleanup() {

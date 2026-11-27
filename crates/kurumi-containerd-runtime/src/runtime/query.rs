@@ -22,7 +22,10 @@ pub trait ContainerQuery {
     fn list(&self) -> Result<Vec<ContainerState>>;
 }
 
-impl<T: ContainerRuntime + ?Sized> ContainerQuery for T {
+impl<T> ContainerQuery for T
+where
+    T: ContainerRuntime + ?Sized,
+{
     fn info(&self) -> Result<ContainerInfo> {
         ContainerRuntime::info(self)
     }

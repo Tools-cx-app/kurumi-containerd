@@ -1,7 +1,6 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use super::*;
 use std::{
     sync::mpsc::{self, RecvTimeoutError},
     thread,
@@ -10,6 +9,8 @@ use std::{
 
 use tempfile::{TempDir, tempdir};
 use uuid::Uuid;
+
+use super::*;
 
 fn fixture() -> (TempDir, StateStore, ContainerState) {
     let directory = tempdir().unwrap();

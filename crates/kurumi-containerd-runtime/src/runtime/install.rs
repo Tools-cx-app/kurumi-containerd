@@ -3,9 +3,7 @@
 
 use std::path::Path;
 
-use crate::{Result, error::ensure};
-
-use crate::Runtime;
+use crate::{Result, Runtime, error::ensure};
 
 impl Runtime {
     /// Installs a local rootfs archive into the configured directory or image.

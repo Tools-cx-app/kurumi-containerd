@@ -3,8 +3,8 @@
 
 //! Host resources used to construct and supervise a container.
 
-use kurumi_containerd_error as error;
 pub use kurumi_containerd_error::{Result, RuntimeError};
+use kurumi_containerd_error as error;
 
 #[cfg(target_os = "android")]
 pub mod android;

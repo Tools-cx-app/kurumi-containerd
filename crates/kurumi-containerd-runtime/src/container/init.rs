@@ -8,7 +8,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{Result, RuntimeError, error::bail};
 use kurumi_containerd_config::Config;
 use kurumi_containerd_helper::{
     fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW, OPEN_NONBLOCK},
@@ -16,7 +15,7 @@ use kurumi_containerd_helper::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::host::process::ProcessHandle;
+use crate::{Result, RuntimeError, error::bail, host::process::ProcessHandle};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Init {

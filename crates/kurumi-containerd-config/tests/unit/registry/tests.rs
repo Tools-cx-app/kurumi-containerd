@@ -1,8 +1,9 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use super::*;
 use serde_json::json;
+
+use super::*;
 
 #[test]
 fn selects_by_container_name_and_rejects_invalid_registries() {

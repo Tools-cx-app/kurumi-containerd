@@ -6,14 +6,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::{Result, error::ErrorContext as _};
 use kurumi_containerd_config::IsolationMode;
 use procfs::process::all_processes;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::{Result, Runtime, container::init::InitSystem, error::ErrorContext as _};
 use super::{ContainerState, process_namespace_inode};
-use crate::{Runtime, container::init::InitSystem};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ContainerInfo {
@@ -38,8 +37,8 @@ impl std::fmt::Display for ContainerInfo {
 }
 
 impl ContainerInfo {
-    /// Legacy text presentation; new frontends should format the fields directly.
-    // shortcut: preserve the public text API until a breaking release can remove it.
+    /// Legacy text presentation retained until a breaking release.
+    /// New frontends should format the fields directly.
     #[must_use]
     pub fn display_lines(&self) -> Vec<String> {
         let mut lines = vec![format!("Name: {}", self.name)];

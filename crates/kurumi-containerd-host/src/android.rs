@@ -6,13 +6,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use kurumi_containerd_config::AndroidConfig;
+use kurumi_containerd_helper::fs::{MountFlags, mount};
+
 use crate::{
     Result,
     error::{ErrorContext as _, ensure},
 };
-use kurumi_containerd_config::AndroidConfig;
-use kurumi_containerd_helper::fs::{MountFlags, mount};
-
 pub use crate::selinux::SelinuxGuard;
 
 const GPU_DIRECTORIES: &[(&str, &str)] = &[

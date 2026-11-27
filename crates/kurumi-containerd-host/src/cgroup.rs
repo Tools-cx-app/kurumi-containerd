@@ -10,11 +10,6 @@ use std::{
     },
     path::{Component, Path, PathBuf},
 };
-
-#[cfg(feature = "servicectl")]
-use crate::process::ProcessHandle;
-#[cfg(feature = "servicectl")]
-use kurumi_containerd_helper::{process::current_pid, signal::Signal};
 #[cfg(feature = "servicectl")]
 use std::{
     collections::BTreeSet,
@@ -23,16 +18,21 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{
-    Result,
-    error::{ErrorContext as _, ensure},
-};
 use kurumi_containerd_config::ResourceConfig;
 use kurumi_containerd_helper::fs::{MountFlags, TMPFS_MAGIC, filesystem_type, mount, unmount};
+#[cfg(feature = "servicectl")]
+use kurumi_containerd_helper::{process::current_pid, signal::Signal};
 use procfs::{
     ProcessCGroup,
     process::{MountInfo, Process},
 };
+
+use crate::{
+    Result,
+    error::{ErrorContext as _, ensure},
+};
+#[cfg(feature = "servicectl")]
+use crate::process::ProcessHandle;
 
 pub struct Cgroup {
     paths: Vec<PathBuf>,

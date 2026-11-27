@@ -17,11 +17,11 @@ use kurumi_containerd_helper::fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW};
 use tempfile::Builder;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
-use super::ensure_safe_link;
 use crate::{
     Result,
     error::{ErrorContext as _, bail, ensure},
 };
+use super::ensure_safe_link;
 
 pub(crate) fn backup(root: &Path, output: &Path) -> Result<()> {
     let extension = output.extension().and_then(|value| value.to_str());
@@ -193,7 +193,10 @@ fn open_file(path: &Path) -> Result<File> {
         .open(path)?)
 }
 
-fn write_tar<W: Write>(root: &Path, device: u64, writer: W) -> Result<W> {
+fn write_tar<W>(root: &Path, device: u64, writer: W) -> Result<W>
+where
+    W: Write,
+{
     let mut archive = tar::Builder::new(writer);
     archive.follow_symlinks(false);
     let mut hardlinks = HashMap::new();
@@ -237,7 +240,10 @@ fn write_tar<W: Write>(root: &Path, device: u64, writer: W) -> Result<W> {
     Ok(archive.into_inner()?)
 }
 
-fn write_zip<W: Write + std::io::Seek>(root: &Path, device: u64, writer: W) -> Result<()> {
+fn write_zip<W>(root: &Path, device: u64, writer: W) -> Result<()>
+where
+    W: Write + std::io::Seek,
+{
     tracing::warn!(
         "ZIP backup does not preserve ownership, timestamps, xattrs, special permission bits, or hardlink identity; use tar, .xz, or .zst for metadata preservation"
     );

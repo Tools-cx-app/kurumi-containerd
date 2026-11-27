@@ -8,14 +8,15 @@ use std::{
 };
 
 use fs2::FileExt;
-use kurumi_containerd_helper::fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW};
+use kurumi_containerd_helper::{
+    fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW},
+    process::current_pid,
+};
 use procfs::process::Process;
 use serde::{Deserialize, Serialize};
 
 use crate::{Result, error::ensure};
-
 use super::super::process::{host_boot_id, process_start_time};
-use kurumi_containerd_helper::process::current_pid;
 
 pub(super) fn network_lock(state_dir: &Path) -> Result<File> {
     let state_dir = network_state_dir(state_dir)?;

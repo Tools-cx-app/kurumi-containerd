@@ -8,23 +8,20 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{
-    Result,
-    error::{ErrorContext as _, bail, ensure},
-};
 use kurumi_containerd_helper::{
     fs::{MountFlags, make_mount_tree_read_only, mount, unmount},
     process::{NamespaceFlags, chdir, close_fds_except, execve, pivot_root, set_hostname, unshare},
 };
 use uuid::Uuid;
 
-#[cfg(target_os = "android")]
-use crate::host::android;
 use crate::{
-    Runtime,
+    Result, Runtime,
     container::{environment, init, security},
+    error::{ErrorContext as _, bail, ensure},
     host::{network::Network, terminal},
 };
+#[cfg(target_os = "android")]
+use crate::host::android;
 
 impl Runtime {
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]

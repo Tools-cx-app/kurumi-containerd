@@ -5,8 +5,8 @@ use std::{fs, os::unix::fs::PermissionsExt, path::Path, sync::Arc};
 
 use tempfile::tempdir;
 
-use super::*;
 use crate::config::{safe_container_path, valid_name};
+use super::*;
 
 #[test]
 fn loads_init_absolute_symlink_inside_rootfs() {

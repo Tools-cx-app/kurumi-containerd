@@ -1,11 +1,6 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use crate::{
-    action::{ACTIONS, ActionKind, allowed},
-    registry::Entry,
-    state::{Focus, UiState},
-};
 use kurumi_containerd_runtime::ContainerInfo;
 use ratatui::{
     Frame,
@@ -15,6 +10,12 @@ use ratatui::{
     widgets::{
         Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap,
     },
+};
+
+use crate::{
+    action::{ACTIONS, ActionKind, allowed},
+    registry::Entry,
+    state::{Focus, UiState},
 };
 
 const ACCENT: Color = Color::Rgb(203, 166, 247);

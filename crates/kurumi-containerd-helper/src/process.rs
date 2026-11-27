@@ -8,8 +8,10 @@ use std::{
     path::Path,
 };
 
-use crate::signal::SignalNumber;
-use crate::syscall::{cvt, cvt_long, cvt_ssize, path_cstring};
+use crate::{
+    signal::SignalNumber,
+    syscall::{cvt, cvt_long, cvt_ssize, path_cstring},
+};
 
 const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
 

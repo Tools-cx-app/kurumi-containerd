@@ -1,12 +1,14 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use super::*;
+use std::path::PathBuf;
+
 use kurumi_containerd_config::ConfigEntry;
 use kurumi_containerd_runtime::ContainerInfo;
 use ratatui::{Terminal, backend::TestBackend};
-use std::path::PathBuf;
 use uuid::Uuid;
+
+use super::*;
 
 #[test]
 fn details_preserve_running_and_inactive_container_fields() {

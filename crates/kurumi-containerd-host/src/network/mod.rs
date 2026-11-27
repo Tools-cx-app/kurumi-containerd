@@ -9,12 +9,13 @@ use std::{
     process::Command,
 };
 
+use kurumi_containerd_config::{Config, NetworkMode, Protocol};
+use kurumi_containerd_helper::process::{NamespaceFlags, setns};
+
 use crate::{
     Result, RuntimeError,
     error::{ErrorContext as _, bail, ensure},
 };
-use kurumi_containerd_config::{Config, NetworkMode, Protocol};
-use kurumi_containerd_helper::process::{NamespaceFlags, setns};
 
 mod state;
 
@@ -45,11 +46,11 @@ impl Network {
         Self::setup_host_inner(name, mode, options, init_pid, host_netns, state_dir)
     }
 
-    #[allow(clippy::too_many_lines)]
     /// Configures host links and rules using the supplied state directory.
     ///
     /// # Errors
     /// Returns namespace, state access, or network command failures.
+    #[allow(clippy::too_many_lines)]
     pub fn setup_host(
         config: &Config,
         init_pid: i32,

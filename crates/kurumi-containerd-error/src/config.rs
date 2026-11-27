@@ -49,7 +49,10 @@ pub trait ErrorContext<T> {
     fn with_context(self, context: impl FnOnce() -> String) -> Result<T>;
 }
 
-impl<T, E: Into<ConfigError>> ErrorContext<T> for std::result::Result<T, E> {
+impl<T, E> ErrorContext<T> for std::result::Result<T, E>
+where
+    E: Into<ConfigError>,
+{
     fn context(self, context: &'static str) -> Result<T> {
         self.with_context(|| context.to_owned())
     }

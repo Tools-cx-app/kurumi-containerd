@@ -6,14 +6,14 @@ use std::{
     path::PathBuf,
 };
 
-mod output;
-
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use kurumi_containerd_config::ConfigEntry;
 use kurumi_containerd_host::check::{HostCapabilities, HostCheck};
 use kurumi_containerd_runtime::{ContainerRuntime, Runtime};
 use tracing::level_filters::LevelFilter;
+
+mod output;
 
 #[cfg(debug_assertions)]
 fn logger_writer() -> io::Stdout {
@@ -107,8 +107,8 @@ enum Commands {
     Scan,
     /// Check host capabilities.
     Check,
-    #[cfg(feature = "tui")]
     /// Open the interactive container manager.
+    #[cfg(feature = "tui")]
     Tui,
 }
 

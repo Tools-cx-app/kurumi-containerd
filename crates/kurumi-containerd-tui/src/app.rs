@@ -1,20 +1,22 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
+use std::{
+    io::{self, IsTerminal},
+    path::Path,
+    time::{Duration, Instant},
+};
+
+use anyhow::{Result, bail};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use ratatui::{Terminal, backend::CrosstermBackend};
+
 use crate::{
     action::{ACTIONS, allowed},
     backend::{Backend, CommandTask, Launch},
     state::UiState,
     terminal::Screen,
     view::draw,
-};
-use anyhow::{Result, bail};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use ratatui::{Terminal, backend::CrosstermBackend};
-use std::{
-    io::{self, IsTerminal},
-    path::Path,
-    time::{Duration, Instant},
 };
 
 /// Runs the ratatui manager and delegates operations to the CLI executable.

@@ -8,12 +8,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use kurumi_containerd_config::Config;
+use kurumi_containerd_helper::fs::{LoopController, LoopDevice, MountFlags, mount, unmount};
+
 use crate::{
     Result,
     error::{ErrorContext as _, bail},
 };
-use kurumi_containerd_config::Config;
-use kurumi_containerd_helper::fs::{LoopController, LoopDevice, MountFlags, mount, unmount};
 
 mod install;
 #[cfg(test)]

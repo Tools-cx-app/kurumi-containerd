@@ -8,10 +8,9 @@ use std::{
 };
 
 use fs2::FileExt;
-
-use crate::{Result, RuntimeError, error::ErrorContext as _};
 use kurumi_containerd_helper::fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW};
 
+use crate::{Result, RuntimeError, error::ErrorContext as _};
 use super::{
     ContainerState, ensure_trusted_directory, read_state, remove_if_exists, state_is_present,
     write_state_atomic,

@@ -11,10 +11,6 @@ use std::{
     process::Command,
 };
 
-use crate::{
-    Result,
-    error::{ErrorContext as _, bail, ensure},
-};
 use kurumi_containerd_helper::{
     fs::{
         LoopController, LoopDevice, MountFlags, mount, rename_exchange, sync_filesystem, unmount,
@@ -23,8 +19,11 @@ use kurumi_containerd_helper::{
 };
 use uuid::Uuid;
 
+use crate::{
+    Result, archive,
+    error::{ErrorContext as _, bail, ensure},
+};
 use super::Rootfs;
-use crate::archive;
 
 impl Rootfs {
     /// Extracts and validates an archive before committing the rootfs replacement.

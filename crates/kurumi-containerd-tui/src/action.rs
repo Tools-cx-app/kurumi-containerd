@@ -1,9 +1,11 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use crate::registry::Entry;
-use anyhow::{Result, bail};
 use std::{ffi::OsString, path::PathBuf};
+
+use anyhow::{Result, bail};
+
+use crate::registry::Entry;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Action {

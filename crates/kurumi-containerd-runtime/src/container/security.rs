@@ -3,7 +3,6 @@
 
 use std::path::Path;
 
-use crate::{Result, error::ErrorContext as _};
 use kurumi_containerd_config::{IsolationMode, SecurityConfig};
 use kurumi_containerd_helper::{
     fs::{MountFlags, mount},
@@ -14,9 +13,10 @@ use kurumi_containerd_helper::{
         syscall_clone3, syscall_socket, syscall_unshare,
     },
 };
-
 #[cfg(feature = "servicectl")]
 use kurumi_containerd_helper::security::syscall_reboot;
+
+use crate::{Result, error::ErrorContext as _};
 
 const BPF_LD_W_ABS: u16 = 0x20;
 const BPF_JMP_JEQ_K: u16 = 0x15;

@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use super::*;
 use crate::state::UiState;
+use super::*;
 
 #[test]
 fn screen_focus_scrolls_details_and_output_independently() {

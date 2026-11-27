@@ -1,11 +1,12 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use super::*;
 use std::{
     fs,
     time::{Duration, Instant},
 };
+
+use super::*;
 
 const COMMAND_FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),

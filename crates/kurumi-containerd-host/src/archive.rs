@@ -8,10 +8,6 @@ use std::{
     path::{Component, Path},
 };
 
-use crate::{
-    Result,
-    error::{ErrorContext as _, bail, ensure},
-};
 use flate2::read::GzDecoder;
 use kurumi_containerd_helper::{
     fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW},
@@ -21,6 +17,11 @@ use tar::Archive;
 use xz2::read::XzDecoder;
 use zip::ZipArchive;
 use zstd::stream::read::Decoder as ZstdDecoder;
+
+use crate::{
+    Result,
+    error::{ErrorContext as _, bail, ensure},
+};
 
 mod backup;
 pub(crate) use backup::backup;

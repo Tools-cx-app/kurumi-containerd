@@ -9,6 +9,30 @@ builds also need a C toolchain and system libraries required by dependencies.
 Use [CI](../../.github/workflows/ci.yml) for cross-toolchain setup. See
 [Architecture](architecture.md) and [AGENTS.md](../../AGENTS.md) for crate ownership.
 
+## Rust style
+
+The root `rustfmt.toml` selects the 2024 formatting style, four-space indentation
+and a 100-column limit. It leaves import ordering to the project conventions
+below. Use the same conventions in source, tests, benchmarks and xtask. Run
+`cargo fmt --all` before the checks below.
+
+- Group imports in this order: standard library, third-party crates, then local
+  modules, with a blank line between groups. Order third-party crates by name.
+- Merge imports from the same crate within a scope, keeping different visibility,
+  attributes and `cfg` conditions separate. Keep `self` first, uppercase-leading
+  names before lowercase-leading names, and globs last within each group.
+- Expand outer import groups containing several module paths, with one child per
+  line and trailing commas. Keep short nested groups compact and single paths
+  unwrapped. Function bodies still use normal formatting.
+- Keep explicit generic parameter names in `<...>` and put their bounds in a
+  `where` clause, including a single short bound. Put `where` on its own line,
+  indent each predicate by four spaces, and retain trailing commas. Apply the
+  same convention to bounded `impl` parameters. Preserve existing constraints;
+  unconstrained lifetimes and const parameters do not need an empty clause.
+- Use `///` before attributes for descriptions of functions and methods, including
+  private functions. Use `//` for implementation notes inside bodies. Document
+  failure conditions when helpful without repeating error types from signatures.
+
 ## Routine checks
 
 Unit tests do not require root. The full local check is:

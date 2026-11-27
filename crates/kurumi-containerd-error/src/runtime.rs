@@ -53,8 +53,9 @@ pub trait ErrorContext<T> {
     fn with_context(self, context: impl FnOnce() -> String) -> crate::Result<T>;
 }
 
-impl<T, E: std::error::Error + Send + Sync + 'static> ErrorContext<T>
-    for std::result::Result<T, E>
+impl<T, E> ErrorContext<T> for std::result::Result<T, E>
+where
+    E: std::error::Error + Send + Sync + 'static,
 {
     fn context(self, context: &'static str) -> crate::Result<T> {
         self.with_context(|| context.to_owned())

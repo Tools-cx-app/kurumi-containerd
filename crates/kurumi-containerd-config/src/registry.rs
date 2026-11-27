@@ -1,16 +1,18 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use crate::{
-    Config, ConfigError, Result,
-    config::{lock_document, valid_name, write_document},
-};
-use kurumi_containerd_error::{config::ErrorContext as _, config_ensure as ensure};
 use std::{
     ffi::OsString,
     fs,
     os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
+};
+
+use kurumi_containerd_error::{config::ErrorContext as _, config_ensure as ensure};
+
+use crate::{
+    Config, ConfigError, Result,
+    config::{lock_document, valid_name, write_document},
 };
 
 /// A named container in the shared JSON configuration file.
