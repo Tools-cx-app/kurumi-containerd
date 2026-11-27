@@ -21,29 +21,19 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
       - name: Validate tag against Cargo version
         id: version
         run: |
-          python3 - <<'PY'
-          import os
-          import re
-          import tomllib
-
-          with open("Cargo.toml", "rb") as source:
-              version = tomllib.load(source)["workspace"]["package"]["version"]
-          if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version):
-              raise SystemExit(f"Unsupported release version: {version}")
-          if os.environ["GITHUB_REF_NAME"] != f"v{version}":
-              raise SystemExit(f"Release tag must match Cargo version: v{version}")
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write(f"version={version}\n")
-          PY
-      - name: Validate packaging scripts
+          version=$(cargo xtask validate-release --tag "$GITHUB_REF_NAME")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Validate packaging
         run: |
           sudo apt-get update
-          sudo apt-get install --yes rpm shellcheck
-          shellcheck .github/scripts/package-release.sh
-          python3 .github/scripts/test-package-release.py
+          sudo apt-get install --yes rpm
+          cargo test -p xtask
+          cargo test -p xtask native_packages -- --ignored
 
   build:
     name: Build (${{ matrix.target }})
@@ -102,36 +92,17 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
-      - name: Build Linux debug and release
-        if: matrix.platform == 'linux'
+      - name: Build and package debug and release
         run: |
-          cargo build --workspace --target "${{ matrix.target }}"
-          cargo build --workspace --release --features servicectl --target "${{ matrix.target }}"
-      - name: Build Android debug and release
-        if: matrix.platform == 'android'
-        run: |
-          cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace
-          cargo ndk --platform 21 --target "${{ matrix.abi }}" build --workspace --release --features servicectl
-      - name: Package debug and release
-        env:
-          TARGET: ${{ matrix.target }}
-          PLATFORM: ${{ matrix.platform }}
-          VERSION: ${{ needs.validate.outputs.version }}
-        run: |
-          PROFILE=debug bash .github/scripts/package-release.sh
-          PROFILE=release bash .github/scripts/package-release.sh
-      - name: Stage Android module release binary
-        if: matrix.platform == 'android'
-        run: |
-          mkdir -p "module-binary/${{ matrix.abi }}"
-          cp "target/${{ matrix.target }}/release/kurumi-containerd" \
-            "module-binary/${{ matrix.abi }}/kurumi-containerd"
+          unset CARGO_BUILD_TARGET # Run xtask on the host, even with a cross toolchain.
+          cargo xtask dist --target "${{ matrix.target }}"
+          cargo xtask dist --target "${{ matrix.target }}" --release
       - name: Upload Android module binary
         if: matrix.platform == 'android'
         uses: actions/upload-artifact@v7
         with:
-          name: module-binary-${{ matrix.abi }}
-          path: module-binary/*/kurumi-containerd
+          name: kurumi-containerd-android-${{ matrix.abi }}
+          path: target/${{ matrix.target }}/release/kurumi-containerd
           if-no-files-found: error
       - name: Upload debug and release artifacts
         uses: actions/upload-artifact@v7
@@ -174,19 +145,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: release-with-tui-${{ matrix.target }}
-      - name: Build debug and release with TUI
+      - name: Build and package debug and release with TUI
         run: |
-          cargo build -p kurumi-containerd --features tui --target "${{ matrix.target }}"
-          cargo build -p kurumi-containerd --features tui,servicectl --release --target "${{ matrix.target }}"
-      - name: Package debug and release
-        env:
-          TARGET: ${{ matrix.target }}
-          PLATFORM: linux
-          VERSION: ${{ needs.validate.outputs.version }}
-          VARIANT: with-tui
-        run: |
-          PROFILE=debug bash .github/scripts/package-release.sh
-          PROFILE=release bash .github/scripts/package-release.sh
+          unset CARGO_BUILD_TARGET # Run xtask on the host.
+          cargo xtask dist --target "${{ matrix.target }}" --with-tui
+          cargo xtask dist --target "${{ matrix.target }}" --with-tui --release
       - name: Upload debug and release artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -266,18 +229,12 @@ jobs:
       - name: Download Android binaries
         uses: actions/download-artifact@v8
         with:
-          pattern: module-binary-*
+          pattern: kurumi-containerd-android-*
           path: artifacts
-          merge-multiple: true
-      - name: Arrange Android binaries
-        run: |
-          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
-            mkdir -p "artifacts/kurumi-containerd-android-$abi"
-            test -s "artifacts/$abi/kurumi-containerd"
-            mv "artifacts/$abi/kurumi-containerd" "artifacts/kurumi-containerd-android-$abi/"
-          done
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
       - name: Package Android module
-        run: python3 .github/scripts/package-android-module.py --binaries artifacts --output dist --version "${{ needs.validate.outputs.version }}" --version-code "$GITHUB_RUN_NUMBER"
+        run: cargo xtask android-module --binaries artifacts --version-code "$GITHUB_RUN_NUMBER"
       - name: Upload module package
         uses: actions/upload-artifact@v7
         with:

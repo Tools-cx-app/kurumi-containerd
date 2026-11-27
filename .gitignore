@@ -1,8 +1,7 @@
 /target/
+/dist/
 /kurumi-containerd.toml
 /var/
-
-/.github/scripts/__pycache__/
 
 *.img
 *.log

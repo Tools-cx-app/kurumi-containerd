@@ -9,6 +9,8 @@ on:
     paths:
       - "crates/**"
       - "Cargo.*"
+      - "xtask/**"
+      - ".cargo/**"
       - "android/**"
       - ".github/workflows/ci.yml"
   pull_request:
@@ -16,6 +18,8 @@ on:
     paths:
       - "crates/**"
       - "Cargo.*"
+      - "xtask/**"
+      - ".cargo/**"
       - "android/**"
       - ".github/workflows/ci.yml"
   workflow_dispatch:
@@ -67,8 +71,9 @@ jobs:
 
       - name: Build debug and release
         run: |
-          cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace
-          cargo ndk --platform 21 --target ${{ matrix.abi }} build --workspace --release --features servicectl
+          unset CARGO_BUILD_TARGET # Run xtask on the host, even with a cross toolchain.
+          cargo xtask build --target ${{ matrix.target }}
+          cargo xtask build --target ${{ matrix.target }} --release
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v7
@@ -96,16 +101,15 @@ jobs:
         with:
           pattern: kurumi-containerd-android-*
           path: artifacts
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
       - name: Package module
-        run: |
-          python3 .github/scripts/package-android-module.py \
-            --binaries artifacts --output dist --version "$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"])')" \
-            --version-code "$GITHUB_RUN_NUMBER"
+        run: cargo xtask android-module --binaries artifacts --version-code "$GITHUB_RUN_NUMBER"
       - name: Validate module scripts
         run: |
           sh -n android/module/customize.sh android/module/service.sh \
             android/module/bin/kurumi-containerd android/module/system/bin/kurumi-containerd
-          python3 .github/scripts/test-android-module.py
+          cargo test -p xtask
       - name: Upload module artifact
         uses: actions/upload-artifact@v7
         with:
@@ -151,8 +155,9 @@ jobs:
 
       - name: Build debug and release
         run: |
-          cargo build --workspace --target ${{ matrix.target }}
-          cargo build --workspace --release --features servicectl --target ${{ matrix.target }}
+          unset CARGO_BUILD_TARGET # Run xtask on the host, even with a cross toolchain.
+          cargo xtask build --target ${{ matrix.target }}
+          cargo xtask build --target ${{ matrix.target }} --release
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v7
@@ -205,8 +210,9 @@ jobs:
 
       - name: Build debug and release with TUI
         run: |
-          cargo build -p kurumi-containerd --features tui --target ${{ matrix.target }}
-          cargo build -p kurumi-containerd --features tui,servicectl --release --target ${{ matrix.target }}
+          unset CARGO_BUILD_TARGET # Run xtask on the host.
+          cargo xtask build --target ${{ matrix.target }} --with-tui
+          cargo xtask build --target ${{ matrix.target }} --with-tui --release
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v7

@@ -48,28 +48,28 @@ sudo cargo run --release -p kurumi-containerd --features servicectl -- check
 
 ## 构建
 
-```bash
-cargo build --release -p kurumi-containerd --features servicectl
-```
-
-`servicectl` feature 默认关闭，用于启用 `shared-pid-ipc` 支持。
-CI 和标签发布仅为 release 产物启用它，debug 产物不包含该功能。
-Cargo profile 不会自动选择 feature，本地 release 构建也需显式添加
-`--features servicectl`。
-
-生成的二进制位于 `target/release/kurumi-containerd`。
-
-`tui` Cargo feature 默认关闭。构建时启用终端管理界面：
+本地与 CI 统一使用 `cargo xtask` 编译、打包：
 
 ```bash
-cargo build --release -p kurumi-containerd --features tui,servicectl
+cargo xtask build --release
+cargo xtask build --release --with-tui
+cargo xtask dist --target x86_64-unknown-linux-gnu --release
 ```
 
-未启用该 feature 时，`tui` 子命令不可用。
-纯 CLI 构建需指定 `-p kurumi-containerd`；`--workspace` 仍会单独构建 TUI crate。
+`build` 默认构建 debug；`--release` 同时启用支持共享 PID/IPC 的 `servicectl`。
+`--with-tui` 为 Linux 构建加入终端管理界面。宿主构建的二进制位于
+`target/release/kurumi-containerd`；`--target` 接受 Linux triple 或 Android
+triple/ABI，产物位于 `target/<triple>/<profile>/`。
 
-CI 和 Release 为所有 Linux target 提供带 `-with-tui` 后缀的 debug/release 产物。
-Android 产物使用默认的不带 TUI 构建。
+`dist` 编译后打包到 `dist/`；`package` 接受相同选项，仅打包已有二进制，
+也可通过 `--binary <路径>` 指定文件。GNU Linux 生成 tar.xz、Debian 和 RPM 包，
+musl、Android 生成 tar.xz。原生包需要 `readelf`、`dpkg-deb`、`rpmbuild` 和 `rpm`；
+Android 构建需要 NDK 和 cargo-ndk，使用 API 21。
+
+CI 和 Release 为所有 Linux target 提供带 `-with-tui` 后缀的 debug/release 产物，
+Android 产物不含 TUI。模块打包及交叉编译示例见[开发与验证](docs/zh/development.md)，
+全部命令见 `cargo xtask --help`。仍可直接用 Cargo 的 `--features tui,servicectl`
+构建；两项 feature 均默认关闭，Cargo profile 本身不会启用它们。
 
 ## 基准测试
 

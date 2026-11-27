@@ -51,29 +51,31 @@ sudo cargo run --release -p kurumi-containerd --features servicectl -- check
 
 ## Build
 
-```bash
-cargo build --release -p kurumi-containerd --features servicectl
-```
-
-The optional `servicectl` feature enables `shared-pid-ipc` support. It is disabled
-by default. CI and tag releases enable it only for release artifacts; debug
-artifacts omit it. Cargo profiles do not select features automatically, so local
-release builds also need `--features servicectl`.
-
-The binary is written to `target/release/kurumi-containerd`.
-
-The `tui` Cargo feature is disabled by default. To include the terminal manager:
+Build and packaging tasks use `cargo xtask`, following the same workflow locally
+and in CI:
 
 ```bash
-cargo build --release -p kurumi-containerd --features tui,servicectl
+cargo xtask build --release
+cargo xtask build --release --with-tui
+cargo xtask dist --target x86_64-unknown-linux-gnu --release
 ```
 
-Without this feature, the `tui` subcommand is unavailable.
-Select `-p kurumi-containerd` for a CLI-only build;
-`--workspace` also builds the standalone TUI crate.
+`build` defaults to debug; `--release` also enables `servicectl` for shared PID/IPC
+support. `--with-tui` enables the terminal manager on Linux. A host build writes
+`target/release/kurumi-containerd`; `--target` selects a Linux triple or Android
+triple/ABI, with output under `target/<triple>/<profile>/`.
+
+`dist` builds and packages into `dist/`. `package` accepts the same options and
+packages an existing binary, optionally selected with `--binary <path>`.
+GNU Linux targets produce tar.xz, Debian and RPM packages; musl and Android
+produce tar.xz. Native packages need `readelf`, `dpkg-deb`, `rpmbuild` and `rpm`.
+Android builds need the NDK and cargo-ndk, using API 21.
 
 CI and releases provide `-with-tui` debug and release artifacts for every Linux
-target. Android artifacts use the default build without TUI.
+target. Android artifacts omit TUI. See [Development](docs/en/development.md)
+for module packaging and cross-compilation examples, or run `cargo xtask --help`.
+Direct Cargo builds still support `--features tui,servicectl`; both features are
+disabled by default and Cargo profiles alone do not enable them.
 
 ## Benchmarks
 

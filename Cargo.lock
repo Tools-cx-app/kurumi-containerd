@@ -2450,6 +2450,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "xtask"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde_json",
+ "tar",
+ "tempfile",
+ "xz2",
+ "zip",
+]
+
+[[package]]
 name = "xz2"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

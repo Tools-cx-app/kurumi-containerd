@@ -33,22 +33,22 @@ CLI 包名为 `kurumi-containerd`，默认不启用可选 feature：
 | `--features tui,servicectl` | 同时启用两项 |
 
 ```sh
-cargo build --release -p kurumi-containerd --features tui,servicectl
+cargo xtask build --release --with-tui
 cargo test --workspace --features tui,servicectl
 cargo clippy --workspace --all-targets --features tui,servicectl -- -D warnings
 ```
 
-`--workspace` 会构建独立 TUI crate，但不等于为 CLI 启用 `tui`。CI 的 release
-产物启用 `servicectl`，debug 产物不启用；Linux 另有 `-with-tui` 产物。
-Cargo profile 不会自动启用 feature。修改受 feature 控制的代码时，检查对应组合。
+`--workspace` 会构建独立 TUI crate，但不等于为 CLI 启用 `tui`。xtask 和 CI 的
+release 构建启用 `servicectl`，debug 不启用；Linux 另有 `-with-tui` 产物。
+直接使用 Cargo 时仍需显式选择 feature，Cargo profile 不会自动启用它们。
+修改受 feature 控制的代码时，检查对应组合。
 
 ## 跨平台编译
 
-CI 同时构建 debug 和 release。Linux 对应命令如下；debug 去掉 `--release`，
-并按 CI 去掉 release 专用的 feature：
+CI 同时构建 debug 和 release。Linux 对应命令如下；debug 去掉 `--release`：
 
 ```sh
-cargo build --workspace --release --features servicectl --target x86_64-unknown-linux-gnu
+cargo xtask build --target x86_64-unknown-linux-gnu --release
 ```
 
 修改 helper 时，必须验证受影响的 Linux target 和 Android ABI，不能用宿主构建代替。
@@ -57,10 +57,44 @@ musl。本地无需验证 riscv64；CI 配置保持不变。
 Android 需要 NDK 和 cargo-ndk，ABI 为 `arm64-v8a`、`armeabi-v7a`、`x86_64`、`x86`：
 
 ```sh
-cargo ndk --platform 21 --target arm64-v8a build --workspace --release --features servicectl
+cargo xtask build --target arm64-v8a --release
 ```
 
 对其余受影响 ABI 重复构建。实际矩阵和工具链安装步骤以 CI 为准。
+
+## 打包
+
+`xtask` 是仅用于开发的 workspace 成员，运行时构建会排除它。
+`dist` 先编译再打包，`package` 仅打包已有二进制：
+
+```sh
+cargo xtask dist --target x86_64-unknown-linux-gnu --release --with-tui
+cargo xtask package --target x86_64-unknown-linux-gnu --release --with-tui
+cargo xtask android-module --binaries artifacts --version-code 42
+```
+
+默认使用 workspace 版本，产物写入 `dist/`；可通过 `--output` 和 `--version` 修改。
+`package --binary <路径>` 可指定 Cargo 目录外的二进制；未指定时通过 Cargo metadata
+查找产物，也支持自定义 target 目录。所有相对路径从 workspace 根目录解析。
+
+模块打包要求四个 ABI 的非空 release 文件都位于
+`artifacts/kurumi-containerd-android-<abi>/kurumi-containerd`。
+模块保留安装、启动脚本，并加入版本信息、许可证和示例配置。
+`--version-code` 必须是正的 32 位整数。
+
+GNU Linux 目标还会生成 Debian/RPM 包，需要 `readelf`、`dpkg-deb`、`rpmbuild` 和
+`rpm`。依赖从目标 ELF 读取，不执行交叉编译的文件；musl、Android 仅生成 tar.xz。
+文件名、debug/TUI 后缀及预发布版本排序沿用原发布规则。
+
+普通 `cargo test --workspace` 包含归档、Android 模块及 shell 脚本测试。
+安装原生打包工具后，额外验证 Debian/RPM：
+
+```sh
+cargo test -p xtask native_packages -- --ignored
+```
+
+交叉工具链可能设置 `CARGO_BUILD_TARGET`；调用 `cargo xtask` 前先取消该变量，
+让任务程序在宿主机运行，再用 `--target` 选择运行时目标。CI 已显式处理。
 
 ## 特权集成验证
 
@@ -68,7 +102,7 @@ cargo ndk --platform 21 --target arm64-v8a build --workspace --release --feature
 先构建，再检查主机：
 
 ```sh
-cargo build --release -p kurumi-containerd --features servicectl
+cargo xtask build --release
 sudo target/release/kurumi-containerd check
 sudo python3 tests/p1_runtime.py target/release/kurumi-containerd
 sudo python3 tests/shared_isolation.py target/release/kurumi-containerd

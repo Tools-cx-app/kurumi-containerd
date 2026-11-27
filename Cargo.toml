@@ -10,7 +10,9 @@ members = [
   "crates/kurumi-containerd-helper",
   "crates/kurumi-containerd-runtime",
   "crates/kurumi-containerd-tui",
+  "xtask",
 ]
+default-members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]

@@ -12,6 +12,8 @@ on:
       - "tests/shared_pid_ipc_bench.py"
       - "README_CN.md"
       - "Cargo.*"
+      - "xtask/**"
+      - ".cargo/**"
       - "config.example.json"
       - ".github/workflows/benchmarks.yml"
   pull_request:
@@ -22,6 +24,8 @@ on:
       - "tests/shared_pid_ipc_bench.py"
       - "README_CN.md"
       - "Cargo.*"
+      - "xtask/**"
+      - ".cargo/**"
       - "config.example.json"
       - ".github/workflows/benchmarks.yml"
   workflow_dispatch:
@@ -120,7 +124,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build runtime
-        run: cargo build --release --features servicectl -p kurumi-containerd
+        run: cargo xtask build --release
 
       - name: Compare isolated and shared PID/IPC
         run: |
