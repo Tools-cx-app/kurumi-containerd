@@ -17,7 +17,7 @@ first. Android root-module users can start with [Android deployment](android-mod
 | Guide | Purpose |
 | --- | --- |
 | [Getting started](getting-started.md) | Build, install the first rootfs, verify operation and stop the container |
-| [CLI and TUI](usage.md) | Selection, lifecycle, command execution, backup, restore and terminal management |
+| [CLI and TUI](usage.md) | Container selection, lifecycle, command execution, backup, restore and systemd/OpenRC service management |
 | [Configuration reference](configuration.md) | JSON fields, defaults, paths, isolation, networking, limits and Android options |
 | [Troubleshooting](troubleshooting.md) | Configuration, startup, cgroup, console, archive and recovery failures |
 | [Android deployment](android-module.md) | Magisk, KernelSU and APatch modules, persistent files and boot startup |

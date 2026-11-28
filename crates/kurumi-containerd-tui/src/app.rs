@@ -14,9 +14,10 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use crate::{
     action::{ACTIONS, allowed},
     backend::{Backend, CommandTask, Launch},
+    services::{Manager, Operation, Services},
     state::UiState,
     terminal::Screen,
-    view::draw,
+    view::{draw, draw_services},
 };
 
 /// Runs the ratatui manager and delegates operations to the CLI executable.
@@ -35,6 +36,7 @@ pub fn run(exe: &Path) -> Result<()> {
     let mut entries = backend.load_entries()?;
     let mut state = UiState::new(entries.iter().map(|e| e.config.name.clone()).collect());
     let mut output = String::new();
+    let mut services: Option<Services> = None;
     let mut task: Option<CommandTask> = None;
     let mut refreshed = Instant::now();
     let _screen = Screen::enter()?;
@@ -48,14 +50,25 @@ pub fn run(exe: &Path) -> Result<()> {
             state.output_scroll = 0;
             backend.refresh(&mut entries);
         }
-        if refreshed.elapsed() >= Duration::from_secs(3) && task.is_none() {
+        if refreshed.elapsed() >= Duration::from_secs(3) && task.is_none() && services.is_none() {
             backend.refresh(&mut entries);
             refreshed = Instant::now();
         }
-        let can_open = backend.can_open_terminal();
-        terminal.draw(|frame| {
-            draw(frame, &state, &entries, &output, task.is_some(), can_open);
-        })?;
+        if let Some(page) = &mut services {
+            page.poll(&backend);
+            terminal.draw(|frame| draw_services(frame, page))?;
+        } else {
+            terminal.draw(|frame| {
+                draw(
+                    frame,
+                    &state,
+                    &entries,
+                    &output,
+                    task.is_some(),
+                    backend.can_open_terminal(),
+                );
+            })?;
+        }
         if !event::poll(Duration::from_millis(100))? {
             continue;
         }
@@ -65,7 +78,11 @@ pub fn run(exe: &Path) -> Result<()> {
         if key.kind != KeyEventKind::Press {
             continue;
         }
-        if state.open.is_some() {
+        if let Some(page) = &mut services {
+            if handle_services(key.code, page, &backend) {
+                services = None;
+            }
+        } else if state.open.is_some() {
             handle_form(
                 key.code,
                 &mut state,
@@ -73,8 +90,23 @@ pub fn run(exe: &Path) -> Result<()> {
                 &mut task,
                 &backend,
                 &entries,
-                can_open,
+                backend.can_open_terminal(),
             )?;
+        } else if key.code == KeyCode::Char('s') && task.is_none() {
+            match entries.get(state.selected) {
+                Some(entry)
+                    if entry
+                        .info
+                        .as_ref()
+                        .is_ok_and(|info| info.active && info.init_pid.is_some()) =>
+                {
+                    services = Some(Services::open(&entry.config.name, &backend));
+                }
+                _ => {
+                    output = "Select a running container to manage its services".into();
+                    state.output_scroll = 0;
+                }
+            }
         } else {
             handle_screen(
                 key.code,
@@ -90,6 +122,63 @@ pub fn run(exe: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn handle_services(code: KeyCode, page: &mut Services, backend: &Backend<'_>) -> bool {
+    if page.busy() {
+        return false;
+    }
+    let operation = if let Some(pending) = page.confirm {
+        match code {
+            KeyCode::Enter => Some(pending),
+            KeyCode::Esc => {
+                page.confirm = None;
+                None
+            }
+            _ => None,
+        }
+    } else {
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') => return true,
+            KeyCode::Up | KeyCode::Char('k') => {
+                page.selected = page.selected.saturating_sub(1);
+                None
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                page.selected = (page.selected + 1).min(page.rows.len().saturating_sub(1));
+                None
+            }
+            KeyCode::PageUp => {
+                page.scroll = page.scroll.saturating_sub(5);
+                None
+            }
+            KeyCode::PageDown => {
+                page.scroll = page.scroll.saturating_add(5);
+                None
+            }
+            KeyCode::Char('r') => {
+                page.output.clear();
+                page.refresh(backend);
+                None
+            }
+            KeyCode::Enter => Some(Operation::Status),
+            KeyCode::Char('s') => Some(Operation::Start),
+            KeyCode::Char('x') => Some(Operation::Stop),
+            KeyCode::Char('R') => Some(Operation::Restart),
+            KeyCode::Char('e') => Some(Operation::Enable),
+            KeyCode::Char('d') => Some(Operation::Disable),
+            KeyCode::Char('J') if page.manager == Some(Manager::Systemd) => {
+                Some(Operation::Journal)
+            }
+            _ => None,
+        }
+    };
+    if let Some(operation) = operation
+        && let Err(error) = page.request(operation, backend)
+    {
+        page.output = format!("{error:#}");
+    }
+    false
 }
 
 fn handle_form(

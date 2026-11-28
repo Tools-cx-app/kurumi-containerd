@@ -29,7 +29,7 @@ use procfs::{
 
 use crate::{
     Result,
-    error::{ErrorContext as _, ensure},
+    error::{ErrorContext as _, bail, ensure},
 };
 #[cfg(feature = "servicectl")]
 use crate::process::ProcessHandle;
@@ -199,9 +199,9 @@ impl Cgroup {
         let mounts = monitor.mountinfo()?;
         let directories = execution_cgroup_paths(name, &groups.0, &mounts.0)?
             .into_iter()
-            .map(|path| {
+            .map(|(mount, path)| {
                 let root = monitor.open_relative("root")?;
-                open_trusted_directory(&root, &path)
+                walk_cgroup_directory(&root, &path, Some(mount))
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(CgroupMembership { directories })
@@ -424,14 +424,23 @@ fn open_directory(parent: &File, path: &Path) -> io::Result<File> {
         .open(fd_path(parent).join(path))
 }
 
+#[cfg(any(feature = "servicectl", test))]
 fn open_trusted_directory(root: &File, path: &Path) -> Result<File> {
+    walk_cgroup_directory(root, path, None)
+}
+
+/// In the monitor's view the host may delegate the hierarchy root to a system
+/// account. Only that mount may use host permissions, never a Kurumi subtree.
+fn walk_cgroup_directory(root: &File, path: &Path, mount: Option<&MountInfo>) -> Result<File> {
     let mut directory = root.try_clone()?;
     let metadata = directory.metadata()?;
     ensure!(
         metadata.uid() == 0 && metadata.mode() & 0o022 == 0,
         "cgroup root must be root-owned and not writable by group or others"
     );
+    let mut current = PathBuf::new();
     for part in path.components() {
+        current.push(part.as_os_str());
         match part {
             Component::RootDir => continue,
             Component::Normal(part) => directory = open_directory(&directory, Path::new(part))?,
@@ -442,12 +451,45 @@ fn open_trusted_directory(root: &File, path: &Path) -> Result<File> {
             }
         }
         let metadata = directory.metadata()?;
-        ensure!(
-            metadata.uid() == 0 && metadata.mode() & 0o022 == 0,
-            "cgroup path must be root-owned and not writable by group or others"
+        if metadata.uid() == 0 && metadata.mode() & 0o022 == 0 {
+            continue;
+        }
+        if let Some(hierarchy) = mount.filter(|m| {
+            m.root == "/"
+                && m.mount_point == current
+                && current != path
+                && metadata.mode() & 0o002 == 0
+        }) {
+            verify_cgroup_mount(&directory, hierarchy)?;
+            continue;
+        }
+        bail!(
+            "cgroup path {} must be root-owned and not writable by group or others (uid {}, mode {:04o})",
+            current.display(),
+            metadata.uid(),
+            metadata.mode() & 0o7777
         );
     }
     Ok(directory)
+}
+
+/// Match the pinned descriptor to the kernel mount record before accepting delegation.
+fn verify_cgroup_mount(directory: &File, mount: &MountInfo) -> Result<()> {
+    let expected_magic = match mount.fs_type.as_str() {
+        "cgroup2" => 0x6367_7270,
+        "cgroup" => 0x0027_e0eb,
+        other => bail!("unexpected cgroup filesystem: {other}"),
+    };
+    let fdinfo = fs::read_to_string(format!("/proc/self/fdinfo/{}", directory.as_raw_fd()))?;
+    let mount_id = fdinfo
+        .lines()
+        .find_map(|line| line.strip_prefix("mnt_id:")?.trim().parse::<i32>().ok());
+    ensure!(
+        mount_id == Some(mount.mnt_id) && filesystem_type(&fd_path(directory))? == expected_magic,
+        "cgroup mount identity changed at {}",
+        mount.mount_point.display()
+    );
+    Ok(())
 }
 
 /// Removes an empty captured cgroup subtree, including its root directory.
@@ -746,11 +788,11 @@ fn remove_cgroup_contents(directory: &File) -> io::Result<()> {
     })
 }
 
-fn execution_cgroup_paths(
+fn execution_cgroup_paths<'a>(
     name: &str,
     groups: &[ProcessCGroup],
-    mounts: &[MountInfo],
-) -> Result<Vec<PathBuf>> {
+    mounts: &'a [MountInfo],
+) -> Result<Vec<(&'a MountInfo, PathBuf)>> {
     let mut paths = Vec::new();
     for group in groups {
         let membership = Path::new(&group.pathname);
@@ -769,7 +811,7 @@ fn execution_cgroup_paths(
                     .any(|part| matches!(part, Component::ParentDir)),
             "container cgroup membership has an unsafe path"
         );
-        let path = mounts
+        let (mount, path) = mounts
             .iter()
             .find_map(|mount| {
                 let matches = if group.controllers.is_empty() {
@@ -786,7 +828,7 @@ fn execution_cgroup_paths(
                         container
                             .strip_prefix(&mount.root)
                             .ok()
-                            .map(|relative| mount.mount_point.join(relative))
+                            .map(|relative| (mount, mount.mount_point.join(relative)))
                     })
                     .flatten()
             })
@@ -796,8 +838,8 @@ fn execution_cgroup_paths(
                     container.display()
                 )
             })?;
-        if !paths.contains(&path) {
-            paths.push(path);
+        if !paths.iter().any(|(_, existing)| existing == &path) {
+            paths.push((mount, path));
         }
     }
     Ok(paths)

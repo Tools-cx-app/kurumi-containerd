@@ -91,6 +91,7 @@ info, pid, show, scan, and check. Check host remains available with an empty reg
 | Dialog fields | `Tab`/`Shift+Tab` moves between fields; Tab at the last `run` argument adds another argument. Space toggles the selected install force field. |
 | Submission | Enter submits. Stop, restart, scan, and forced install require a second Enter; confirmation identifies the target. Validation errors stay in the dialog. |
 | Navigation | Escape cancels a dialog; `r` reloads the registry; `q` exits when no command is running. |
+| Container services | Select a running container and press `s` to open its [service list](#manage-container-services). |
 
 Status refreshes periodically. Narrow terminals stack the list and details;
 very small terminals display a resize hint. To back up, select a stopped container,
@@ -108,6 +109,28 @@ override detection. The terminal stays open for reading the result; close it whe
 finished. These actions are unavailable on headless Linux and Android; other
 noninteractive actions remain usable. An entry with `container.foreground: true`
 also sends ordinary start/restart actions to the separate terminal.
+
+### Manage container services
+
+Select a running container and press `s`. The TUI uses the container's `run` command
+to detect systemd or OpenRC and list each service's runtime and startup state. This
+also works when BusyBox is PID 1 and OpenRC manages the services. The screen works
+in a headless terminal with the `tui` feature alone. The container needs `/bin/sh`
+and either `systemctl` or the OpenRC tools `rc-service`, `rc-status` and `rc-update`.
+
+| Key | Action |
+| --- | --- |
+| ↑ / ↓ or `k` / `j` | Select a service. |
+| Enter | Show the selected service's status. |
+| `s` / `x` / `R` | Start, stop or restart the service. |
+| `e` / `d` | Enable or disable startup. For OpenRC, this changes membership in the `default` runlevel. |
+| `J` | Show the latest 100 journal entries for the selected systemd unit. Requires `journalctl` in the container. |
+| PageUp / PageDown | Scroll command output. |
+| `r` / Esc | Refresh the service list or return to the container list. |
+
+Before applying a change, the TUI shows the service and container names. Press Enter
+to confirm or Esc to cancel. After the command finishes, the TUI shows its exit
+status and output and refreshes the service list.
 
 ## Install a local rootfs
 

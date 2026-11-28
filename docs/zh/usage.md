@@ -85,6 +85,12 @@ info、pid、show、scan 和 check。登记列表为空时仍可使用 Check hos
 | 对话框字段 | `Tab`/`Shift+Tab` 切换字段；在 `run` 的最后一个参数处按 Tab 会添加参数。选中 install 的 force 字段时按空格切换。 |
 | 提交 | Enter 提交。stop、restart、scan 和强制 install 需要再次按 Enter 确认，确认提示会标明目标。校验错误显示在对话框内。 |
 | 导航 | Escape 取消对话框；`r` 重新加载登记文件；没有命令运行时 `q` 退出。 |
+| 容器内服务 | 选中运行中的容器，按 `s` 打开服务列表。上下键选择服务，Enter 查看状态，`r` 刷新，Esc 返回。 |
+
+服务页面通过所选容器的 `run` 通道探测 systemd 或 OpenRC，在当前终端显示运行状态、启动配置和命令输出。
+按 `s` 启动、`x` 停止、`R` 重启、`e` 启用或 `d` 禁用选中的服务，再按 Enter 确认。操作完成后自动刷新列表。
+OpenRC 的启用和禁用只修改 `default` runlevel。systemd 服务可用 `J` 查看最近 100 条 journal 日志。
+容器内需要 `/bin/sh` 和相应的管理工具。此页面仅需 `tui` feature，可在无图形桌面的终端中使用。
 
 状态会定期刷新。较窄终端将列表和详情上下排列，过小终端显示调整尺寸提示。
 备份时选择已停止的容器，选择 Backup，再输入一个尚不存在、以 `.zst`、`.xz`、`.zip`

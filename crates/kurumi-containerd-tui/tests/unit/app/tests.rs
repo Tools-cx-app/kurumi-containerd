@@ -1,6 +1,8 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
+use std::{fs, os::unix::fs::symlink};
+
 use super::*;
 use crate::state::UiState;
 
@@ -145,4 +147,53 @@ fn form_preserves_spaces_and_recovers_from_missing_input() {
     assert!(state.form_error.contains("archive path is required"));
     assert!(state.open.is_some());
     assert!(child.is_none());
+}
+
+fn finish_service_command(page: &mut Services, backend: &Backend<'_>) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while page.busy() {
+        assert!(Instant::now() < deadline);
+        page.poll(backend);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn captured_commands_target_selected_guest_and_refresh_after_confirmed_change() {
+    let temp = tempfile::tempdir().unwrap();
+    let cli = temp.path().join("cli");
+    let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/services.sh");
+    for tool in ["cli", "rc-service", "rc-status", "rc-update"] {
+        symlink(fixture, temp.path().join(tool)).unwrap();
+    }
+    let backend = Backend::new(&cli);
+    let mut page = Services::open("alpine", &backend);
+    finish_service_command(&mut page, &backend);
+    assert_eq!(page.rows.len(), 1, "{}", page.output);
+    assert_eq!(page.rows[0].startup, "—");
+    handle_services(KeyCode::Char('e'), &mut page, &backend);
+    assert!(!page.busy());
+    assert!(!temp.path().join("enabled").exists());
+    handle_services(KeyCode::Esc, &mut page, &backend);
+    assert!(page.confirm.is_none());
+    handle_services(KeyCode::Char('e'), &mut page, &backend);
+    let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(60, 24)).unwrap();
+    terminal.draw(|frame| draw_services(frame, &page)).unwrap();
+    let screen = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect::<String>();
+    assert!(screen.contains("Confirm enable sshd in alpine?"));
+    handle_services(KeyCode::Enter, &mut page, &backend);
+    finish_service_command(&mut page, &backend);
+    assert_eq!(page.rows[0].startup, "default");
+    assert!(page.output.contains("enable sshd (exit status: 0)"));
+    fs::remove_file(temp.path().join("rc-update")).unwrap();
+    handle_services(KeyCode::Char('r'), &mut page, &backend);
+    finish_service_command(&mut page, &backend);
+    assert!(page.rows.is_empty());
+    assert!(page.output.contains("No systemd or OpenRC"));
 }

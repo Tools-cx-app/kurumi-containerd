@@ -131,7 +131,10 @@ fn execution_paths(groups: &str, mounts: &str) -> crate::Result<Vec<PathBuf>> {
         .lines()
         .map(|line| MountInfo::from_line(line).unwrap())
         .collect::<Vec<_>>();
-    execution_cgroup_paths("demo", &groups.0, &mounts)
+    Ok(execution_cgroup_paths("demo", &groups.0, &mounts)?
+        .into_iter()
+        .map(|(_, path)| path)
+        .collect())
 }
 
 #[test]
@@ -184,6 +187,54 @@ fn execution_resolves_delegated_mount_roots_and_rejects_missing_hierarchies() {
         execution_paths("0::/kurumi-containerd/demo-other\n", "").unwrap(),
         Vec::<PathBuf>::new()
     );
+}
+
+/// Exercises the same read-only capture used by run/enter, without moving the test process.
+#[test]
+#[ignore = "requires running inside a Kurumi cgroup on a delegated host hierarchy"]
+fn captures_live_execution_membership_on_delegated_host() {
+    let process = procfs::process::Process::myself().unwrap();
+    let groups = process.cgroups().unwrap();
+    let name = groups
+        .0
+        .iter()
+        .find_map(|group| {
+            let mut parts = group.pathname.split('/');
+            parts.find(|part| *part == "kurumi-containerd")?;
+            parts.next()
+        })
+        .expect("expected a running Kurumi container");
+    let membership = Cgroup::capture_membership(name, &process, &process).unwrap();
+    assert!(!membership.directories.is_empty());
+}
+
+#[test]
+fn delegation_requires_the_expected_mount_id_and_cgroup_filesystem() {
+    use std::os::fd::AsRawFd;
+    let dir = File::open("/").unwrap();
+    let fdinfo = std::fs::read_to_string(format!("/proc/self/fdinfo/{}", dir.as_raw_fd())).unwrap();
+    let id = fdinfo
+        .lines()
+        .find_map(|line| line.strip_prefix("mnt_id:"))
+        .unwrap()
+        .trim();
+    let fake = MountInfo::from_line(&format!("{id} 23 0:26 / / rw - cgroup2 cgroup rw")).unwrap();
+    assert!(super::verify_cgroup_mount(&dir, &fake).is_err());
+
+    let process = procfs::process::Process::myself().unwrap();
+    for mut mount in process
+        .mountinfo()
+        .unwrap()
+        .0
+        .into_iter()
+        .filter(|m| matches!(m.fs_type.as_str(), "cgroup2" | "cgroup"))
+    {
+        if let Ok(dir) = File::open(&mount.mount_point) {
+            // Some mounts in mountinfo can be covered by another mount. A stale ID must always fail.
+            mount.mnt_id = -1;
+            assert!(super::verify_cgroup_mount(&dir, &mount).is_err());
+        }
+    }
 }
 
 #[test]

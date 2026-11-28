@@ -7,6 +7,7 @@ mod action;
 mod app;
 mod backend;
 mod registry;
+mod services;
 mod state;
 mod terminal;
 mod view;

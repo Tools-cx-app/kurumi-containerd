@@ -178,8 +178,9 @@ sudo -H ./target/release/kurumi-containerd stop
 ```
 
 For interactive management of all registered containers, run
-`sudo -H ./target/release/kurumi-containerd tui`. See [CLI usage](docs/en/usage.md)
-for command details, configuration selection, and terminal requirements.
+`sudo -H ./target/release/kurumi-containerd tui`. Select a running container and press
+`s` to manage its systemd or OpenRC services in the current terminal.
+See [CLI usage](docs/en/usage.md) and [service controls](docs/en/usage.md#manage-container-services).
 
 Kernels without PID/IPC namespaces can explicitly use
 `"isolation": "shared-pid-ipc"` with a foreground service supervisor. There is no

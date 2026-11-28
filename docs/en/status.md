@@ -63,6 +63,10 @@ CLI executable. It exposes install, backup, lifecycle actions, enter, run,
 inspection, scan, and host checks. Builds without the feature have no `tui`
 subcommand; workspace-wide builds still include the TUI crate.
 
+For running containers, the TUI can inspect, start, stop, restart, enable and
+disable systemd or OpenRC services. It also displays recent journal entries for
+a selected systemd unit. [Service controls](usage.md#manage-container-services)
+
 ## Current limitations
 
 ### Security and recovery

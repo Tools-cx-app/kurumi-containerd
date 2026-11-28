@@ -131,6 +131,10 @@ int main(int argc, char **argv) {
             time.sleep(0.05)
         assert (root / "passed").exists(), f"{mode}: init did not finish its check"
         if mode == "credentials":
+            # Systemd gets a dedicated cgroup even on hosts without limit controllers.
+            result = subprocess.run(command + ["run", "/init", "exec-check"], env=environment,
+                                    capture_output=True, timeout=10)
+            assert result.returncode == 0, result.stdout.decode() + result.stderr.decode()
             assert not (root / "run/credential-propagation/value").exists(), "mount leaked to host"
             host_mounts = Path("/proc/self/mountinfo").read_text().splitlines()
             assert not any(

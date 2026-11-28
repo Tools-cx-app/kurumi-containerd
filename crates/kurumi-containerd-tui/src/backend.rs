@@ -5,7 +5,7 @@ use std::{
     fs::File,
     io::{Read, Seek},
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
 };
 
 use kurumi_containerd_config::ConfigEntry;
@@ -32,6 +32,12 @@ pub(super) struct CommandTask {
 
 impl CommandTask {
     pub(super) fn poll(&mut self) -> Result<Option<String>> {
+        Ok(self
+            .poll_result()?
+            .map(|(status, body)| format!("Exit: {status}\n{body}")))
+    }
+
+    pub(super) fn poll_result(&mut self) -> Result<Option<(ExitStatus, String)>> {
         let Some(status) = self.child.try_wait()? else {
             return Ok(None);
         };
@@ -41,10 +47,7 @@ impl CommandTask {
             .by_ref()
             .take(1024 * 1024)
             .read_to_end(&mut bytes)?;
-        Ok(Some(format!(
-            "Exit: {status}\n{}",
-            String::from_utf8_lossy(&bytes)
-        )))
+        Ok(Some((status, String::from_utf8_lossy(&bytes).into_owned())))
     }
 }
 
@@ -97,21 +100,24 @@ impl<'a> Backend<'a> {
                 },
             );
         }
-        let output = tempfile::tempfile()?;
-        let stderr = output.try_clone()?;
-        let stdout = output.try_clone()?;
-        Ok(
-            match Command::new(self.exe)
-                .args(args)
-                .stdin(Stdio::null())
-                .stdout(Stdio::from(stdout))
-                .stderr(Stdio::from(stderr))
-                .spawn()
-            {
-                Ok(child) => Launch::Captured(CommandTask { child, output }),
-                Err(error) => Launch::Failed(format!("command launch failed: {error}")),
-            },
-        )
+        Ok(match self.capture(&args, tempfile::tempfile()?) {
+            Ok(task) => Launch::Captured(task),
+            Err(error) => Launch::Failed(format!("command launch failed: {error}")),
+        })
+    }
+
+    pub(super) fn run_in_container(&self, name: &str, argv: Vec<String>) -> Result<CommandTask> {
+        self.capture(&Action::Run(argv).args(name), tempfile::tempfile()?)
+    }
+
+    fn capture(&self, args: &[std::ffi::OsString], output: File) -> Result<CommandTask> {
+        let child = Command::new(self.exe)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(output.try_clone()?)
+            .stderr(output.try_clone()?)
+            .spawn()?;
+        Ok(CommandTask { child, output })
     }
 
     fn load_entry(&self, config: ConfigEntry) -> Entry {
