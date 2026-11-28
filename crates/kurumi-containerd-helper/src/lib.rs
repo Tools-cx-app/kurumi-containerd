@@ -16,6 +16,8 @@
 )]
 
 pub mod fs;
+#[cfg(target_os = "android")]
+pub mod kernelsu;
 pub mod process;
 pub mod security;
 pub mod signal;

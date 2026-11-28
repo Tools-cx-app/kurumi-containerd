@@ -3,11 +3,13 @@
 
 use std::{
     fs::{self, File},
+    os::fd::AsFd,
     path::{Path, PathBuf},
 };
 
 use kurumi_containerd_config::AndroidConfig;
 use kurumi_containerd_helper::fs::{MountFlags, mount};
+use kurumi_containerd_helper::kernelsu::KernelSu;
 
 use crate::{
     Result,
@@ -22,6 +24,24 @@ const GPU_DIRECTORIES: &[(&str, &str)] = &[
     ("/dev", "video"),
 ];
 const BINDER_DEVICES: &[&str] = &["/dev/binder", "/dev/hwbinder", "/dev/vndbinder"];
+
+/// Probes `KernelSU` wrapping with a disposable file, independently of stdio.
+/// No terminal descriptor is replaced and all probe descriptors are closed.
+#[must_use]
+pub fn kernelsu_wrap_fd_available() -> bool {
+    let result = (|| {
+        let driver = KernelSu::open()?;
+        let file = File::open("/dev/null")?;
+        driver.get_wrapped_fd(file.as_fd())
+    })();
+    match result {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::debug!(%error, "KernelSU fd wrapping probe failed");
+            false
+        }
+    }
+}
 
 /// Mounts Android integration resources needed before switching roots.
 ///

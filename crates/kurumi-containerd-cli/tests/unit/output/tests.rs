@@ -22,7 +22,7 @@ fn container_info_output_preserves_running_and_inactive_details() {
     let mut out = Vec::new();
     info(&mut out, &container).unwrap();
     assert_eq!(
-        String::from_utf8(out).unwrap(),
+        container_info_text(out),
         "Name: test\nIsolation: isolated\nActive: active (running) for 1h 02m 03s\nMain PID: 123 (systemd)\nMonitor PID: 122\nTasks: 4\nMemory: 1.5 MiB\nGeneration: 1\nRootfs: /rootfs\nUUID: unassigned\n"
     );
     container.init_pid = None;
@@ -41,7 +41,7 @@ fn container_info_output_preserves_running_and_inactive_details() {
     let mut out = Vec::new();
     info(&mut out, &container).unwrap();
     assert_eq!(
-        String::from_utf8(out).unwrap(),
+        container_info_text(out),
         format!(
             "Name: test\nIsolation: {}\nActive: inactive (dead)\nRootfs: /rootfs\nUUID: unassigned\n",
             container.isolation
@@ -49,6 +49,21 @@ fn container_info_output_preserves_running_and_inactive_details() {
     );
     let mut full = &mut [][..];
     assert!(info(&mut full, &container).is_err());
+}
+
+fn container_info_text(out: Vec<u8>) -> String {
+    let text = String::from_utf8(out).unwrap();
+    #[cfg(target_os = "android")]
+    {
+        let (details, status) = text.rsplit_once("KernelSU Wrap Fd: ").unwrap();
+        assert!(matches!(status, "available\n" | "unavailable\n"));
+        details.to_owned()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        assert!(!text.contains("KernelSU Wrap Fd"));
+        text
+    }
 }
 
 #[test]

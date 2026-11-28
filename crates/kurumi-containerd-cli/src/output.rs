@@ -49,6 +49,16 @@ pub fn info(out: &mut dyn Write, info: &ContainerInfo) -> io::Result<()> {
     for line in info_lines(info) {
         writeln!(out, "{line}")?;
     }
+    #[cfg(target_os = "android")]
+    writeln!(
+        out,
+        "KernelSU Wrap Fd: {}",
+        if kurumi_containerd_host::android::kernelsu_wrap_fd_available() {
+            "available"
+        } else {
+            "unavailable"
+        }
+    )?;
     Ok(())
 }
 

@@ -67,6 +67,18 @@ fn allocates_terminal_pair() {
 }
 
 #[test]
+fn console_ownership_matches_the_allocator() {
+    use std::os::unix::fs::MetadataExt;
+
+    let uid = effective_uid();
+    let expected_uid = if uid == 0 { pty_broker_id() } else { uid };
+    let console = Console::open().unwrap();
+    let metadata = std::fs::metadata(&console.slave_path).unwrap();
+    assert_eq!(metadata.uid(), expected_uid);
+    assert_eq!(metadata.mode() & 0o777, PTY_MODE);
+}
+
+#[test]
 fn transfers_terminal_descriptor() {
     let (sender, receiver) = socket_pair().unwrap();
     let console = Console::open().unwrap();

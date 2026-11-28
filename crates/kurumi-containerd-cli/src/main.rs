@@ -13,6 +13,8 @@ use kurumi_containerd_host::check::{HostCapabilities, HostCheck};
 use kurumi_containerd_runtime::{ContainerRuntime, Runtime};
 use tracing::level_filters::LevelFilter;
 
+#[cfg(target_os = "android")]
+mod android;
 mod output;
 
 #[cfg(debug_assertions)]
@@ -124,6 +126,8 @@ fn main() -> std::process::ExitCode {
         .with_writer(logger_writer)
         .with_ansi(logger_is_terminal() && std::env::var_os("NO_COLOR").is_none())
         .init();
+    #[cfg(target_os = "android")]
+    android::wrap_stdio();
     match run(cli) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error)
