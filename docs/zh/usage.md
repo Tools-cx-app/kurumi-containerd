@@ -18,7 +18,7 @@ kurumi-containerd [--name NAME] [--verbose] COMMAND
 且 `container.name` 必须唯一。大多数命令在只有一项时自动选择该项。存在多项时，
 在命令之前传入 `--name NAME`；名称必须完全匹配，区分大小写。
 `backup CONTAINER_ID OUTPUT` 是特例：位置参数 ID 直接选择 `container.name`，
-同时使用 `--name` 会被拒绝。只有 `check` 不加载配置。
+同时使用 `--name` 会被拒绝。`check`、`show`、`scan` 和 `daemon-reload` 均可独立于配置文件运行。
 
 本文示例使用 `sudo -H`，因此使用 root 的 HOME 下的登记文件。`install` 可自动创建
 登记文件及缺失项。更改 HOME 就会选择另一份登记文件。大多数操作需要 root 来创建
@@ -38,6 +38,7 @@ info
 pid
 show
 scan
+daemon-reload
 check
 tui
 ```
@@ -280,8 +281,9 @@ sudo -H kurumi-containerd scan
 运行状态与恢复元数据均保存在内存。CLI 在 socket 连接失败时自动拉起 daemon 并打印日志。
 Linux socket 为 `/var/kurumi/socket.sock`，Android 为 `/dev/kurumi/socket.sock`。
 请求日志追加到 socket 同目录的 `daemon.log`。daemon 脱离终端并由 PID 1 收养。
-daemon 退出会终止其容器并触发资源清理，再次启动使用空注册表。配置 JSON 和 rootfs 内容
-继续保存在磁盘。
+执行 `sudo kurumi-containerd daemon-reload` 会重启 daemon。旧 daemon 退出时会终止它管理的所有容器并触发资源清理，
+新 daemon 使用空注册表。若 daemon 尚未运行，此命令会直接启动它。命令在新 daemon 响应后返回。
+配置 JSON 和 rootfs 内容继续保存在磁盘。
 
 <a id="host-checks"></a>
 ## 主机能力检查

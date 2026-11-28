@@ -855,6 +855,7 @@ dependencies = [
  "kurumi-containerd-config",
  "kurumi-containerd-error",
  "kurumi-containerd-helper",
+ "kurumi-containerd-host",
  "kurumi-containerd-runtime",
  "serde",
  "serde_json",

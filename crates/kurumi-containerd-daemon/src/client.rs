@@ -7,13 +7,17 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use kurumi_containerd_error::{ErrorContext as _, Result, bail, ensure};
 use kurumi_containerd_helper::signal::{Signal, SignalActionFlags, SignalHandler, set_signal_handler};
 use kurumi_containerd_helper::terminal::{PollEvents, poll};
+use kurumi_containerd_host::process::ProcessHandle;
 use uds::UnixStreamExt;
 
-use crate::{Request, Response, SERVE_COMMAND, SOCKET_PATH, read_frame, write_frame};
+use crate::{
+    Operation, Request, Response, SERVE_COMMAND, SOCKET_PATH, WireRequest, read_frame, write_frame,
+};
 
 /// Connects CLI or HTTP frontends to the daemon without sharing runtime process state.
 #[derive(Clone)]
@@ -29,6 +33,38 @@ impl Client {
             executable: executable.to_path_buf(),
             verbose,
         }
+    }
+
+    /// Restarts the daemon with this client's executable, or starts it if absent.
+    /// Running containers terminate when their owning daemon exits.
+    ///
+    /// # Errors
+    /// Returns errors from peer verification, shutdown, or replacement startup.
+    pub fn reload_daemon(&self) -> Result<()> {
+        match UnixStream::connect(SOCKET_PATH) {
+            Ok(stream) => {
+                let peer = root_peer(&stream)?;
+                let pid = peer.pid().context("daemon peer PID is unavailable")?;
+                let daemon = ProcessHandle::open(i32::try_from(pid.get())?)?;
+                // A reply on the original connection proves the peer was still alive
+                // after pidfd_open, so a recycled PID cannot receive the signal.
+                probe(&stream)?;
+                daemon.send_signal(Signal::Terminate)?;
+                ensure!(
+                    daemon.wait_for_exit(Duration::from_secs(30))?,
+                    "timed out waiting for the daemon to exit"
+                );
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                ) => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to connect to {SOCKET_PATH}"));
+            }
+        }
+        probe(&self.connect()?)
     }
 
     /// Sends one request, starting the daemon automatically when needed.
@@ -167,11 +203,33 @@ impl Client {
 fn connect() -> Result<UnixStream> {
     let stream = UnixStream::connect(SOCKET_PATH)
         .with_context(|| format!("failed to connect to {SOCKET_PATH}"))?;
-    ensure!(
-        stream.initial_peer_credentials()?.euid() == 0,
-        "daemon socket peer is not root"
-    );
+    root_peer(&stream)?;
     Ok(stream)
+}
+
+fn root_peer(stream: &UnixStream) -> Result<uds::ConnCredentials> {
+    let peer = stream.initial_peer_credentials()?;
+    ensure!(peer.euid() == 0, "daemon socket peer is not root");
+    Ok(peer)
+}
+
+fn probe(stream: &UnixStream) -> Result<()> {
+    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+    write_frame(
+        stream,
+        &WireRequest {
+            request: Request {
+                config: None,
+                operation: Operation::List,
+            },
+            attach_stdio: false,
+        },
+    )?;
+    match read_frame(stream).context("daemon did not answer readiness probe")? {
+        Response::Containers(_) => Ok(()),
+        Response::Error(message) => bail!("{message}"),
+        response => bail!("unexpected daemon response: {response:?}"),
+    }
 }
 
 #[derive(serde::Serialize)]

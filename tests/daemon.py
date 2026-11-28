@@ -152,12 +152,22 @@ def main(binary):
             cli("show")
             current_daemon = detached()
             assert cli("pid", check=False).returncode != 0
+            (rootfs / "ready").unlink()
+            cli("start")
+            wait_for("container ready before reload", lambda: (rootfs / "ready").exists())
+            init_pid = int(cli("pid").stdout)
+            old_daemon = current_daemon
+            cli("daemon-reload")
+            current_daemon = detached()
+            assert current_daemon != old_daemon and not live(old_daemon)
+            assert not live(init_pid) and name not in cli("show").stdout
             os.kill(current_daemon, signal.SIGTERM)
             wait_for("daemon socket removal", lambda: not SOCKET.exists())
             current_daemon = None
-            cli("show")
+            (registry / "config.json").unlink()
+            cli("daemon-reload")
             current_daemon = detached()
-            print("PASS: concurrent autostart, PPID 1, detached stdio, UDS, request log, run exit status, memory state and daemon-loss cleanup")
+            print("PASS: concurrent autostart, PPID 1, detached stdio, UDS, request log, run exit status, memory state, daemon-loss cleanup and daemon-reload")
         finally:
             if current_daemon and live(current_daemon):
                 cli("stop", check=False)

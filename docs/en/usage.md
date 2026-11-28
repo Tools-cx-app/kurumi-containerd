@@ -19,7 +19,7 @@ complete configurations with unique `container.name` values. Most commands selec
 the only entry automatically. With multiple entries, put `--name NAME` before the
 command; the name must match exactly, including case. `backup CONTAINER_ID OUTPUT`
 is the exception: its positional ID selects `container.name`, and combining it
-with `--name` is rejected. `check` alone does not load configuration.
+with `--name` is rejected. `check`, `show`, `scan`, and `daemon-reload` run independently of the configuration file.
 
 The examples use `sudo -H`, selecting the registry under root's HOME. `install`
 can create the registry and missing entries automatically. Changing HOME selects
@@ -40,6 +40,7 @@ info
 pid
 show
 scan
+daemon-reload
 check
 tui
 ```
@@ -341,8 +342,9 @@ The CLI automatically starts the daemon when its socket cannot be connected,
 printing startup logs. Linux uses `/var/kurumi/socket.sock` and Android uses
 `/dev/kurumi/socket.sock`. Request logs append to `daemon.log` beside the socket.
 The daemon detaches from the terminal and is adopted by PID 1. Daemon exit
-terminates its containers and triggers resource cleanup. Restarting the daemon
-creates an empty registry. JSON configuration and rootfs contents remain on disk.
+terminates its containers and triggers resource cleanup. Run `sudo kurumi-containerd daemon-reload`
+to restart it with an empty registry, or start it if absent. The command waits until
+the new daemon answers. JSON configuration and rootfs contents remain on disk.
 
 ## Host checks
 

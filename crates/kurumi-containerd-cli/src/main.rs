@@ -55,6 +55,8 @@ enum Commands {
     /// Run the daemon process.
     #[command(name = "__daemon", hide = true)]
     Daemon,
+    /// Restart the daemon, stopping all containers it manages. Start it if absent.
+    DaemonReload,
     /// Install a local rootfs archive into the configured target.
     Install {
         /// Local tar or ZIP rootfs archive.
@@ -159,6 +161,11 @@ fn run(cli: Cli) -> Result<()> {
     }
     let executable = std::env::current_exe()?;
     let client = Client::new(&executable, cli.verbose);
+    if matches!(cli.command, Commands::DaemonReload) {
+        client.reload_daemon()?;
+        output::write(|out| writeln!(out, "Daemon ready"))?;
+        return Ok(());
+    }
     if matches!(cli.command, Commands::Show | Commands::Scan) {
         let scan = matches!(cli.command, Commands::Scan);
         let response = client.request_with_stdio(&Request {
