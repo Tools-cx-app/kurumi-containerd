@@ -1,23 +1,23 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use kurumi_containerd_runtime::ContainerInfo;
+mod actions;
+mod details;
+mod form;
+mod services;
+
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{
-        Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap,
-    },
+    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Padding, Paragraph, Wrap},
 };
 
-use crate::{
-    action::{ACTIONS, ActionKind, allowed},
-    registry::Entry,
-    services::{Manager, Services},
-    state::{Focus, UiState},
-};
+use crate::registry::Entry;
+use crate::state::{Focus, UiState};
+
+pub(super) use services::draw_services;
 
 const ACCENT: Color = Color::Rgb(203, 166, 247);
 const BORDER: Color = Color::Rgb(88, 91, 112);
@@ -34,10 +34,6 @@ fn selection_style(selected: bool) -> Style {
     } else {
         Style::default()
     }
-}
-
-fn warning_color(warning: bool) -> Color {
-    if warning { YELLOW } else { Color::Reset }
 }
 
 fn panel(title: &str, focused: bool) -> Block<'_> {
@@ -81,22 +77,6 @@ fn hint(text: &str) -> Line<'_> {
     Line::from(spans)
 }
 
-fn unavailable(kind: ActionKind, entry: Option<&Entry>, terminal: bool) -> Option<String> {
-    if kind == ActionKind::Check {
-        None
-    } else {
-        entry.map_or_else(
-            || Some("No container selected".into()),
-            |entry| {
-                allowed(kind, entry, terminal)
-                    .err()
-                    .map(|error| format!("{error:#}"))
-            },
-        )
-    }
-}
-
-#[allow(clippy::too_many_lines)]
 pub(super) fn draw(
     frame: &mut Frame<'_>,
     state: &UiState,
@@ -116,19 +96,51 @@ pub(super) fn draw(
     let narrow = area.width < 80;
     let spacious = area.height >= 24;
     let header_height = if spacious { 6 } else { 1 };
-    let rows = Layout::vertical([
+    let [header, body, actions, output_area, footer] = Layout::vertical([
         Constraint::Length(header_height),
         Constraint::Fill(3),
         Constraint::Length(4),
         Constraint::Fill(2),
         Constraint::Length(1),
     ])
-    .split(area);
+    .areas(area);
+    let [containers, details] = Layout::default()
+        .direction(if narrow {
+            Direction::Vertical
+        } else {
+            Direction::Horizontal
+        })
+        .constraints(if narrow {
+            [Constraint::Length(4), Constraint::Min(3)]
+        } else {
+            [Constraint::Percentage(32), Constraint::Percentage(68)]
+        })
+        .areas(body);
+    let selected = entries.get(state.selected);
+    draw_header(frame, header, entries, busy, spacious);
+    draw_containers(frame, containers, state, entries, spacious && !narrow);
+    details::draw(frame, details, state, selected);
+    actions::draw(frame, actions, state.action_index, selected, busy, terminal);
+    draw_output(frame, output_area, state, output, busy);
+    frame.render_widget(
+        Paragraph::new(hint(if narrow {
+            "s services | Tab focus | Enter | q"
+        } else {
+            "s services | Tab focus | j/k containers | h/l actions | PgUp/Dn | r reload | q"
+        })),
+        footer,
+    );
+    if let Some(kind) = state.open {
+        form::draw(frame, state, kind, selected);
+    }
+}
+
+fn draw_header(frame: &mut Frame<'_>, area: Rect, entries: &[Entry], busy: bool, spacious: bool) {
     let running = entries
         .iter()
         .filter(|entry| entry.info.as_ref().is_ok_and(|info| info.active))
         .count();
-    let header = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(rows[0]);
+    let header = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(" KurumiContainerd ", Style::default().fg(ACCENT).bold()),
@@ -169,18 +181,15 @@ pub(super) fn draw(
             );
         }
     }
-    let panes = Layout::default()
-        .direction(if narrow {
-            Direction::Vertical
-        } else {
-            Direction::Horizontal
-        })
-        .constraints(if narrow {
-            [Constraint::Length(4), Constraint::Min(3)]
-        } else {
-            [Constraint::Percentage(32), Constraint::Percentage(68)]
-        })
-        .split(rows[1]);
+}
+
+fn draw_containers(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    state: &UiState,
+    entries: &[Entry],
+    expanded: bool,
+) {
     let items: Vec<_> = entries
         .iter()
         .map(|entry| {
@@ -189,7 +198,7 @@ pub(super) fn draw(
                 Ok(_) => ("stopped", Color::Reset),
                 Err(_) => ("error", RED),
             };
-            if spacious && !narrow {
+            if expanded {
                 ListItem::new(vec![
                     Line::styled(&entry.config.name, Style::default().bold()),
                     Line::from(vec![
@@ -218,7 +227,7 @@ pub(super) fn draw(
         frame.render_widget(
             Paragraph::new("No containers\nRegister with CLI; r reload")
                 .block(panel("Containers", state.focus == Focus::Containers)),
-            panes[0],
+            area,
         );
     } else {
         frame.render_stateful_widget(
@@ -226,109 +235,13 @@ pub(super) fn draw(
                 .block(panel("Containers", state.focus == Focus::Containers))
                 .highlight_symbol("▍ ")
                 .highlight_style(selection_style(true)),
-            panes[0],
+            area,
             &mut ListState::default().with_selected(Some(state.selected)),
         );
     }
-    let selected = entries.get(state.selected);
-    let details: String = selected.map_or_else(
-        || {
-            "Select a container to view details.\nCheck host is available without a container."
-                .into()
-        },
-        |entry| match &entry.info {
-            Ok(info) => std::iter::once(format!("Config: {}", entry.config.path.display()))
-                .chain(info_lines(info))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            Err(error) => format!("Config: {}\nError: {error:#}", entry.config.path.display()),
-        },
-    );
-    let details: Vec<_> = details
-        .lines()
-        .map(|line| {
-            line.split_once(": ").map_or_else(
-                || Line::raw(line.to_owned()),
-                |(label, value)| {
-                    Line::from(vec![
-                        Span::styled(
-                            format!("{:<13}", format!("{label}:")),
-                            Style::default().add_modifier(Modifier::DIM),
-                        ),
-                        Span::styled(
-                            value.to_owned(),
-                            if label == "Error" {
-                                Style::default().fg(RED)
-                            } else {
-                                Style::default()
-                            },
-                        ),
-                    ])
-                },
-            )
-        })
-        .collect();
-    frame.render_widget(
-        Paragraph::new(details)
-            .block(panel("Details", state.focus == Focus::Details))
-            .wrap(Wrap { trim: false })
-            .scroll((state.details_scroll, 0)),
-        panes[1],
-    );
+}
 
-    // ponytail: a contiguous action window keeps selection visible without a second menu state.
-    let current = state.action_index;
-    let mut start = current;
-    let mut used = ACTIONS[current].label().len() + 4;
-    let width = usize::from(rows[2].width.saturating_sub(4));
-    while start > 0 && used + ACTIONS[start - 1].label().len() + 4 <= width {
-        start -= 1;
-        used += ACTIONS[start].label().len() + 4;
-    }
-    let mut spans = Vec::new();
-    used = 0;
-    for (index, kind) in ACTIONS.iter().enumerate().skip(start) {
-        let label = format!(
-            "{}{}{}",
-            if index == current { "[ " } else { "  " },
-            kind.label(),
-            if index == current { " ]" } else { "  " },
-        );
-        if used + label.len() > width {
-            break;
-        }
-        used += label.len();
-        let disabled = unavailable(*kind, selected, terminal).is_some() || busy;
-        let style = if index == current {
-            Style::default()
-                .fg(TEXT)
-                .bg(SURFACE)
-                .fg(CRUST)
-                .bg(if disabled { YELLOW } else { ACCENT })
-                .bold()
-        } else if disabled {
-            Style::default().add_modifier(Modifier::DIM)
-        } else {
-            Style::default()
-        };
-        spans.push(Span::styled(label, style));
-    }
-    let disabled = unavailable(ACTIONS[current], selected, terminal);
-    let reason_style = if busy || disabled.is_some() {
-        Style::default().fg(YELLOW)
-    } else {
-        Style::default()
-    };
-    let reason = if busy {
-        "Operation in progress".into()
-    } else {
-        disabled.unwrap_or_else(|| "Enter to open | h/l actions".into())
-    };
-    frame.render_widget(
-        Paragraph::new(vec![Line::from(spans), Line::styled(reason, reason_style)])
-            .block(panel("Actions · h/l select · Enter open", false)),
-        rows[2],
-    );
+fn draw_output(frame: &mut Frame<'_>, area: Rect, state: &UiState, output: &str, busy: bool) {
     frame.render_widget(
         Paragraph::new(if output.is_empty() {
             "Command output appears here."
@@ -350,324 +263,8 @@ pub(super) fn draw(
         ))
         .wrap(Wrap { trim: false })
         .scroll((state.output_scroll, 0)),
-        rows[3],
+        area,
     );
-    frame.render_widget(
-        Paragraph::new(hint(if narrow {
-            "s services | Tab focus | Enter | q"
-        } else {
-            "s services | Tab focus | j/k containers | h/l actions | PgUp/Dn | r reload | q"
-        })),
-        rows[4],
-    );
-    if let Some(kind) = state.open {
-        draw_form(frame, state, kind, selected);
-    }
-}
-
-pub(super) fn draw_services(frame: &mut Frame<'_>, page: &Services) {
-    let area = frame.area();
-    if area.width < 36 || area.height < 10 {
-        frame.render_widget(Paragraph::new("Resize terminal to at least 36 x 10"), area);
-        return;
-    }
-    let keys = if page.confirm.is_some() {
-        "Enter confirm | Esc cancel".to_owned()
-    } else if page.busy() {
-        "Running container command…".to_owned()
-    } else {
-        let journal = if page.manager == Some(Manager::Systemd) {
-            " | J journal"
-        } else {
-            ""
-        };
-        format!(
-            "↑/↓ select | Enter status | s start | x stop | R restart | e enable | d disable{journal} | r refresh | PgUp/Dn output | Esc back"
-        )
-    };
-    let mut lines = vec![String::new()];
-    for part in keys.split(" | ") {
-        let line = lines.last_mut().expect("at least one hint line");
-        if line.is_empty() {
-            line.push_str(part);
-        } else if line.len() + part.len() + 3 <= usize::from(area.width) {
-            line.push_str(" | ");
-            line.push_str(part);
-        } else {
-            lines.push(part.to_owned());
-        }
-    }
-    let height = u16::try_from(lines.len()).unwrap_or(u16::MAX);
-    let hints = Paragraph::new(lines.iter().map(|line| hint(line)).collect::<Vec<_>>());
-    let rows = Layout::vertical([
-        Constraint::Fill(2),
-        Constraint::Fill(1),
-        Constraint::Length(height),
-    ])
-    .split(area);
-    let title = format!(
-        "Services · {} · {}",
-        page.container,
-        page.manager.map_or(
-            if page.busy() {
-                "detecting"
-            } else {
-                "unavailable"
-            },
-            Manager::label
-        )
-    );
-    let block = panel(&title, true);
-    if page.rows.is_empty() {
-        let text = if page.busy() {
-            "Loading services…"
-        } else if page.manager.is_some() {
-            "No services found"
-        } else {
-            "Service list unavailable"
-        };
-        frame.render_widget(Paragraph::new(text).block(block), rows[0]);
-    } else {
-        let items = page.rows.iter().map(|service| {
-            ListItem::new(format!(
-                "{:<11} {:<9} {}",
-                service.state, service.startup, service.name
-            ))
-        });
-        frame.render_stateful_widget(
-            List::new(items)
-                .block(block)
-                .highlight_symbol("▍ ")
-                .highlight_style(selection_style(true)),
-            rows[0],
-            &mut ListState::default().with_selected(Some(page.selected)),
-        );
-    }
-    let message = page
-        .confirm
-        .zip(page.rows.get(page.selected))
-        .map(|(op, service)| {
-            format!(
-                "Confirm {} {} in {}?",
-                op.verb(),
-                service.name,
-                page.container
-            )
-        });
-    frame.render_widget(
-        Paragraph::new(message.as_deref().unwrap_or(&page.output))
-            .block(panel("Output", false))
-            .wrap(Wrap { trim: false })
-            .scroll((if message.is_some() { 0 } else { page.scroll }, 0)),
-        rows[1],
-    );
-    frame.render_widget(hints, rows[2]);
-}
-
-fn input_lines(label: &str, value: &str, active: bool, expanded: bool) -> Vec<Line<'static>> {
-    if expanded {
-        vec![
-            Line::styled(
-                format!("{label}:"),
-                Style::default()
-                    .fg(if active { ACCENT } else { Color::Reset })
-                    .bold(),
-            ),
-            Line::styled(
-                format!(
-                    " {} {value}{}",
-                    if active { "▍" } else { " " },
-                    if active { "_" } else { "" }
-                ),
-                Style::default().fg(TEXT).bg(SURFACE),
-            ),
-            Line::default(),
-        ]
-    } else {
-        vec![Line::styled(
-            format!(
-                "{} {label}: {value}{}",
-                if active { ">" } else { " " },
-                if active { "_" } else { "" }
-            ),
-            selection_style(active),
-        )]
-    }
-}
-
-fn draw_form(frame: &mut Frame<'_>, state: &UiState, kind: ActionKind, entry: Option<&Entry>) {
-    let area = frame.area();
-    let width = area.width.saturating_sub(4).min(76);
-    let fields = state.fields.len() + usize::from(kind == ActionKind::Install);
-    let field_height = if area.height >= 20 { 3 } else { 1 };
-    let height = u16::try_from(fields.saturating_mul(field_height).saturating_add(8))
-        .unwrap_or(u16::MAX)
-        .min(area.height.saturating_sub(2));
-    let modal = Rect::new(
-        area.x + (area.width - width) / 2,
-        area.y + (area.height - height) / 2,
-        width,
-        height,
-    );
-    frame.render_widget(Clear, modal);
-    let title = format!(
-        "{}{}",
-        kind.label(),
-        if state.confirming { " | Confirm" } else { "" }
-    );
-    let block = panel(&title, true).border_style(Style::default().fg(if state.confirming {
-        YELLOW
-    } else {
-        ACCENT
-    }));
-    let inner = block.inner(modal);
-    frame.render_widget(block, modal);
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(1),
-        Constraint::Length(2),
-        Constraint::Length(1),
-    ])
-    .split(inner);
-    frame.render_widget(
-        Paragraph::new(format!(
-            "Target: {}",
-            entry.map_or("Host", |entry| entry.config.name.as_str())
-        ))
-        .style(Style::default().fg(ACCENT).bold()),
-        rows[0],
-    );
-    let mut lines: Vec<_> = state
-        .fields
-        .iter()
-        .enumerate()
-        .flat_map(|(index, value)| {
-            let label = kind
-                .fields()
-                .get(index)
-                .map_or_else(|| format!("Argument {index}"), |label| (*label).into());
-            input_lines(&label, value, index == state.field, field_height == 3)
-        })
-        .collect();
-    if kind == ActionKind::Install {
-        lines.push(Line::styled(
-            format!(
-                "{} Force: {} (Space toggle)",
-                if state.field == fields - 1 { ">" } else { " " },
-                state.force
-            ),
-            selection_style(state.field == fields - 1).fg(if state.force {
-                YELLOW
-            } else if state.field == fields - 1 {
-                TEXT
-            } else {
-                Color::Reset
-            }),
-        ));
-    }
-    if lines.is_empty() {
-        lines.push(Line::from(if state.confirming {
-            "Confirm this operation on the target above."
-        } else {
-            "Press Enter to execute this operation."
-        }));
-    }
-    let offset = state
-        .field
-        .saturating_mul(field_height)
-        .saturating_sub(usize::from(rows[1].height.saturating_sub(1)));
-    frame.render_widget(
-        Paragraph::new(lines).scroll((u16::try_from(offset).unwrap_or(u16::MAX), 0)),
-        rows[1],
-    );
-    frame.render_widget(
-        Paragraph::new(&*state.form_error)
-            .style(Style::default().fg(RED))
-            .wrap(Wrap { trim: false }),
-        rows[2],
-    );
-    frame.render_widget(
-        Paragraph::new(hint(if state.confirming {
-            "Enter confirm | Esc cancel"
-        } else {
-            "Tab/Shift+Tab fields | Enter | Esc"
-        }))
-        .style(Style::default().fg(warning_color(state.confirming))),
-        rows[3],
-    );
-}
-
-fn info_lines(info: &ContainerInfo) -> Vec<String> {
-    let mut lines = vec![format!("Name: {}", info.name)];
-    lines.push(format!("Isolation: {}", info.isolation));
-    if info.active {
-        lines.extend([
-            format!(
-                "Active: {} for {}",
-                if info.init_pid.is_some() {
-                    "active (running)"
-                } else {
-                    "active (cleanup pending)"
-                },
-                format_duration(info.uptime_seconds.unwrap_or_default())
-            ),
-            format!(
-                "Main PID: {} ({})",
-                info.init_pid.unwrap_or_default(),
-                info.init_system.unwrap_or_default()
-            ),
-            format!("Monitor PID: {}", info.monitor_pid.unwrap_or_default()),
-            format!("Tasks: {}", info.processes.unwrap_or_default()),
-            format!(
-                "Memory: {}",
-                format_memory(info.memory_kb.unwrap_or_default())
-            ),
-            format!("Generation: {}", info.generation.unwrap_or_default()),
-        ]);
-    } else {
-        lines.push("Active: inactive (dead)".to_owned());
-    }
-    lines.extend([
-        format!("Rootfs: {}", info.rootfs.display()),
-        format!(
-            "UUID: {}",
-            info.uuid
-                .map_or_else(|| "unassigned".to_owned(), |uuid| uuid.to_string())
-        ),
-    ]);
-    lines
-}
-
-fn format_duration(seconds: u64) -> String {
-    let days = seconds / 86_400;
-    let hours = seconds % 86_400 / 3_600;
-    let minutes = seconds % 3_600 / 60;
-    let seconds = seconds % 60;
-    if days > 0 {
-        format!("{days}d {hours:02}h {minutes:02}m {seconds:02}s")
-    } else if hours > 0 {
-        format!("{hours}h {minutes:02}m {seconds:02}s")
-    } else if minutes > 0 {
-        format!("{minutes}m {seconds:02}s")
-    } else {
-        format!("{seconds}s")
-    }
-}
-
-fn format_memory(kibibytes: u64) -> String {
-    if kibibytes >= 1024 * 1024 {
-        format_unit(kibibytes, 1024 * 1024, "GiB")
-    } else if kibibytes >= 1024 {
-        format_unit(kibibytes, 1024, "MiB")
-    } else {
-        format!("{kibibytes} KiB")
-    }
-}
-
-fn format_unit(value: u64, unit: u64, suffix: &str) -> String {
-    let whole = value / unit;
-    let decimal = value % unit * 10 / unit;
-    format!("{whole}.{decimal} {suffix}")
 }
 
 #[cfg(test)]
