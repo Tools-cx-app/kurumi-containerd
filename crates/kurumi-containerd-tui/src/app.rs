@@ -7,8 +7,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Result, bail};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use kurumi_containerd_error::{Result, RuntimeError, bail};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::{
@@ -200,7 +200,7 @@ fn handle_screen(
             } else if let Some(entry) = entries.get(state.selected) {
                 allowed(kind, entry, can_open)
             } else {
-                Err(anyhow::anyhow!("No container selected"))
+                Err(RuntimeError::Message("No container selected".to_owned()))
             };
             match availability {
                 Ok(()) => state.open(kind),

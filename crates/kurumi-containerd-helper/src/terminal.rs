@@ -1,14 +1,14 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use std::{
-    io,
-    os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd},
-};
 #[cfg(target_os = "android")]
 use std::{
     fs::OpenOptions,
     os::{fd::AsFd, unix::fs::OpenOptionsExt},
+};
+use std::{
+    io,
+    os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd},
 };
 
 use crate::syscall::cvt;
@@ -352,3 +352,29 @@ fn cmsg_space(count: usize) -> usize {
 #[cfg(test)]
 #[path = "../tests/unit/terminal/tests.rs"]
 mod tests;
+
+/// Receives exactly count descriptors using the uds crate and takes ownership of them.
+pub fn receive_stream_fds(
+    socket: &std::os::unix::net::UnixStream,
+    count: usize,
+) -> io::Result<Vec<OwnedFd>> {
+    use uds::UnixStreamExt;
+    let mut descriptors = vec![-1; count];
+    let mut marker = [0];
+    let (bytes, received) = socket.recv_fds(&mut marker, &mut descriptors)?;
+    let descriptors: Vec<_> = descriptors
+        .into_iter()
+        .take(received)
+        .map(|fd| {
+            // SAFETY: uds returned new SCM_RIGHTS descriptors owned by this receiver.
+            unsafe { OwnedFd::from_raw_fd(fd) }
+        })
+        .collect();
+    if bytes != 1 || marker != *b"P" || descriptors.len() != count {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid standard stream descriptors",
+        ));
+    }
+    Ok(descriptors)
+}

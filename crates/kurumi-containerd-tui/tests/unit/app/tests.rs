@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use crate::state::UiState;
 use super::*;
+use crate::state::UiState;
 
 #[test]
 fn screen_focus_scrolls_details_and_output_independently() {
@@ -122,7 +122,9 @@ fn form_preserves_spaces_and_recovers_from_missing_input() {
             name: "test".into(),
             path: "config.json".into(),
         },
-        info: Err(anyhow::anyhow!("rootfs not installed")),
+        info: Err(kurumi_containerd_error::RuntimeError::Message(
+            "rootfs not installed".to_owned(),
+        )),
         foreground: false,
         install_ready: true,
     };

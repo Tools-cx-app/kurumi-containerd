@@ -1,310 +1,111 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use std::{
-    sync::mpsc::{self, RecvTimeoutError},
-    thread,
-    time::Duration,
-};
-
-use tempfile::{TempDir, tempdir};
-use uuid::Uuid;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use super::*;
 
-fn fixture() -> (TempDir, StateStore, ContainerState) {
-    let directory = tempdir().unwrap();
-    let store = StateStore::new(directory.path(), "demo");
-    // Unit tests exercise persistence without requiring root-owned directories.
-    fs::create_dir(store.state_dir()).unwrap();
-    fs::create_dir(store.recovery_dir()).unwrap();
-    let state = ContainerState {
-        name: "demo".to_owned(),
-        init_pid: 10,
-        monitor_pid: 9,
-        rootfs: PathBuf::from("/rootfs"),
-        uuid: Uuid::nil(),
-        host_boot_id: "boot".to_owned(),
-        init_start_time: 100,
-        pid_namespace_inode: Some(200),
-        started_at_unix: 300,
-        monitor_start_time: 90,
-        init_system: crate::InitSystem::Unknown,
-        generation: 0,
-        isolation: kurumi_containerd_config::IsolationMode::Isolated,
-        worker_pid: None,
-        worker_start_time: None,
-        mount_namespace_inode: None,
-        cgroup_path: None,
-    };
-    store.write_state(&state).unwrap();
-    (directory, store, state)
+fn fixture() -> ContainerState {
+    serde_json::from_value(serde_json::json!({
+        "name": "demo", "init_pid": 1, "monitor_pid": 2,
+        "rootfs": "/rootfs", "uuid": "00000000-0000-0000-0000-000000000000",
+        "host_boot_id": "boot", "init_start_time": 10,
+        "pid_namespace_inode": 20, "started_at_unix": 30, "monitor_start_time": 40
+    }))
+    .unwrap()
 }
 
 #[test]
-fn selects_state_and_recovery_paths_from_workdir_and_name() {
-    let store = StateStore::new(Path::new("/run/kurumi"), "demo");
-    assert_eq!(store.state_dir(), Path::new("/run/kurumi/state"));
-    assert_eq!(store.recovery_dir(), Path::new("/run/kurumi/recovery"));
-    assert_eq!(store.state_path(), Path::new("/run/kurumi/state/demo.json"));
-}
-
-#[test]
-fn delayed_recovery_cannot_overwrite_restart_or_reboot_state() {
-    for reboot in [false, true] {
-        let (directory, store, original) = fixture();
-        let workdir = directory.path().to_path_buf();
-        let (snapshot_sender, snapshot_receiver) = mpsc::channel();
-        let (commit_sender, commit_receiver) = mpsc::channel();
-        let scan = thread::spawn(move || {
-            let store = StateStore::new(&workdir, "demo");
-            let snapshot = read_state(&store.recovery_path(Uuid::nil())).unwrap();
-            let mut recovered = snapshot.clone();
-            recovered.init_pid += 1;
-            snapshot_sender.send(()).unwrap();
-            commit_receiver.recv().unwrap();
-            store
-                .restore_state_if_unchanged(&snapshot, &recovered)
-                .unwrap()
-        });
-        snapshot_receiver
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap();
-        let mut newer = original;
-        newer.init_pid += 2;
-        newer.init_start_time += 2;
-        newer.pid_namespace_inode = newer.pid_namespace_inode.map(|inode| inode + 2);
-        if reboot {
-            newer.generation += 1;
-        } else {
-            newer.monitor_pid += 2;
-            newer.monitor_start_time += 2;
-        }
-        store.write_state(&newer).unwrap();
-        commit_sender.send(()).unwrap();
-
-        assert!(!scan.join().unwrap());
-        assert_eq!(read_state(&store.state_path()).unwrap(), newer);
-        assert_eq!(read_state(&store.recovery_path(newer.uuid)).unwrap(), newer);
-    }
-}
-
-#[test]
-fn recovery_does_not_resurrect_removed_records() {
-    let (_directory, store, original) = fixture();
+fn publication_is_shared_and_stale_cleanup_preserves_new_generation() {
+    let store = StateStore::new().unwrap();
+    let monitor = store.clone();
+    let original = fixture();
+    store.write_state(&original).unwrap();
+    let mut next = original.clone();
+    next.generation += 1;
+    monitor.write_state(&next).unwrap();
     store.remove_state_for(&original).unwrap();
-
-    assert!(
-        !store
-            .restore_state_if_unchanged(&original, &original)
-            .unwrap()
-    );
-    assert!(!store.state_path().exists());
-    assert!(!store.recovery_path(original.uuid).exists());
-}
-
-#[test]
-fn recovery_preserves_new_identity_even_if_old_recovery_record_remains() {
-    let (_directory, store, original) = fixture();
-    let mut newer = original.clone();
-    newer.uuid = Uuid::from_u128(1);
-    newer.monitor_pid += 1;
-    newer.monitor_start_time += 1;
-    store.write_state(&newer).unwrap();
-
-    assert!(
-        !store
-            .restore_state_if_unchanged(&original, &original)
-            .unwrap()
-    );
-    assert_eq!(read_state(&store.state_path()).unwrap(), newer);
-    assert_eq!(read_state(&store.recovery_path(newer.uuid)).unwrap(), newer);
-}
-
-#[test]
-fn stale_recovery_cleanup_preserves_replaced_record() {
-    let (_directory, store, original) = fixture();
-    let mut newer = original.clone();
-    newer.monitor_pid += 1;
-    newer.monitor_start_time += 1;
-    store.write_state(&newer).unwrap();
-
-    store.remove_recovery_if_unchanged(&original).unwrap();
-
-    assert_eq!(read_state(&store.recovery_path(newer.uuid)).unwrap(), newer);
-    assert_eq!(read_state(&store.state_path()).unwrap(), newer);
-    store.remove_recovery_if_unchanged(&newer).unwrap();
-    assert!(!store.recovery_path(newer.uuid).exists());
-    assert_eq!(read_state(&store.state_path()).unwrap(), newer);
-}
-
-#[test]
-fn missing_state_is_restored_while_lifecycle_lock_is_held() {
-    let (directory, store, original) = fixture();
-    store.remove_state().unwrap();
-    let lifecycle_lock = store.lock().unwrap();
-    let workdir = directory.path().to_path_buf();
-    let snapshot = original.clone();
-    let (sender, receiver) = mpsc::channel();
-    let scan = thread::spawn(move || {
-        let store = StateStore::new(&workdir, "demo");
-        sender
-            .send(
-                store
-                    .restore_state_if_unchanged(&snapshot, &snapshot)
-                    .unwrap(),
-            )
-            .unwrap();
-    });
-    let result = receiver.recv_timeout(Duration::from_secs(2));
-    // Release even on timeout so a mistaken lifecycle lock cannot hang the test.
-    drop(lifecycle_lock);
-    scan.join().unwrap();
-
-    assert!(result.expect("recovery re-entered the lifecycle lock"));
-    assert_eq!(read_state(&store.state_path()).unwrap(), original);
-}
-
-#[test]
-fn state_changes_serialize_with_recovery_commits() {
-    let operations: [fn(&StateStore, &ContainerState); 5] = [
-        |store, state| store.write_state(state).unwrap(),
-        |store, _| store.remove_state().unwrap(),
-        |store, state| store.remove_state_for(state).unwrap(),
-        |store, state| store.remove_recovery_if_unchanged(state).unwrap(),
-        |store, state| {
-            assert!(store.restore_state_if_unchanged(state, state).unwrap());
-        },
-    ];
-    for operation in operations {
-        let (directory, store, state) = fixture();
-        let lock = store.lock_updates(&state.name).unwrap();
-        let workdir = directory.path().to_path_buf();
-        let (started_sender, started_receiver) = mpsc::channel();
-        let (finished_sender, finished_receiver) = mpsc::channel();
-        let worker = thread::spawn(move || {
-            let store = StateStore::new(&workdir, "demo");
-            started_sender.send(()).unwrap();
-            operation(&store, &state);
-            finished_sender.send(()).unwrap();
-        });
-        started_receiver
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap();
-        let result = finished_receiver.recv_timeout(Duration::from_millis(50));
-        drop(lock);
-        worker.join().unwrap();
-
-        assert_eq!(result, Err(RecvTimeoutError::Timeout));
-    }
-}
-
-#[test]
-fn state_update_lock_rejects_symlinks() {
-    let (directory, store, state) = fixture();
-    let target = directory.path().join("untouched");
-    fs::write(&target, "keep").unwrap();
-    let lock_path = store.state_dir().join("demo.lock");
-    fs::remove_file(&lock_path).unwrap();
-    std::os::unix::fs::symlink(&target, lock_path).unwrap();
-
-    assert!(store.write_state(&state).is_err());
-    assert_eq!(fs::read_to_string(target).unwrap(), "keep");
-}
-
-#[test]
-fn stop_request_is_distinct_from_lifecycle_contention_and_expires_on_release() {
-    let (_directory, store, _state) = fixture();
-    let _lifecycle = store.lock().unwrap();
-    assert!(!store.stop_requested().unwrap());
-    let request = store.request_stop().unwrap();
-    assert!(store.stop_requested().unwrap());
-    drop(request);
-    assert!(!store.stop_requested().unwrap());
-}
-
-#[test]
-fn stop_request_lock_rejects_symlinks() {
-    let (directory, store, _state) = fixture();
-    let target = directory.path().join("untouched");
-    fs::write(&target, "keep").unwrap();
-    std::os::unix::fs::symlink(&target, store.state_dir().join("demo.stop")).unwrap();
-    assert!(store.request_stop().is_err());
-    assert!(store.stop_requested().is_err());
-    assert_eq!(fs::read_to_string(target).unwrap(), "keep");
-}
-
-#[test]
-#[cfg(feature = "servicectl")]
-fn shared_recovery_never_substitutes_a_new_init_or_generation() {
-    let (_directory, store, mut state) = fixture();
-    state.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
-    state.pid_namespace_inode = None;
-    state.worker_pid = Some(11);
-    state.worker_start_time = Some(95);
-    state.mount_namespace_inode = Some(300);
-    state.cgroup_path = Some("/delegated/kurumi-containerd/demo".into());
-    store.write_state(&state).unwrap();
-    store.remove_state().unwrap();
-    for field in ["init_pid", "init_start_time", "generation"] {
-        let mut changed = serde_json::to_value(&state).unwrap();
-        changed[field] = (changed[field].as_u64().unwrap() + 1).into();
-        let changed: ContainerState = serde_json::from_value(changed).unwrap();
-        assert!(!store.restore_state_if_unchanged(&state, &changed).unwrap());
-        assert!(!store.state_path().exists());
-    }
-    assert!(store.restore_state_if_unchanged(&state, &state).unwrap());
-    assert_eq!(read_state(&store.state_path()).unwrap(), state);
-}
-
-#[test]
-#[cfg(feature = "servicectl")]
-fn shared_residual_persistence_does_not_depend_on_init_or_monitor_liveness() {
-    let (_directory, store, mut state) = fixture();
-    state.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
-    state.host_boot_id = crate::host::process::host_boot_id().unwrap();
-    state.init_pid = 2_000_000_001;
-    state.monitor_pid = 2_000_000_002;
-    state.worker_pid = Some(2_000_000_003);
-    state.worker_start_time = Some(95);
-    state.pid_namespace_inode = None;
-    state.mount_namespace_inode = Some(300);
-    state.cgroup_path = Some("/delegated/kurumi-containerd/demo".into());
-    store.write_state(&state).unwrap();
-    assert_eq!(store.state().unwrap(), Some(state.clone()));
-    assert_eq!(read_state(&store.recovery_path(state.uuid)).unwrap(), state);
-}
-
-#[test]
-#[cfg(feature = "servicectl")]
-fn shared_worker_cleanup_preserves_other_generations_and_boots() {
-    let (_directory, store, mut state) = fixture();
-    state.isolation = kurumi_containerd_config::IsolationMode::SharedPidIpc;
-    state.host_boot_id = crate::host::process::host_boot_id().unwrap();
-    state.worker_pid = Some(11);
-    state.worker_start_time = Some(95);
-    state.pid_namespace_inode = None;
-    state.mount_namespace_inode = Some(300);
-    state.cgroup_path = Some("/delegated/kurumi-containerd/demo".into());
-    store.write_state(&state).unwrap();
-
-    for (pid, start) in [(12, 95), (11, 96)] {
-        assert!(!store.remove_shared_state_for_worker(pid, start).unwrap());
-        assert_eq!(read_state(&store.state_path()).unwrap(), state);
-        assert_eq!(read_state(&store.recovery_path(state.uuid)).unwrap(), state);
-    }
-    let mut previous_boot = state.clone();
-    previous_boot.host_boot_id = "previous-boot".into();
-    store.write_state(&previous_boot).unwrap();
-    assert!(!store.remove_shared_state_for_worker(11, 95).unwrap());
-    assert_eq!(read_state(&store.state_path()).unwrap(), previous_boot);
     assert_eq!(
-        read_state(&store.recovery_path(state.uuid)).unwrap(),
-        previous_boot
+        read_record(&mut store.0.records.lock().unwrap()).unwrap(),
+        Some(next.clone())
     );
+    monitor.remove_state_for(&next).unwrap();
+    assert!(
+        read_record(&mut store.0.records.lock().unwrap())
+            .unwrap()
+            .is_none()
+    );
+}
 
+#[test]
+fn incomplete_inactive_slot_does_not_replace_published_state() {
+    let store = StateStore::new().unwrap();
+    let state = fixture();
     store.write_state(&state).unwrap();
-    assert!(store.remove_shared_state_for_worker(11, 95).unwrap());
-    assert!(!store.state_path().exists());
-    assert!(!store.recovery_path(state.uuid).exists());
+    {
+        let mut file = store.0.records.lock().unwrap();
+        file.seek(std::io::SeekFrom::Start(slot_offset(2))).unwrap();
+        file.write_all(b"incomplete update").unwrap();
+    }
+    assert_eq!(
+        read_record(&mut store.0.records.lock().unwrap()).unwrap(),
+        Some(state)
+    );
+}
+
+#[test]
+fn lifecycle_lock_and_stop_request_have_independent_lifetimes() {
+    let store = StateStore::new().unwrap();
+    let lock = store.lock().unwrap();
+    assert!(store.try_lock().unwrap().is_none());
+    assert!(!store.stop_requested().unwrap());
+    let stop = store.request_stop().unwrap();
+    assert!(store.stop_requested().unwrap());
+    drop(stop);
+    assert!(!store.stop_requested().unwrap());
+    drop(lock);
+    assert!(store.try_lock().unwrap().is_some());
+}
+
+#[test]
+fn cloned_store_serializes_concurrent_lifecycle_operations() {
+    let store = StateStore::new().unwrap();
+    let lock = store.lock().unwrap();
+    let worker_store = store.clone();
+    let (sender, receiver) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let _lock = worker_store.lock().unwrap();
+        sender.send(()).unwrap();
+    });
+    assert!(receiver.recv_timeout(Duration::from_millis(50)).is_err());
+    drop(lock);
+    receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+    worker.join().unwrap();
+}
+
+#[cfg(feature = "servicectl")]
+#[test]
+fn worker_cleanup_checks_generation_and_boot_identity() {
+    let store = StateStore::new().unwrap();
+    let state = crate::runtime::state::tests::shared_state();
+    store.write_state(&state).unwrap();
+    assert!(
+        !store
+            .remove_shared_state_for_worker(
+                state.worker_pid.unwrap(),
+                state.worker_start_time.unwrap() + 1
+            )
+            .unwrap()
+    );
+    assert_eq!(store.state().unwrap(), Some(state.clone()));
+    assert!(
+        store
+            .remove_shared_state_for_worker(
+                state.worker_pid.unwrap(),
+                state.worker_start_time.unwrap()
+            )
+            .unwrap()
+    );
+    assert!(store.state().unwrap().is_none());
 }

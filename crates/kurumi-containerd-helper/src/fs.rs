@@ -336,3 +336,17 @@ pub fn set_file_mode(fd: BorrowedFd<'_>, mode: u32) -> io::Result<()> {
 #[cfg(test)]
 #[path = "../tests/unit/fs/tests.rs"]
 mod tests;
+
+/// Creates a close-on-exec anonymous memory file with no directory entry.
+pub fn anonymous_memory_file(name: &str) -> io::Result<File> {
+    use std::os::fd::FromRawFd;
+    let name = CString::new(name)?;
+    // SAFETY: name is a live NUL-terminated string and the flags match the kernel ABI.
+    // Calling the syscall also supports Android API levels without the libc symbol.
+    let fd = unsafe { libc::syscall(libc::SYS_memfd_create, name.as_ptr(), libc::MFD_CLOEXEC) };
+    if fd == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a successful memfd_create returns a new, exclusively owned descriptor.
+    Ok(unsafe { File::from_raw_fd(fd as libc::c_int) })
+}

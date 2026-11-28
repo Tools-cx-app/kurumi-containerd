@@ -3,7 +3,7 @@
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{Result, bail};
+use kurumi_containerd_error::{Result, RuntimeError, bail};
 
 use crate::registry::Entry;
 
@@ -230,7 +230,7 @@ pub(super) fn allowed(k: ActionKind, e: &Entry, terminal: bool) -> Result<()> {
     let active = e
         .info
         .as_ref()
-        .map_err(|x| anyhow::anyhow!("{x:#}"))?
+        .map_err(|x| RuntimeError::Message(format!("{x:#}")))?
         .active;
     if matches!(
         k,

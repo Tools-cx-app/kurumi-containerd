@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-//! Runtime orchestration, execution, and persistent state.
+//! Runtime orchestration, execution, and in-memory state.
 
 mod backup;
 mod boot;

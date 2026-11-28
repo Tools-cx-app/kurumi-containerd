@@ -6,6 +6,7 @@ use std::{
     io::{self, Write},
 };
 
+use kurumi_containerd_error::Result;
 use kurumi_containerd_runtime::{ContainerInfo, ContainerState};
 
 #[derive(Debug)]
@@ -26,6 +27,31 @@ impl std::error::Error for OutputError {
 impl OutputError {
     pub fn is_broken_pipe(&self) -> bool {
         self.0.kind() == io::ErrorKind::BrokenPipe
+    }
+}
+
+impl From<OutputError> for kurumi_containerd_error::RuntimeError {
+    fn from(error: OutputError) -> Self {
+        Self::Context {
+            context: "command output failed".to_owned(),
+            source: Box::new(error),
+        }
+    }
+}
+
+pub fn is_broken_pipe(error: &kurumi_containerd_error::RuntimeError) -> bool {
+    let mut source: &(dyn std::error::Error + 'static) = error;
+    loop {
+        if source
+            .downcast_ref::<OutputError>()
+            .is_some_and(OutputError::is_broken_pipe)
+        {
+            return true;
+        }
+        let Some(next) = source.source() else {
+            return false;
+        };
+        source = next;
     }
 }
 
@@ -78,16 +104,16 @@ pub fn containers(out: &mut dyn Write, states: &[ContainerState]) -> io::Result<
 
 pub fn recovered(out: &mut dyn Write, states: &[ContainerState]) -> io::Result<()> {
     if states.is_empty() {
-        return writeln!(out, "No containers required recovery");
+        return writeln!(out, "No containers tracked by daemon");
     }
     for state in states {
         writeln!(
             out,
-            "Recovered {} (PID {}, {})",
+            "Validated {} (PID {}, {})",
             state.name, state.init_pid, state.isolation
         )?;
     }
-    writeln!(out, "Recovered containers: {}", states.len())
+    writeln!(out, "Validated containers: {}", states.len())
 }
 
 pub fn check(

@@ -87,16 +87,14 @@ fn pid_handshake_failure_reaps_worker_without_init_handle() {
 #[test]
 fn reboot_waits_for_ordinary_operations_but_yields_to_explicit_stop() {
     for stop in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let store = StateStore::new(directory.path(), "demo");
-        std::fs::create_dir(store.state_dir()).unwrap();
+        let store = StateStore::new().unwrap();
         let lifecycle = store.lock().unwrap();
         let stop_request = stop.then(|| store.request_stop().unwrap());
-        let workdir = directory.path().to_path_buf();
+        let worker_store = store.clone();
         let (started_sender, started_receiver) = mpsc::channel();
         let (finished_sender, finished_receiver) = mpsc::channel();
         let worker = thread::spawn(move || {
-            let store = StateStore::new(&workdir, "demo");
+            let store = worker_store;
             started_sender.send(()).unwrap();
             let lock = wait_for_reboot_lock(&store).unwrap();
             finished_sender.send(lock.is_some()).unwrap();

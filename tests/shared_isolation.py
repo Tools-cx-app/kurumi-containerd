@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -166,7 +167,7 @@ class Container:
             "isolation": "shared-pid-ipc", "network": "host"}}
         self.save()
         self.env = dict(os.environ, HOME=str(self.home), NO_COLOR="1")
-        self.state = Path("/run/kurumi-containerd/state") / (self.name + ".json")
+
         self.group = None
 
     def save(self):
@@ -180,9 +181,31 @@ class Container:
                                  f"{result.stdout}{result.stderr}")
         return result
 
+    def state_record(self):
+        import socket
+        import struct
+        path = "/dev/kurumi/socket.sock" if "android" in sys.platform else "/var/kurumi/socket.sock"
+        with socket.socket(socket.AF_UNIX) as stream:
+            stream.settimeout(5)
+            stream.connect(path)
+            request = json.dumps({"request": {"config": None, "operation": {"operation": "list"}},
+                                  "attach_stdio": False}).encode()
+            stream.sendall(struct.pack("!I", len(request)) + request)
+            def read_exact(count):
+                data = b""
+                while len(data) < count:
+                    chunk = stream.recv(count - len(data))
+                    if not chunk:
+                        raise AssertionError("daemon closed the response")
+                    data += chunk
+                return data
+            response = json.loads(read_exact(struct.unpack("!I", read_exact(4))[0]))
+        assert response["result"] == "containers", response
+        return next((state for state in response["value"] if state["name"] == self.name), None)
+
     def running(self):
         wait_for("supervisor readiness", (self.root / "ready").exists)
-        state = json.loads(self.state.read_text())
+        state = self.state_record()
         assert state["isolation"] == "shared-pid-ipc", state
         pid = int(self.cli("pid").stdout.strip())
         assert pid > 1 and identity(pid), pid
@@ -222,8 +245,8 @@ class Container:
 
     def snapshot(self):
         pids = members(self.group) if self.group else set()
-        if self.state.exists():
-            state = json.loads(self.state.read_text())
+        state = self.state_record()
+        if state:
             for key in ("pid", "init_pid", "monitor_pid", "worker_pid"):
                 if state.get(key):
                     pids.add(state[key])
@@ -233,7 +256,7 @@ class Container:
         wait_for("all descendants and supervisors reaped", lambda: gone(processes))
         if self.group:
             wait_for("container cgroup removed", lambda: not self.group.exists())
-        assert not self.state.exists(), f"cleaned generation retained state: {self.state}"
+        assert self.state_record() is None, "cleaned generation retained memory state"
         assert self.cli("pid", check=False).returncode != 0
         mounts = Path("/proc/self/mountinfo").read_text().splitlines()
         assert not any(line.split()[4].startswith(str(self.root) + "/") for line in mounts)
@@ -264,7 +287,7 @@ def refusal_without_cgroup(container):
     # Overmount only in a disposable mount namespace, never the host namespace.
     result = subprocess.run([
         "unshare", "--mount", "--propagation", "private", "sh", "-ec",
-        'mount -t tmpfs tmpfs /sys/fs/cgroup; echo KURUMI_CGROUP_HIDDEN >&2; exec "$@"', "sh",
+        'mount -t tmpfs tmpfs /sys/fs/cgroup; mkdir -p /var/kurumi; mount -t tmpfs -o mode=700 tmpfs /var/kurumi; echo KURUMI_CGROUP_HIDDEN >&2; exec "$@"', "sh",
         container.binary, "--name", container.name, "start"], env=container.env,
         text=True, capture_output=True, timeout=40)
     output = result.stdout + result.stderr
@@ -298,6 +321,10 @@ def lifecycle(binary, directory, vm_probe):
             return
         if not Path("/sys/fs/cgroup/cgroup.controllers").exists():
             print("SKIP: shared lifecycle needs cgroup v2; refusal case verified")
+            return
+        hierarchy = Path("/sys/fs/cgroup").stat()
+        if hierarchy.st_uid != 0 or hierarchy.st_mode & 0o022:
+            print("SKIP: shared lifecycle requires a root-owned cgroup hierarchy without group/world write permission")
             return
         a.cli("start")
         first = a.running()
@@ -337,7 +364,7 @@ def lifecycle(binary, directory, vm_probe):
         try:
             result = default.cli("start", check=False)
             if result.returncode == 0:
-                state = json.loads(default.state.read_text())
+                state = default.state_record()
                 pid = state["init_pid"]
                 assert state.get("isolation", "isolated") == "isolated"
                 for ns in ("pid", "ipc"):
@@ -355,9 +382,8 @@ def lifecycle(binary, directory, vm_probe):
         a.save()
         a.cli("run", "/init", "exec-check")
         assert "shared-pid-ipc" in a.cli("info").stdout
-        a.state.unlink()
         a.cli("scan")
-        recovered = json.loads(a.state.read_text())
+        recovered = a.state_record()
         assert recovered["isolation"] == "shared-pid-ipc"
         assert recovered["monitor_pid"] == first["monitor_pid"]
         assert b.cli("pid").stdout.strip() == str(second.get("pid", second.get("init_pid")))
@@ -395,7 +421,7 @@ def lifecycle(binary, directory, vm_probe):
         a.cli("start")
         a.running()
         old = a.snapshot()
-        os.kill(json.loads(a.state.read_text())["init_pid"], signal.SIGHUP)
+        os.kill(a.state_record()["init_pid"], signal.SIGHUP)
         a.cleaned(old)
         assert a.cli("pid", check=False).returncode != 0, "SIGHUP unexpectedly rebooted"
         (a.root / "ready").unlink()
@@ -406,12 +432,12 @@ def lifecycle(binary, directory, vm_probe):
         wait_for("setsid fork storm", (a.root / "storm").exists)
         time.sleep(0.4)
         old = a.snapshot()
-        state = json.loads(a.state.read_text())
+        state = a.state_record()
         os.kill(state["monitor_pid"], signal.SIGKILL)
         a.cleaned(old)
         sentinel_alive()
         old_b = b.snapshot()
-        state_b = json.loads(b.state.read_text())
+        state_b = b.state_record()
         os.kill(state_b.get("pid", state_b.get("init_pid")), signal.SIGKILL)
         b.cleaned(old_b)
         sentinel_alive()

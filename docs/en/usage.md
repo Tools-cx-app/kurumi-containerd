@@ -265,7 +265,7 @@ Enable this option only for trusted containers.
 
 ## Enter and run
 
-Commands join the running container's actual namespaces and cgroups. Its persisted
+Commands join the running container's actual namespaces and cgroups. Its recorded
 isolation mode controls entry; shared mode does not open/join absent PID/IPC
 namespace interfaces. Editing isolation, network or resources in config.json
 takes effect on the next start, not the running generation.
@@ -312,7 +312,14 @@ sudo -H kurumi-containerd scan
 
 `info` prints container identity, actual isolation, init and monitor PIDs, init system, uptime, memory use, process count, generation, rootfs, and UUID. `pid` returns the init PID. Shared process/memory statistics cover its recursive dedicated cgroup, not host totals.
 
-`show` reads live states from the configured work directory. `scan` reconstructs missing state only when in-container identity and a protected host recovery record agree. Isolated recovery finds namespace PID 1; shared recovery validates the recorded supervisor, worker identity and exclusive cgroup instead of guessing a service from procfs. Editing current JSON does not relabel a running instance.
+`show` lists containers tracked by daemon memory. `scan` validates those records
+against process identities. Runtime state and recovery metadata remain in memory.
+The CLI automatically starts the daemon when its socket cannot be connected,
+printing startup logs. Linux uses `/var/kurumi/socket.sock` and Android uses
+`/dev/kurumi/socket.sock`. Request logs append to `daemon.log` beside the socket.
+The daemon detaches from the terminal and is adopted by PID 1. Daemon exit
+terminates its containers and triggers resource cleanup. Restarting the daemon
+creates an empty registry. JSON configuration and rootfs contents remain on disk.
 
 ## Host checks
 

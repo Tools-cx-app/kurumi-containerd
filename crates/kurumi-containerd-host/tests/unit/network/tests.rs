@@ -1,33 +1,18 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 
 use super::{
-    state::{NatLease, NatLeaseOwner, network_state_dir},
+    state::{NatLease, NatLeaseOwner},
     *,
 };
 
 #[test]
-fn network_state_uses_supplied_directory_for_cleanup() {
+fn network_cleanup_does_not_create_state_files() {
     let directory = tempfile::tempdir().unwrap();
-    if kurumi_containerd_helper::process::effective_uid() == 0 {
-        drop(Network::empty(directory.path()));
-        assert!(directory.path().join("network.lock").is_file());
-    } else {
-        let error = network_state_dir(directory.path()).unwrap_err();
-        assert!(error.to_string().contains("must be owned by root"));
-    }
-}
-
-#[test]
-fn network_state_rejects_untrusted_directories() {
-    let directory = tempfile::tempdir().unwrap();
-    let link = directory.path().join("link");
-    symlink(directory.path(), &link).unwrap();
-    assert!(network_state_dir(&link).is_err());
-    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o777)).unwrap();
-    assert!(network_state_dir(directory.path()).is_err());
+    drop(Network::empty(NetworkState::new().unwrap()));
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
 }
 
 #[test]

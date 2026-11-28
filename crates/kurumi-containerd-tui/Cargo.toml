@@ -15,9 +15,10 @@ servicectl = [
 ]
 
 [dependencies]
-anyhow.workspace = true
+kurumi-containerd-error = { workspace = true, features = ["runtime"] }
 crossterm = "0.29"
 kurumi-containerd-config = { path = "../kurumi-containerd-config" }
+kurumi-containerd-daemon = { path = "../kurumi-containerd-daemon" }
 kurumi-containerd-runtime = { path = "../kurumi-containerd-runtime" }
 ratatui = "0.30.2"
 shlex.workspace = true

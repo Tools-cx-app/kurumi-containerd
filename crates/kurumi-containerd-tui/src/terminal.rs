@@ -3,11 +3,11 @@
 
 use std::{io, path::PathBuf};
 
-use anyhow::{Context, Result, bail};
 use crossterm::{
     execute,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use kurumi_containerd_error::{ErrorContext as _, Result, bail};
 
 fn terminal_available(android: bool, graphical: bool, found: bool) -> bool {
     !android && graphical && found

@@ -18,9 +18,10 @@ servicectl = [
 tui = ["dep:kurumi-containerd-tui"]
 
 [dependencies]
-anyhow.workspace = true
+kurumi-containerd-error = { workspace = true, features = ["runtime"] }
 clap.workspace = true
 kurumi-containerd-config = { path = "../kurumi-containerd-config" }
+kurumi-containerd-daemon = { path = "../kurumi-containerd-daemon" }
 kurumi-containerd-host = { path = "../kurumi-containerd-host" }
 kurumi-containerd-runtime = { path = "../kurumi-containerd-runtime" }
 kurumi-containerd-tui = { path = "../kurumi-containerd-tui", optional = true }

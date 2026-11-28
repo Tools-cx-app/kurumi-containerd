@@ -11,11 +11,11 @@ use kurumi_containerd_config::AndroidConfig;
 use kurumi_containerd_helper::fs::{MountFlags, mount};
 use kurumi_containerd_helper::kernelsu::KernelSu;
 
+pub use crate::selinux::{SelinuxGuard, SelinuxState};
 use crate::{
     Result,
     error::{ErrorContext as _, ensure},
 };
-pub use crate::selinux::SelinuxGuard;
 
 const GPU_DIRECTORIES: &[(&str, &str)] = &[
     ("/dev/dri", "renderD"),

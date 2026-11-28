@@ -21,11 +21,11 @@ use kurumi_containerd_helper::{
     },
 };
 
+use super::process::ProcessHandle;
 use crate::{
     Result,
     error::{ErrorContext as _, bail},
 };
-use super::process::ProcessHandle;
 
 static FORWARDED_SIGNAL: AtomicI32 = AtomicI32::new(0);
 const PTY_MODE: u32 = 0o620;
@@ -225,9 +225,21 @@ pub fn receive_fd(socket: &OwnedFd) -> Result<OwnedFd> {
 /// # Errors
 /// Returns polling, reading, or process wait errors.
 pub fn drain(master: &OwnedFd, child: i32) -> Result<WaitStatus> {
+    drain_with_check(master, child, &|| Ok(()))
+}
+
+/// Drains output while checking the monitor owner's lifetime each poll.
+/// # Errors
+/// Returns polling, reading, process wait, or lifetime check errors.
+pub fn drain_with_check(
+    master: &OwnedFd,
+    child: i32,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<WaitStatus> {
     set_nonblocking(master.as_fd()).context("failed to set PTY nonblocking")?;
     let mut buffer = [0_u8; 16 * 1024];
     loop {
+        check()?;
         if poll_terminal(master.as_fd(), master.as_fd(), false, false)?.0 {
             match read(master, &mut buffer) {
                 Ok(_) => {}
@@ -254,6 +266,18 @@ pub fn proxy(
     child: i32,
     shutdown_target: Option<(&ProcessHandle, &dyn Fn() -> Result<()>)>,
 ) -> Result<WaitStatus> {
+    proxy_with_check(master, child, shutdown_target, &|| Ok(()))
+}
+
+/// Proxies a foreground console while checking its monitor owner's lifetime.
+/// # Errors
+/// Returns terminal I/O, process wait, shutdown, or lifetime check errors.
+pub fn proxy_with_check(
+    master: &OwnedFd,
+    child: i32,
+    shutdown_target: Option<(&ProcessHandle, &dyn Fn() -> Result<()>)>,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<WaitStatus> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
     let stderr = std::io::stderr();
@@ -268,6 +292,7 @@ pub fn proxy(
     let mut pending_input = Vec::new();
     set_nonblocking(master.as_fd()).context("failed to set PTY nonblocking")?;
     loop {
+        check()?;
         if let Some((target, _)) = shutdown_target {
             let signal = FORWARDED_SIGNAL.swap(0, Ordering::Relaxed);
             if let Some(signal) = SignalNumber::new(signal) {

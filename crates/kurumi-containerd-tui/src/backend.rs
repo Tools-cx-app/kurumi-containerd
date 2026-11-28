@@ -8,9 +8,10 @@ use std::{
     process::{Child, Command, Stdio},
 };
 
-use anyhow::Result;
 use kurumi_containerd_config::ConfigEntry;
-use kurumi_containerd_runtime::{ContainerQuery, Runtime};
+use kurumi_containerd_daemon::{Client, Operation, Request, Response};
+use kurumi_containerd_error::{Result, RuntimeError, bail};
+use kurumi_containerd_runtime::ContainerInfo;
 
 use crate::{action::Action, registry::Entry, terminal::terminal_command};
 
@@ -52,18 +53,16 @@ impl<'a> Backend<'a> {
         Self { exe }
     }
 
-    #[allow(clippy::unused_self)]
     pub(super) fn load_entries(&self) -> Result<Vec<Entry>> {
         Ok(ConfigEntry::load_home()?
             .into_iter()
-            .map(load_entry)
+            .map(|config| self.load_entry(config))
             .collect())
     }
 
-    #[allow(clippy::unused_self)]
     pub(super) fn refresh(&self, entries: &mut [Entry]) {
         for entry in entries {
-            refresh_entry(entry);
+            self.refresh_entry(entry);
         }
     }
 
@@ -114,40 +113,33 @@ impl<'a> Backend<'a> {
             },
         )
     }
-}
 
-fn load_entry(config: ConfigEntry) -> Entry {
-    let install_ready = config.load_for_install().is_ok();
-    let (info, foreground) = match config.load_config() {
-        Ok(config) => {
-            let foreground = config.container.foreground;
-            (
-                Runtime::new(config)
-                    .and_then(|runtime| ContainerQuery::info(&runtime))
-                    .map_err(Into::into),
-                foreground,
-            )
-        }
-        Err(error) => (Err(error.into()), false),
-    };
-    Entry {
-        config,
-        info,
-        foreground,
-        install_ready,
+    fn load_entry(&self, config: ConfigEntry) -> Entry {
+        let mut entry = Entry {
+            config,
+            info: Err(RuntimeError::Message("status unavailable".to_owned())),
+            foreground: false,
+            install_ready: false,
+        };
+        self.refresh_entry(&mut entry);
+        entry
     }
-}
 
-fn refresh_entry(entry: &mut Entry) {
-    entry.install_ready = entry.config.load_for_install().is_ok();
-    match entry.config.load_config() {
-        Ok(config) => {
-            entry.foreground = config.container.foreground;
-            entry.info = Runtime::new(config)
-                .and_then(|runtime| ContainerQuery::info(&runtime))
-                .map_err(Into::into);
+    fn refresh_entry(&self, entry: &mut Entry) {
+        entry.install_ready = entry.config.load_for_install().is_ok();
+        entry.info = self.info(entry);
+    }
+
+    fn info(&self, entry: &mut Entry) -> Result<ContainerInfo> {
+        let config = entry.config.load_config()?;
+        entry.foreground = config.container.foreground;
+        match Client::new(self.exe, false).request(&Request {
+            config: Some(config),
+            operation: Operation::Info,
+        })? {
+            Response::Info(info) => Ok(info),
+            response => bail!("unexpected daemon response: {response:?}"),
         }
-        Err(error) => entry.info = Err(error.into()),
     }
 }
 

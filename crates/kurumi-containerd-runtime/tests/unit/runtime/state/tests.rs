@@ -33,46 +33,10 @@ fn parses_namespace_and_parent_pids() {
             .unwrap()
             .is_some()
     );
-    assert_eq!(parent_pid(pid).unwrap(), current_parent_pid());
-}
-
-#[test]
-fn writes_state_atomically() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("state.json");
-    let state = ContainerState {
-        name: "test".to_owned(),
-        init_pid: 1,
-        monitor_pid: 2,
-        rootfs: PathBuf::from("/rootfs"),
-        uuid: Uuid::nil(),
-        host_boot_id: "boot".to_owned(),
-        init_start_time: 1,
-        pid_namespace_inode: Some(2),
-        started_at_unix: 3,
-        monitor_start_time: 4,
-        init_system: crate::InitSystem::Unknown,
-        generation: 0,
-        isolation: IsolationMode::Isolated,
-        worker_pid: None,
-        worker_start_time: None,
-        mount_namespace_inode: None,
-        cgroup_path: None,
-    };
-    write_state_atomic(&path, &state).unwrap();
-    assert_eq!(read_state(&path).unwrap().uuid, Uuid::nil());
-    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
-}
-
-#[test]
-fn rejects_symlink_state_file() {
-    let directory = tempfile::tempdir().unwrap();
-    let target = directory.path().join("target.json");
-    fs::write(&target, "{}").unwrap();
-    let path = directory.path().join("state.json");
-    std::os::unix::fs::symlink(target, &path).unwrap();
-
-    assert!(read_state(&path).is_err());
+    assert_eq!(
+        crate::host::process::parent_pid(pid).unwrap(),
+        current_parent_pid()
+    );
 }
 
 #[cfg(feature = "servicectl")]
@@ -101,11 +65,8 @@ pub(super) fn shared_state() -> ContainerState {
 #[test]
 #[cfg(feature = "servicectl")]
 fn shared_records_require_complete_identity_but_no_pid_namespace() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("state.json");
     let state = shared_state();
-    write_state_atomic(&path, &state).unwrap();
-    assert_eq!(read_state(&path).unwrap(), state);
+    assert!(shared_metadata_valid(&state));
     for field in [
         "worker_pid",
         "worker_start_time",
@@ -114,8 +75,11 @@ fn shared_records_require_complete_identity_but_no_pid_namespace() {
     ] {
         let mut value = serde_json::to_value(&state).unwrap();
         value.as_object_mut().unwrap().remove(field);
-        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
-        assert!(read_state(&path).is_err(), "accepted missing {field}");
+        let incomplete: ContainerState = serde_json::from_value(value).unwrap();
+        assert!(
+            !shared_metadata_valid(&incomplete),
+            "accepted missing {field}"
+        );
     }
 }
 

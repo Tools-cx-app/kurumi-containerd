@@ -8,13 +8,13 @@ use std::{
 
 use kurumi_containerd_config::IsolationMode;
 use procfs::process::all_processes;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{Result, Runtime, container::init::InitSystem, error::ErrorContext as _};
 use super::{ContainerState, process_namespace_inode};
+use crate::{Result, Runtime, container::init::InitSystem, error::ErrorContext as _};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ContainerInfo {
     pub name: String,
     pub active: bool,

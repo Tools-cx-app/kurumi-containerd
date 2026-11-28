@@ -72,7 +72,8 @@ fn invalid_and_install_only_entries_preserve_source_and_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("config.json");
     fs::write(&file, "invalid = [").unwrap();
-    let mut entries = [load_entry(ConfigEntry {
+    let backend = Backend::new(Path::new("unused"));
+    let mut entries = [backend.load_entry(ConfigEntry {
         name: "tui-decoupling-test".into(),
         path: file.clone(),
     })];
@@ -82,7 +83,6 @@ fn invalid_and_install_only_entries_preserve_source_and_refresh() {
 
     let source = r#"[{"runtime": {}, "container": {"name": "tui-decoupling-test", "rootfs": "missing-rootfs", "foreground": true}}]"#;
     fs::write(&file, source).unwrap();
-    let backend = Backend::new(Path::new("unused"));
     backend.refresh(&mut entries);
     assert!(entries[0].info.is_err());
     assert!(entries[0].install_ready);
@@ -91,11 +91,8 @@ fn invalid_and_install_only_entries_preserve_source_and_refresh() {
     fs::create_dir_all(dir.path().join("missing-rootfs/sbin")).unwrap();
     fs::write(dir.path().join("missing-rootfs/sbin/init"), "").unwrap();
     backend.refresh(&mut entries);
-    let info = entries[0].info.as_ref().unwrap();
-    assert_eq!(info.name, "tui-decoupling-test");
-    assert!(!info.active);
+    assert!(entries[0].info.is_err());
     assert!(entries[0].foreground);
-    assert!(info.uuid.is_none());
     assert_eq!(fs::read_to_string(&file).unwrap(), source);
 
     fs::write(&file, "invalid = [").unwrap();

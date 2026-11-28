@@ -4,7 +4,7 @@
 use crate::ConfigError;
 
 /// A runtime operation result.
-pub type Result<T> = std::result::Result<T, RuntimeError>;
+pub type Result<T, E = RuntimeError> = std::result::Result<T, E>;
 
 /// An error from a host resource or container operation.
 #[derive(Debug, thiserror::Error)]

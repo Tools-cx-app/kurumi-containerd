@@ -6,6 +6,7 @@ members = [
   "crates/kurumi-containerd-cli",
   "crates/kurumi-containerd-config",
   "crates/kurumi-containerd-error",
+  "crates/kurumi-containerd-daemon",
   "crates/kurumi-containerd-host",
   "crates/kurumi-containerd-helper",
   "crates/kurumi-containerd-runtime",
@@ -46,6 +47,7 @@ tar = "0.4.46"
 toml = "1.2.3"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uds = "0.4.2"
 uuid = { version = "1.29.3", features = ["v4", "serde"] }
 which = "8.0.6"
 xz2 = "0.1.7"

@@ -188,8 +188,8 @@ cgroup v2 (not `cgroup.kill`), and does not support a normal systemd system inst
 The [deployable Dinit + s6/servicectl example](docs/en/servicectl.md) includes pinned
 upstream prerequisites, bootstrap/rollback, a demo unit and smoke commands. Go is
 only used to build the rootfs tools, never added to Kurumi's Rust dependencies.
-Actual isolation is persisted per running generation; editing config does not
-change `run`, `enter`, `info`, `stop` or recovery `scan`. `check` remains
+Actual isolation is recorded in daemon memory per running generation; editing config does not
+change `run`, `enter`, `info`, `stop` or validation `scan`. `check` remains
 HOME/config-independent and reports each mode's requirements.
 
 
@@ -202,6 +202,11 @@ Back up a stopped container with
 Backup in the TUI. The ID is the same `container.name` used by the runtime and TUI.
 See [backup and restore](docs/en/usage.md#back-up-a-container) for metadata limits
 and configuration files that must be saved separately.
+
+The CLI starts a detached daemon automatically when UDS connection fails. Linux
+uses `/var/kurumi/socket.sock` and Android uses `/dev/kurumi/socket.sock`. Request
+logs append to `daemon.log` beside the socket. Runtime state and recovery metadata
+stay in memory. Daemon exit terminates tracked containers and triggers cleanup.
 
 ## Commands
 
@@ -218,8 +223,8 @@ enter [USER] [--shell COMMAND]
 run COMMAND...          Run a non-interactive command
 info                    Show live state and resource usage
 pid                     Print the container init PID
-show                    List containers in the configured work directory
-scan                    Recover missing state for validated live containers
+show                    List containers tracked by daemon memory
+scan                    Validate containers tracked by daemon memory
 check                   Probe required host capabilities
 ```
 

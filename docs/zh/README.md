@@ -22,7 +22,7 @@ Android root 模块用户可直接从 [Android 部署](android-module.md)开始�
 | [共享模式服务](servicectl.md) | Dinit、s6-rc、servicectl 的依赖、安装、启动、回滚与验收 |
 | [配置迁移](migration-config-pointer.md) | 将旧 TOML 和指针条目转换为单一 JSON 登记文件 |
 | [共享模式兼容说明](shared-isolation-release.md) | feature、配置、Rust API 和运行状态兼容性 |
-| [运行时架构](architecture.md) | 七个 crate 的职责、生命周期、宿主资源和状态信任 |
+| [运行时架构](architecture.md) | 八个 crate 的职责、生命周期、宿主资源和状态信任 |
 | [开发与验证](development.md) | 本地检查、feature 构建、跨平台编译、特权测试和基准 |
 | [实现状态与限制](status.md) | 当前能力、部署前提与尚未覆盖的场景 |
 

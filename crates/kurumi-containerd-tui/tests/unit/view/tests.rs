@@ -181,7 +181,9 @@ fn confirmation_identifies_target_container() {
             name: "production".into(),
             path: "config.json".into(),
         },
-        info: Err(anyhow::anyhow!("unavailable")),
+        info: Err(kurumi_containerd_error::RuntimeError::Message(
+            "unavailable".to_owned(),
+        )),
         foreground: false,
         install_ready: true,
     };

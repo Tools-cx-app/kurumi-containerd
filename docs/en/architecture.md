@@ -5,9 +5,8 @@
 [Documentation](README.md)
 
 KurumiContainerd separates command presentation, container policy, and host
-resources across seven workspace crates. This page describes those boundaries,
-resource ownership, and the checks that make persisted state usable. It does not
-describe a security boundary for hostile workloads.
+resources across eight workspace crates. This page describes those boundaries,
+resource ownership, daemon communication, and in-memory process identity checks.
 
 ## Workspace boundaries
 
@@ -16,6 +15,7 @@ crates/
   kurumi-containerd-cli/      command parsing and output
   kurumi-containerd-config/   strict JSON schema, path resolution, and validation
   kurumi-containerd-error/    shared error types, result aliases, and context
+  kurumi-containerd-daemon/   UDS client/server, autostart, and request dispatch
   kurumi-containerd-helper/   target-aware Linux and Android syscall wrappers
   kurumi-containerd-host/     host resources and platform integration
   kurumi-containerd-runtime/  lifecycle, isolation, and state
@@ -24,11 +24,11 @@ crates/
 
 The CLI package and executable are named `kurumi-containerd`; the other crates
 provide internal implementation boundaries. Dependencies run toward lower-level
-services: CLI uses TUI, runtime, configuration, and host; TUI uses runtime and
-configuration; runtime uses host, configuration, helper, and error; host uses
+services: CLI uses TUI, daemon, runtime output types, configuration, and host; TUI uses daemon, runtime output types, and
+configuration; daemon uses runtime, configuration, helper, and error; runtime uses host, configuration, helper, and error; host uses
 configuration, helper, and error; configuration uses error. Helper and error do
 not depend on other workspace crates. Host never imports runtime lifecycle state
-or init-family policy: runtime passes it network-state paths and shutdown callbacks.
+or init-family policy. Runtime passes shared ownership records and shutdown callbacks.
 
 The CLI's `tui` feature is disabled by default. Building
 `cargo build -p kurumi-containerd` leaves out the optional TUI dependency and its
@@ -92,7 +92,7 @@ The monitor owns resources that must survive an internal container reboot:
 rootfs mounts, console PTY, cgroup, and Android SELinux state where applicable.
 It records init and monitor identities using the host boot ID and process start
 times. Isolated mode additionally requires a PID namespace inode. Shared mode
-persists the actual mode, worker identity, mount namespace and exclusive cgroup
+records the actual mode in memory, worker identity, mount namespace and exclusive cgroup
 path; missing PID/IPC namespace interfaces are allowed.
 
 Stop and restart share the per-container lifecycle lock. Stop additionally holds
@@ -146,7 +146,7 @@ Paths below are relative to the runtime crate's `src/`:
 | `runtime/supervisor.rs` | Wait/retry, signal policy, and child supervision helpers |
 | `runtime/query.rs` | Read-only `ContainerQuery` interface for info, PID, and live-container listing |
 | `runtime/state/mod.rs` | Public state types, process identity, and recovery policy |
-| `runtime/state/store.rs` | Private `StateStore`: trusted persistence, state paths, and locks |
+| `runtime/state/store.rs` | Private `StateStore`: anonymous memory records and lifecycle locks |
 | `runtime/state/info.rs` | Status and resource usage |
 | `runtime/execute.rs` | Namespace entry, command execution, and interactive login |
 | `runtime/install.rs` | Lifecycle coordination for rootfs installation |
@@ -164,7 +164,7 @@ Host resources live in the host crate's `src/`:
 | `rootfs/mod.rs`, `rootfs/install.rs` | Rootfs preparation, backup entry points, and archive installation |
 | `archive.rs`, `archive/backup.rs` | Private archive extraction and streaming export |
 | `network/mod.rs` | Veth, bridges, NAT, forwarding, and rollback |
-| `network/state.rs` | Network state and NAT lease persistence |
+| `network/state.rs` | In-memory network ownership and NAT leases |
 | `cgroup.rs` | Cgroup v1/v2 limits and hierarchy detection |
 | `android.rs` | Android host integration, exposed only on Android targets |
 
@@ -172,7 +172,7 @@ Host resource APIs take the configuration data they need: rootfs paths for
 `Rootfs`, and the container name, network mode, and network options for network
 setup. Config-taking constructors remain compatibility adapters for callers
 outside runtime. Resource ownership stays in the parent modules; network
-persistence is separate from network setup and cleanup orchestration.
+ownership state is separate from network setup and cleanup orchestration.
 
 The terminal proxy uses helper's safe `terminal::poll` wrapper for descriptor
 polling. Helper handles target-native `pollfd`, event flags, and a checked
@@ -192,7 +192,7 @@ their locations and visibility through explicit paths where needed.
 The TUI separates rendering, input state, and action validation from its private
 backend. `registry.rs` owns only the `Entry` model. `backend.rs` loads and
 refreshes configurations without persisting UUIDs, obtains runtime status through
-`ContainerQuery`, and dispatches actions through either a graphical terminal or
+the daemon UDS client, and dispatches actions through either a graphical terminal or
 a captured subprocess of the same CLI executable.
 
 `CommandTask` owns both the child process and its output file. Polling returns
@@ -222,21 +222,32 @@ option only for trusted containers; it is not a hostile-workload boundary.
 
 ## State and trust
 
-Runtime files and directories have restrictive ownership and permissions.
-State updates use no-follow opens, random temporary files, fsync, and atomic
-rename. Recovery requires a protected host recovery record and matching identity
-markers under `/run/kurumi-containerd` inside the container; scanning a live PID 1
-without that record is not enough.
+The CLI and TUI use the UDS client in `kurumi-containerd-daemon`. The socket is
+`/var/kurumi/socket.sock` on Linux and `/dev/kurumi/socket.sock` on Android.
+An unavailable socket triggers automatic daemon startup and a client log message.
+The daemon double-forks, creates a separate session, and is adopted by PID 1.
+Its standard streams point to `/dev/null`. Request and runtime logs append to
+`daemon.log` in the socket directory.
 
-Shared recovery never guesses a supervisor from `NSpid=1` or a PID namespace inode. It validates the recorded init/start time, boot ID, worker/monitor chain, private mount namespace, UUID/generation markers and exclusive cgroup ownership. The running generation's persisted isolation controls entry, status, stopping and recovery even after JSON is edited. Statistics count and deduplicate members of its recursive cgroup subtree, including nested service and execution leaves.
+The daemon retains `RuntimeRegistry` and one private `StateStore` per container.
+Anonymous memfd records share state with single-threaded request workers and
+container monitors. State publication uses an inactive slot followed by a commit
+selector under an anonymous lock. Lifecycle and stop-request locks are separate.
+Runtime state, recovery metadata, NAT leases, and Android SELinux ownership stay
+in memory. Configuration JSON and rootfs data keep their existing storage rules.
 
-State publication, removal, and recovery commits share a per-container
-persistence lock in the state directory. While holding it, recovery compares the
-original record again and discards candidates changed or removed by lifecycle
-work. This lock is separate from the lifecycle lock, so scans during install or
-backup do not re-enter the lifecycle lock or disrupt reboot coordination.
-`StateStore` owns these paths, locks, and trusted persistence operations;
-process identity and recovery policy stay in the surrounding state module.
+`show` and `scan` validate the daemon's tracked records. Old state and recovery
+files are ignored. Each generation retains its actual isolation mode and trusted
+process identities, including boot ID, start times, namespace identity, and shared
+cgroup membership. A daemon exit triggers container termination and monitor
+cleanup. A new daemon starts with an empty registry after old monitors release
+the instance lock.
+
+The typed `Request`, `Operation`, `Response`, and owned `Client` form the
+frontend interface. An Axum handler can clone the client and run its blocking
+`request` call in `tokio::task::spawn_blocking`. Interactive CLI operations use
+`request_with_stdio` and transfer descriptors through the `uds` crate. The daemon
+executes namespace and fork operations in dedicated single-threaded processes.
 
 The runtime installs a classic-BPF seccomp filter and can protect kernel views
 with read-only mounts and bind masks. Container root still retains its

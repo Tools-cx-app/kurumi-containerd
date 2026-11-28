@@ -350,3 +350,22 @@ pub fn is_io_error(error: &io::Error) -> bool {
 #[cfg(test)]
 #[path = "../tests/unit/process/tests.rs"]
 mod tests;
+
+/// Selects one standard descriptor for replacement.
+#[derive(Clone, Copy)]
+pub enum StandardStream {
+    Input,
+    Output,
+    Error,
+}
+
+/// Duplicates a live descriptor onto the selected standard stream.
+pub fn duplicate_standard_stream(source: impl AsFd, target: StandardStream) -> io::Result<()> {
+    let target = match target {
+        StandardStream::Input => libc::STDIN_FILENO,
+        StandardStream::Output => libc::STDOUT_FILENO,
+        StandardStream::Error => libc::STDERR_FILENO,
+    };
+    // SAFETY: source remains live and target is a valid standard descriptor number.
+    cvt(unsafe { libc::dup2(source.as_fd().as_raw_fd(), target) }).map(drop)
+}

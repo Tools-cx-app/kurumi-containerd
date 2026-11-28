@@ -65,6 +65,8 @@ fn backup_requires_successful_inactive_info() {
     assert!(allowed(ActionKind::Backup, &entry, false).is_ok());
     entry.info.as_mut().unwrap().active = true;
     assert!(allowed(ActionKind::Backup, &entry, false).is_err());
-    entry.info = Err(anyhow::anyhow!("rootfs unavailable"));
+    entry.info = Err(kurumi_containerd_error::RuntimeError::Message(
+        "rootfs unavailable".to_owned(),
+    ));
     assert!(allowed(ActionKind::Backup, &entry, false).is_err());
 }

@@ -3,15 +3,16 @@
 
 //! Core container lifecycle and host-integration primitives for `KurumiContainerd`.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use kurumi_containerd_config::Config;
 use kurumi_containerd_error as error;
 use kurumi_containerd_host as host;
 
-use crate::{container::init::Init, host::rootfs::Rootfs, runtime::state::store::StateStore};
 #[cfg(target_os = "android")]
 use crate::error::ErrorContext as _;
+use crate::{container::init::Init, host::rootfs::Rootfs, runtime::state::store::StateStore};
 pub use crate::{
     container::init::InitSystem,
     error::{Result, RuntimeError},
@@ -77,11 +78,65 @@ pub trait ContainerRuntime {
     /// # Errors
     /// Returns an error when runtime state cannot be read.
     fn list(&self) -> Result<Vec<ContainerState>>;
-    /// Recovers live containers with missing state files.
+    /// Validates tracked live containers.
     ///
     /// # Errors
-    /// Returns an error when recovery metadata cannot be read or written.
+    /// Returns an error when memory-backed state cannot be read.
     fn scan(&self) -> Result<Vec<ContainerState>>;
+}
+
+/// Owns the fork-shared container records for one daemon instance.
+#[derive(Default)]
+pub struct RuntimeRegistry {
+    stores: BTreeMap<String, StateStore>,
+    network: Option<host::network::NetworkState>,
+    #[cfg(target_os = "android")]
+    selinux: Option<host::android::SelinuxState>,
+}
+
+impl RuntimeRegistry {
+    /// Opens a container runtime using the existing record for its name, if any.
+    ///
+    /// # Errors
+    /// Returns an error when runtime memory or the working directory is unavailable.
+    pub fn open(&mut self, config: Config) -> Result<Runtime> {
+        let store = match self.stores.entry(config.container.name.clone()) {
+            std::collections::btree_map::Entry::Occupied(entry) => entry.get().clone(),
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(StateStore::new()?).clone()
+            }
+        };
+        if self.network.is_none() {
+            self.network = Some(host::network::NetworkState::new()?);
+        }
+        let mut runtime = Runtime::with_store(config, store)?;
+        if let Some(network) = &self.network {
+            runtime.network = network.clone();
+        }
+        #[cfg(target_os = "android")]
+        {
+            if self.selinux.is_none() {
+                self.selinux = Some(host::android::SelinuxState::new()?);
+            }
+            if let Some(selinux) = &self.selinux {
+                runtime.selinux = selinux.clone();
+            }
+        }
+        runtime.owner = Some(host::process::ProcessHandle::open(
+            kurumi_containerd_helper::process::current_pid(),
+        )?);
+        Ok(runtime)
+    }
+
+    /// Returns the currently tracked containers in name order.
+    /// # Errors
+    /// Returns an error when a record cannot be read.
+    pub fn list(&self) -> Result<Vec<ContainerState>> {
+        self.stores
+            .values()
+            .filter_map(|store| store.state().transpose())
+            .collect()
+    }
 }
 
 /// A configured container runtime.
@@ -92,6 +147,10 @@ pub struct Runtime {
     pub(crate) workdir: PathBuf,
     pub(crate) store: StateStore,
     pub(crate) volatile_dir: PathBuf,
+    pub(crate) network: host::network::NetworkState,
+    #[cfg(target_os = "android")]
+    pub(crate) selinux: host::android::SelinuxState,
+    pub(crate) owner: Option<host::process::ProcessHandle>,
 }
 
 impl Runtime {
@@ -99,12 +158,15 @@ impl Runtime {
     ///
     /// # Errors
     ///
-    /// Returns an error on Android when `TMP` is not set.
+    /// Returns an error when anonymous memory is unavailable or Android `TMPDIR` is not set.
     pub fn new(config: Config) -> Result<Self> {
+        Self::with_store(config, StateStore::new()?)
+    }
+
+    fn with_store(config: Config, store: StateStore) -> Result<Self> {
         let workdir = runtime_workdir()?;
         let mount_dir = workdir.join("mounts");
         let volatile_dir = workdir.join("volatile");
-        let store = StateStore::new(&workdir, &config.container.name);
         let init = Init::new(&config);
         let rootfs = Rootfs::from_paths(
             config.container.rootfs.as_deref(),
@@ -118,6 +180,10 @@ impl Runtime {
             workdir,
             store,
             volatile_dir,
+            network: host::network::NetworkState::new()?,
+            #[cfg(target_os = "android")]
+            selinux: host::android::SelinuxState::new()?,
+            owner: None,
         })
     }
 }

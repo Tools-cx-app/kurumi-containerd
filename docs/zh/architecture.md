@@ -4,9 +4,8 @@
 
 [文档目录](README.md)
 
-KurumiContainerd 用七个工作区 crate 分别承担命令呈现、容器策略和宿主资源管理。
-本文说明各层边界、资源归属，以及持久化状态可以被信任和使用的条件；这些机制并不构成
-面向恶意工作负载的安全边界。
+KurumiContainerd 用八个工作区 crate 分别承担命令呈现、容器策略和宿主资源管理。
+本文说明各层边界、资源归属、daemon 通讯和内存状态的进程身份校验。
 
 ## 工作区边界
 
@@ -15,6 +14,7 @@ crates/
   kurumi-containerd-cli/      command parsing and output
   kurumi-containerd-config/   strict JSON schema, path resolution, and validation
   kurumi-containerd-error/    shared error types, result aliases, and context
+  kurumi-containerd-daemon/   UDS client/server, autostart, and request dispatch
   kurumi-containerd-helper/   target-aware Linux and Android syscall wrappers
   kurumi-containerd-host/     host resources and platform integration
   kurumi-containerd-runtime/  lifecycle, isolation, and state
@@ -22,10 +22,10 @@ crates/
 ```
 
 CLI 的包名和可执行文件名均为 `kurumi-containerd`，其他 crate 则划分内部实现职责。
-依赖指向较低层服务：CLI 使用 TUI、runtime、configuration 和 host；TUI 使用 runtime
-和 configuration；runtime 使用 host、configuration、helper 和 error；host 使用
+依赖指向较低层服务：CLI 使用 TUI、daemon、runtime 输出类型、configuration 和 host；TUI 使用 daemon、runtime
+输出类型和 configuration；daemon 使用 runtime、configuration、helper 和 error；runtime 使用 host、configuration、helper 和 error；host 使用
 configuration、helper 和 error；configuration 使用 error。helper 和 error 不依赖其他
-工作区 crate。host 不导入 runtime 的生命周期状态或 init 家族策略；网络状态路径和关机
+工作区 crate。host 不导入 runtime 的生命周期状态或 init 家族策略；共享所有权记录和关机
 回调由 runtime 传入。
 
 CLI 默认关闭 `tui` feature。执行 `cargo build -p kurumi-containerd` 时不会引入可选
@@ -120,7 +120,7 @@ src/
 | `runtime/supervisor.rs` | 等待与重试、信号策略和子进程监督辅助逻辑 |
 | `runtime/query.rs` | 为详情、PID 和存活容器列表提供只读 `ContainerQuery` 接口 |
 | `runtime/state/mod.rs` | 公共状态类型、进程身份和恢复策略 |
-| `runtime/state/store.rs` | 私有 `StateStore`：可信持久化、状态路径和锁 |
+| `runtime/state/store.rs` | 私有 `StateStore`：匿名内存状态与生命周期锁 |
 | `runtime/state/info.rs` | 状态和资源用量 |
 | `runtime/execute.rs` | 命名空间进入、命令执行和交互登录 |
 | `runtime/install.rs` | rootfs 安装的生命周期协调 |
@@ -138,7 +138,7 @@ src/
 | `rootfs/mod.rs`、`rootfs/install.rs` | rootfs 准备、备份入口和归档安装 |
 | `archive.rs`、`archive/backup.rs` | 私有归档解包和流式导出 |
 | `network/mod.rs` | veth、网桥、NAT、转发和回滚 |
-| `network/state.rs` | 网络状态与 NAT 租约持久化 |
+| `network/state.rs` | 内存网络状态与 NAT 租约 |
 | `cgroup.rs` | cgroup v1/v2 限制和层级检测 |
 | `android.rs` | Android 宿主集成，仅在 Android 目标上公开 |
 
@@ -159,7 +159,7 @@ src/
 ### TUI 后端与呈现
 
 TUI 将渲染、输入状态和操作验证与私有后端分离。`registry.rs` 仅定义 `Entry` 模型。
-`backend.rs` 负责加载与刷新配置，不持久化 UUID；它通过 `ContainerQuery` 获取运行时状态，
+`backend.rs` 负责加载与刷新配置，不持久化 UUID；它通过 daemon UDS client 获取运行时状态，
 再通过图形终端或同一 CLI 可执行文件的输出捕获子进程分派操作。
 
 `CommandTask` 同时持有子进程和输出文件。轮询返回退出状态，以及最多 1 MiB 的合并
@@ -184,19 +184,25 @@ proc 视图可能暴露宿主内核 sysctl。只对可信容器启用该选项�
 
 ## 状态与信任
 
-运行时文件和目录使用严格的所有权与权限。状态更新使用不跟随符号链接的打开方式、随机
-临时文件、fsync 和原子重命名。恢复要求同时存在受保护的宿主恢复记录，以及容器内部
-`/run/kurumi-containerd` 下匹配的身份标记；仅扫描到存活的 PID 1 并不足够。
+CLI 和 TUI 使用 `kurumi-containerd-daemon` 中的 UDS client。Linux socket 为
+`/var/kurumi/socket.sock`，Android 为 `/dev/kurumi/socket.sock`。连接失败会自动拉起
+daemon，并在客户端打印启动日志。daemon 双重 fork、创建独立 session 后由 PID 1 收养，
+三个标准流指向 `/dev/null`。请求和运行时日志追加到 socket 目录下的 `daemon.log`。
 
-共享恢复不通过 `NSpid=1` 或 PID namespace inode 猜测 supervisor，而是验证已记录的
-init/启动时间、boot ID、worker/monitor 链、私有 mount namespace、UUID/代次标记及专属
-cgroup 所有权。持久化隔离模式控制已有代次的进入、查看、停止和恢复，即使 JSON 已修改。
-资源统计对专属 cgroup 子树成员递归计数并去重，包含嵌套服务和执行叶节点。
+daemon 持有 `RuntimeRegistry`，每个容器名对应私有 `StateStore`。匿名 memfd 将内存
+记录共享给单线程请求 worker 和容器 monitor。状态先写入非活动槽，再在匿名锁保护下提交
+活动槽标记。生命周期锁与停止请求锁相互独立。运行状态、恢复元数据、NAT 租约及 Android
+SELinux 所有权均保存在内存。配置 JSON 和 rootfs 数据沿用其存储规则。
 
-状态发布、删除和恢复提交共用状态目录中的每容器持久化锁。恢复在持锁时再次比较原始记录，
-丢弃已被生命周期操作修改或删除的候选项。此锁独立于生命周期锁，因此安装或备份期间的
-扫描不会重复进入生命周期锁，也不会干扰重启协调。`StateStore` 统一管理这些路径、锁和
-可信持久化操作；进程身份与恢复策略仍由外围状态模块负责。
+`show` 和 `scan` 校验 daemon 已跟踪的内存记录，旧 state/recovery 文件会被忽略。
+每个运行代次记录实际隔离模式、boot ID、进程启动时间、namespace 身份和共享 cgroup
+归属。daemon 退出会触发容器终止和 monitor 清理，新的 daemon 等待旧 monitor 释放实例锁后
+使用空注册表启动。
+
+公开的 `Request`、`Operation`、`Response` 和可克隆的 `Client` 供后续前端复用。
+Axum handler 可以在 `tokio::task::spawn_blocking` 中调用阻塞的 `Client::request`。
+CLI 交互操作通过 `request_with_stdio` 和 `uds` crate 传递终端描述符。daemon 在独立的
+单线程进程内执行 namespace 和 fork 操作。
 
 运行时安装 classic-BPF seccomp 过滤器，也可以通过只读挂载和绑定遮罩保护内核视图。
 容器 root 仍保留其 capabilities，特权容器机制仍共享宿主内核。这些控制措施不会让

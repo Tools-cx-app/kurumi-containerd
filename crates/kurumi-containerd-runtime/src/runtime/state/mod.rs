@@ -1,32 +1,23 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use std::{
-    collections::BTreeMap,
-    fs::{self, File, OpenOptions},
-    os::unix::fs::OpenOptionsExt,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use kurumi_containerd_config::IsolationMode;
-use kurumi_containerd_helper::{
-    fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW},
-    process::effective_uid,
-};
+use kurumi_containerd_helper::process::effective_uid;
 #[cfg(test)]
 use kurumi_containerd_helper::process::parent_pid as current_parent_pid;
-use procfs::process::{Process, all_processes};
+use procfs::process::Process;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    Result, Runtime, RuntimeError,
-    container::init::InitSystem,
-    error::{ErrorContext as _, bail, ensure},
-    host::process::{host_boot_id, parent_pid, process_start_time, require_handle},
-    runtime_workdir,
-};
+#[cfg(feature = "servicectl")]
+use crate::RuntimeError;
+use crate::error::{ErrorContext as _, bail, ensure};
+use crate::host::process::{host_boot_id, require_handle};
+use crate::{Result, Runtime, container::init::InitSystem};
 
 mod info;
 pub(crate) mod store;
@@ -63,103 +54,20 @@ pub struct ContainerState {
 }
 
 impl Runtime {
-    /// Lists live containers tracked by the configured work directory.
+    /// Lists the live container associated with this runtime, if present.
     ///
     /// # Errors
-    ///
-    /// Returns an error when the state directory cannot be read.
+    /// Returns an error when the in-memory state cannot be read.
     pub fn list(&self) -> Result<Vec<ContainerState>> {
-        self.store.list()
+        Ok(self.state()?.into_iter().collect())
     }
 
-    /// Scans the runtime work directory for live containers backed by trusted recovery metadata.
+    /// Validates the current container record against procfs.
     ///
     /// # Errors
-    ///
-    /// Returns an error when the recovery directory or state cannot be read or written safely.
-    pub fn scan_all() -> Result<Vec<ContainerState>> {
-        let store = store::StateStore::new(&runtime_workdir()?, "scan");
-        Self::scan_with_store(&store)
-    }
-
-    /// Scans procfs for live containers backed by trusted recovery metadata and
-    /// reconstructs missing state files.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the recovery directory or state cannot be read or
-    /// written safely.
+    /// Returns an error when the in-memory state cannot be read.
     pub fn scan(&self) -> Result<Vec<ContainerState>> {
-        Self::scan_with_store(&self.store)
-    }
-
-    fn scan_with_store(store: &store::StateStore) -> Result<Vec<ContainerState>> {
-        Self::ensure_root()?;
-        store.ensure_layout()?;
-        let mut candidates: BTreeMap<String, (ContainerState, ContainerState)> = BTreeMap::new();
-        for entry in fs::read_dir(store.recovery_dir())? {
-            let entry = entry?;
-            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            let Ok(original) = read_state(&entry.path()) else {
-                continue;
-            };
-            if !valid_state_name(&original.name)
-                || entry.path() != store.recovery_path(original.uuid)
-            {
-                continue;
-            }
-            let mut state = original.clone();
-            #[cfg(feature = "servicectl")]
-            if state.isolation == IsolationMode::SharedPidIpc {
-                // Shared generations never replace their recorded supervisor with a service.
-                if !shared_metadata_valid(&state)
-                    || host_boot_id().ok().as_deref() != Some(&state.host_boot_id)
-                {
-                    continue;
-                }
-                if !validate_process_identity(&state)
-                    && shared_cgroup_directory(&state).ok().flatten().is_none()
-                {
-                    // Keep residual metadata even when supervision cannot be authenticated.
-                    continue;
-                }
-            }
-            if state.isolation == IsolationMode::Isolated {
-                if host_boot_id().ok().as_deref() != Some(&state.host_boot_id)
-                    || !validate_monitor_identity(&state)
-                {
-                    store.remove_recovery_if_unchanged(&original)?;
-                    continue;
-                }
-                let Some(init_pid) = find_generation_init(&state)? else {
-                    continue;
-                };
-                let handle = require_handle(init_pid)?;
-                state.init_pid = init_pid;
-                state.init_start_time = process_start_time(init_pid)?;
-                state.pid_namespace_inode = Some(namespace_inode(init_pid, "pid")?);
-                if handle.pid().as_raw() != init_pid || !validate_process_identity(&state) {
-                    continue;
-                }
-            }
-            if let Some((_, existing)) = candidates.get(&state.name) {
-                ensure!(
-                    existing.uuid == state.uuid,
-                    "multiple live recovery records claim container '{}'",
-                    state.name
-                );
-            }
-            candidates.insert(state.name.clone(), (original, state));
-        }
-        let mut recovered = Vec::new();
-        for (original, state) in candidates.into_values() {
-            if store.restore_state_if_unchanged(&original, &state)? {
-                recovered.push(state);
-            }
-        }
-        Ok(recovered)
+        self.list()
     }
 
     pub(crate) fn ensure_root() -> Result<()> {
@@ -171,11 +79,7 @@ impl Runtime {
     }
 
     pub(crate) fn ensure_layout(&self) -> Result<()> {
-        self.store.ensure_layout()
-    }
-
-    fn state_path(&self) -> PathBuf {
-        self.store.state_path()
+        ensure_trusted_directory(&self.workdir)
     }
 
     pub(crate) fn state(&self) -> Result<Option<ContainerState>> {
@@ -194,16 +98,8 @@ impl Runtime {
     }
 
     pub(crate) fn state_for_stop(&self) -> Result<ContainerState> {
-        let path = self.state_path();
-        let state = read_state(&path).with_context(|| {
-            format!("container '{}' is not running", self.config.container.name)
-        })?;
-        ensure!(
-            state.name == self.config.container.name && state_is_present(&state),
-            "container '{}' is not running",
-            self.config.container.name
-        );
-        Ok(state)
+        self.state()?
+            .with_context(|| format!("container '{}' is not running", self.config.container.name))
     }
 
     pub(crate) fn write_state(&self, state: &ContainerState) -> Result<()> {
@@ -212,10 +108,6 @@ impl Runtime {
 
     pub(crate) fn remove_state_for(&self, state: &ContainerState) -> Result<()> {
         self.store.remove_state_for(state)
-    }
-
-    pub(crate) fn remove_state(&self) -> Result<()> {
-        self.store.remove_state()
     }
 
     pub(crate) fn lock(&self) -> Result<File> {
@@ -484,93 +376,7 @@ fn process_namespace_inode(process: &Process, namespace: &str) -> Result<u64> {
         .with_context(|| format!("process {} has no {namespace} namespace", process.pid))
 }
 
-fn read_state(path: &Path) -> Result<ContainerState> {
-    use std::os::unix::fs::MetadataExt;
-
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(OPEN_NOFOLLOW | OPEN_CLOEXEC)
-        .open(path)?;
-    let metadata = file.metadata()?;
-    let parent = fs::metadata(path.parent().context("state path has no parent")?)?;
-    ensure!(metadata.is_file(), "state path is not a regular file");
-    ensure!(
-        metadata.uid() == parent.uid(),
-        "state file owner does not match its directory"
-    );
-    ensure!(
-        metadata.mode() & 0o022 == 0,
-        "state file must not be group/world writable"
-    );
-    let state: ContainerState = serde_json::from_reader(file)?;
-    ensure!(
-        match state.isolation {
-            IsolationMode::Isolated => state.pid_namespace_inode.is_some_and(|inode| inode > 0),
-            #[cfg(feature = "servicectl")]
-            IsolationMode::SharedPidIpc => shared_metadata_valid(&state),
-        },
-        "container state has incomplete isolation identity metadata"
-    );
-    Ok(state)
-}
-
-fn write_state_atomic(path: &Path, state: &ContainerState) -> Result<()> {
-    let temporary = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
-    let file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .custom_flags(OPEN_NOFOLLOW | OPEN_CLOEXEC)
-        .open(&temporary)?;
-    let result = (|| {
-        serde_json::to_writer_pretty(&file, state)?;
-        file.sync_all()?;
-        fs::rename(&temporary, path)?;
-        File::open(path.parent().context("state path has no parent")?)?.sync_all()?;
-        Ok::<(), RuntimeError>(())
-    })();
-    if result.is_err() {
-        fs::remove_file(temporary).ok();
-    }
-    result
-}
-
-fn remove_if_exists(path: &Path) -> Result<()> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn find_generation_init(expected: &ContainerState) -> Result<Option<i32>> {
-    for process in all_processes()? {
-        let Ok(process) = process else {
-            continue;
-        };
-        let pid = process.pid;
-        if namespace_pid(&process).ok().flatten() != Some(1) {
-            continue;
-        }
-        let root = PathBuf::from(format!("/proc/{pid}/root/run/kurumi-containerd"));
-        if fs::read_to_string(root.join("name")).ok().as_deref() != Some(&expected.name)
-            || fs::read_to_string(root.join("uuid"))
-                .ok()
-                .is_none_or(|value| value.trim() != expected.uuid.to_string())
-        {
-            continue;
-        }
-        let Ok(intermediate) = parent_pid(pid) else {
-            continue;
-        };
-        if intermediate <= 0 || parent_pid(intermediate).ok() != Some(expected.monitor_pid) {
-            continue;
-        }
-        return Ok(Some(pid));
-    }
-    Ok(None)
-}
-
+#[cfg(feature = "servicectl")]
 fn valid_state_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 255
@@ -579,6 +385,7 @@ fn valid_state_name(name: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
+#[cfg(test)]
 fn namespace_pid(process: &Process) -> Result<Option<i32>> {
     Ok(process
         .status()?

@@ -6,11 +6,11 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use kurumi_containerd_config::ConfigEntry;
+use kurumi_containerd_daemon::{Client, Operation, Request, Response, serve};
+use kurumi_containerd_error::{ErrorContext as _, Result, bail};
 use kurumi_containerd_host::check::{HostCapabilities, HostCheck};
-use kurumi_containerd_runtime::{ContainerRuntime, Runtime};
 use tracing::level_filters::LevelFilter;
 
 #[cfg(target_os = "android")]
@@ -52,6 +52,9 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Run the daemon process.
+    #[command(name = "__daemon", hide = true)]
+    Daemon,
     /// Install a local rootfs archive into the configured target.
     Install {
         /// Local tar or ZIP rootfs archive.
@@ -105,7 +108,7 @@ enum Commands {
     Pid,
     /// List running containers.
     Show,
-    /// Recover validated running containers.
+    /// Validate containers tracked by daemon memory.
     Scan,
     /// Check host capabilities.
     Check,
@@ -116,27 +119,25 @@ enum Commands {
 
 fn main() -> std::process::ExitCode {
     let cli: Cli = Cli::parse();
-    tracing_subscriber::fmt()
-        .with_max_level(if cli.verbose {
-            LevelFilter::DEBUG
-        } else {
-            LevelFilter::INFO
-        })
-        .with_target(false)
-        .with_writer(logger_writer)
-        .with_ansi(logger_is_terminal() && std::env::var_os("NO_COLOR").is_none())
-        .init();
+    if !matches!(cli.command, Commands::Daemon) {
+        tracing_subscriber::fmt()
+            .with_max_level(if cli.verbose {
+                LevelFilter::DEBUG
+            } else {
+                LevelFilter::INFO
+            })
+            .with_target(false)
+            .with_writer(logger_writer)
+            .with_ansi(logger_is_terminal() && std::env::var_os("NO_COLOR").is_none())
+            .init();
+    }
     #[cfg(target_os = "android")]
-    android::wrap_stdio();
+    if !matches!(cli.command, Commands::Daemon) {
+        android::wrap_stdio();
+    }
     match run(cli) {
         Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error)
-            if error
-                .downcast_ref::<output::OutputError>()
-                .is_some_and(output::OutputError::is_broken_pipe) =>
-        {
-            std::process::ExitCode::SUCCESS
-        }
+        Err(error) if output::is_broken_pipe(&error) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(error = %format_args!("{error:#}"), "command failed");
             std::process::ExitCode::FAILURE
@@ -144,6 +145,7 @@ fn main() -> std::process::ExitCode {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn run(cli: Cli) -> Result<()> {
     if matches!(cli.command, Commands::Check) {
         return check();
@@ -152,137 +154,128 @@ fn run(cli: Cli) -> Result<()> {
     if matches!(cli.command, Commands::Tui) {
         return kurumi_containerd_tui::run(&std::env::current_exe()?);
     }
-    if matches!(cli.command, Commands::Scan) {
-        let states = Runtime::scan_all()?;
-        output::write(|out| output::recovered(out, &states))?;
+    if matches!(cli.command, Commands::Daemon) {
+        return serve(cli.verbose);
+    }
+    let executable = std::env::current_exe()?;
+    let client = Client::new(&executable, cli.verbose);
+    if matches!(cli.command, Commands::Show | Commands::Scan) {
+        let scan = matches!(cli.command, Commands::Scan);
+        let response = client.request_with_stdio(&Request {
+            config: None,
+            operation: if scan {
+                Operation::Scan
+            } else {
+                Operation::List
+            },
+        })?;
+        let Response::Containers(states) = response else {
+            bail!("unexpected daemon response: {response:?}");
+        };
+        output::write(|out| {
+            if scan {
+                output::recovered(out, &states)
+            } else {
+                output::containers(out, &states)
+            }
+        })?;
         return Ok(());
     }
     if let Commands::Install {
         archive,
         size,
         force,
-    } = &cli.command
+    } = cli.command
     {
         let entry = ConfigEntry::prepare_install_home(cli.name.as_deref(), size.is_some())?;
-        return install(&entry, archive, *size, *force);
+        let config = entry.load_for_install()?;
+        let target = config
+            .container
+            .rootfs
+            .as_ref()
+            .or(config.container.rootfs_image.as_ref())
+            .context("rootfs target is not configured")?
+            .clone();
+        let archive = std::path::absolute(archive)?;
+        client.request_with_stdio(&Request {
+            config: Some(config),
+            operation: Operation::Install {
+                archive: archive.clone(),
+                size,
+                force,
+            },
+        })?;
+        output::write(|out| {
+            writeln!(
+                out,
+                "Rootfs installed: {} -> {}",
+                archive.display(),
+                target.display()
+            )
+        })?;
+        return Ok(());
     }
     tracing::debug!(name = cli.name.as_deref(), "loading configuration registry");
     let entries = ConfigEntry::load_home()?;
     if let Commands::Backup {
         container_id,
         output,
-    } = &cli.command
+    } = cli.command
     {
         if cli.name.is_some() {
             bail!("backup selects its container by CONTAINER_ID; do not supply --name");
         }
-        return backup(&entries, container_id, output);
+        let entry = ConfigEntry::select(&entries, Some(&container_id))?;
+        let config = entry.load_config()?;
+        client.request_with_stdio(&Request {
+            config: Some(config),
+            operation: Operation::Backup {
+                output: std::path::absolute(&output)?,
+            },
+        })?;
+        output::write(|out| {
+            writeln!(
+                out,
+                "Container {container_id} backed up: {}",
+                output.display()
+            )
+        })?;
+        return Ok(());
     }
     let entry = ConfigEntry::select(&entries, cli.name.as_deref())?;
-    let config = entry.load_persistent()?;
-    let container_name = config.container.name.clone();
-    let configured_foreground = config.container.foreground;
-    let runtime = Runtime::new(config)?;
-    let runtime: &dyn ContainerRuntime = &runtime;
-    match cli.command {
-        Commands::Start { foreground } => {
-            let state = runtime.start(foreground)?;
-            output::write(|out| {
-                output::started(
-                    out,
-                    &state.name,
-                    state.init_pid,
-                    foreground || configured_foreground,
-                )
-            })?;
+    let config = if matches!(
+        cli.command,
+        Commands::Start { .. } | Commands::Restart { .. }
+    ) {
+        entry.load_persistent()?
+    } else {
+        entry.load_config()?
+    };
+    let operation = match cli.command {
+        Commands::Start { foreground } => Operation::Start { foreground },
+        Commands::Stop => Operation::Stop,
+        Commands::Restart { foreground } => Operation::Restart { foreground },
+        Commands::Enter { user, shell } => Operation::Enter { user, shell },
+        Commands::Run { command } => Operation::Run { command },
+        Commands::Info => Operation::Info,
+        Commands::Pid => Operation::Pid,
+        _ => unreachable!("command handled before loading configuration"),
+    };
+    let response = client.request_with_stdio(&Request {
+        config: Some(config),
+        operation,
+    })?;
+    match response {
+        Response::Done => output::write(|out| writeln!(out, "Container {} stopped", entry.name))?,
+        Response::Started { state, foreground } => {
+            output::write(|out| output::started(out, &state.name, state.init_pid, foreground))?;
         }
-        Commands::Stop => {
-            runtime.stop()?;
-            output::write(|out| writeln!(out, "Container {container_name} stopped"))?;
-        }
-        Commands::Restart { foreground } => {
-            let state = runtime.restart(foreground)?;
-            output::write(|out| {
-                output::started(
-                    out,
-                    &state.name,
-                    state.init_pid,
-                    foreground || configured_foreground,
-                )
-            })?;
-        }
-        Commands::Enter { user, shell } => {
-            let status = runtime.enter(&user, shell.as_deref())?;
-            if status != 0 {
-                std::process::exit(status);
-            }
-        }
-        Commands::Run { command } => {
-            let status = runtime.run(&command)?;
-            if status != 0 {
-                std::process::exit(status);
-            }
-        }
-        Commands::Info => {
-            let info = runtime.info()?;
-            output::write(|out| output::info(out, &info))?;
-        }
-        Commands::Pid => {
-            let pid = runtime.pid()?;
-            output::write(|out| output::pid(out, pid))?;
-        }
-        Commands::Show => {
-            let states = runtime.list()?;
-            output::write(|out| output::containers(out, &states))?;
-        }
-        Commands::Scan => unreachable!("scan is handled before selecting a configuration"),
-        Commands::Check => unreachable!("check is handled before loading configuration"),
-        #[cfg(feature = "tui")]
-        Commands::Tui => unreachable!("tui is handled before selecting a configuration"),
-        Commands::Install { .. } => unreachable!("install is handled before loading configuration"),
-        Commands::Backup { .. } => unreachable!("backup is handled before loading configuration"),
+        Response::Status(status) if status != 0 => std::process::exit(status),
+        Response::Status(_) => {}
+        Response::Info(info) => output::write(|out| output::info(out, &info))?,
+        Response::Pid(pid) => output::write(|out| output::pid(out, pid))?,
+        response => bail!("unexpected daemon response: {response:?}"),
     }
-    Ok(())
-}
-
-fn backup(entries: &[ConfigEntry], container_id: &str, output: &std::path::Path) -> Result<()> {
-    let entry = ConfigEntry::select(entries, Some(container_id))?;
-    let runtime = Runtime::new(entry.load_config()?)?;
-    ContainerRuntime::backup(&runtime, output)?;
-    output::write(|out| {
-        writeln!(
-            out,
-            "Container {container_id} backed up: {}",
-            output.display()
-        )
-    })?;
-    Ok(())
-}
-
-fn install(
-    entry: &ConfigEntry,
-    archive: &std::path::Path,
-    size: Option<u64>,
-    force: bool,
-) -> Result<()> {
-    let config = entry.load_for_install()?;
-    let target = config
-        .container
-        .rootfs
-        .as_ref()
-        .or(config.container.rootfs_image.as_ref())
-        .context("rootfs target is not configured")?
-        .clone();
-    let runtime = Runtime::new(config)?;
-    ContainerRuntime::install(&runtime, archive, size, force)?;
-    output::write(|out| {
-        writeln!(
-            out,
-            "Rootfs installed: {} -> {}",
-            archive.display(),
-            target.display()
-        )
-    })?;
     Ok(())
 }
 

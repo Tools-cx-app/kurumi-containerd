@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use anyhow::{Context, Result};
+use kurumi_containerd_error::{ErrorContext as _, Result};
 
 use crate::action::{Action, ActionKind};
 

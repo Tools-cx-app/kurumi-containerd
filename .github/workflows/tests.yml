@@ -13,6 +13,7 @@ on:
       - ".cargo/**"
       - "tests/container_lifecycle.py"
       - "tests/shared_isolation.py"
+      - "tests/daemon.py"
       - "examples/servicectl/**"
       - ".github/workflows/tests.yml"
   pull_request:
@@ -24,6 +25,7 @@ on:
       - ".cargo/**"
       - "tests/container_lifecycle.py"
       - "tests/shared_isolation.py"
+      - "tests/daemon.py"
       - "examples/servicectl/**"
       - ".github/workflows/tests.yml"
   workflow_dispatch:
@@ -101,6 +103,8 @@ jobs:
         run: cargo xtask build --release
       - name: Test servicectl feature
         run: cargo test --workspace --release --features servicectl,tui
+      - name: Test daemon transport and lifecycle
+        run: sudo python3 tests/daemon.py target/release/kurumi-containerd
       - name: Test disposable shared rootfs
         run: sudo python3 tests/shared_isolation.py target/release/kurumi-containerd
 

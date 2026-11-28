@@ -5,7 +5,7 @@ use std::{
     fmt::Write as _,
     fs::{self, File},
     os::fd::AsFd,
-    path::{Path, PathBuf},
+    path::Path,
     process::Command,
 };
 
@@ -19,10 +19,11 @@ use crate::{
 
 mod state;
 
-use state::{acquire_nat_lease, network_lock, release_nat_lease};
+pub use state::NetworkState;
+use state::{acquire_nat_lease, release_nat_lease};
 
 pub struct Network {
-    state_dir: PathBuf,
+    state: NetworkState,
     host_link: Option<String>,
     peer_link: Option<String>,
     rules: Vec<Vec<String>>,
@@ -41,12 +42,19 @@ impl Network {
         options: &kurumi_containerd_config::NetworkConfig,
         init_pid: i32,
         host_netns: &File,
-        state_dir: &Path,
+        _state_dir: &Path,
     ) -> Result<Self> {
-        Self::setup_host_inner(name, mode, options, init_pid, host_netns, state_dir)
+        Self::setup_host_in_memory(
+            name,
+            mode,
+            options,
+            init_pid,
+            host_netns,
+            &NetworkState::global()?,
+        )
     }
 
-    /// Configures host links and rules using the supplied state directory.
+    /// Configures host links and rules through the legacy configuration adapter.
     ///
     /// # Errors
     /// Returns namespace, state access, or network command failures.
@@ -55,26 +63,29 @@ impl Network {
         config: &Config,
         init_pid: i32,
         host_netns: &File,
-        state_dir: &Path,
+        _state_dir: &Path,
     ) -> Result<Self> {
-        Self::setup_host_inner(
+        Self::setup_host_in_memory(
             &config.container.name,
             config.container.network,
             &config.container.network_options,
             init_pid,
             host_netns,
-            state_dir,
+            &NetworkState::global()?,
         )
     }
 
+    /// Configures host networking with the daemon's anonymous shared ownership state.
+    /// # Errors
+    /// Returns namespace, network command, or shared memory access errors.
     #[allow(clippy::too_many_lines)]
-    fn setup_host_inner(
+    pub fn setup_host_in_memory(
         name: &str,
         mode: NetworkMode,
         options: &kurumi_containerd_config::NetworkConfig,
         init_pid: i32,
         host_netns: &File,
-        state_dir: &Path,
+        state: &NetworkState,
     ) -> Result<Self> {
         tracing::debug!(
             container = name,
@@ -82,7 +93,7 @@ impl Network {
             pid = init_pid,
             "setting up host network"
         );
-        let mut network = Self::empty(state_dir);
+        let mut network = Self::empty(state.clone());
         if mode == NetworkMode::Host {
             return Ok(network);
         }
@@ -92,7 +103,7 @@ impl Network {
             return Ok(network);
         }
 
-        let _lock = network_lock(state_dir)?;
+        let _lock = state.lock()?;
         let host_link = format!("dsv{init_pid}");
         let peer_link = format!("dsp{init_pid}");
         network.host_link = Some(host_link.clone());
@@ -133,9 +144,8 @@ impl Network {
             )?;
 
             if mode == NetworkMode::Nat {
-                acquire_nat_lease(state_dir)?;
+                acquire_nat_lease(state)?;
                 network.nat_lease = true;
-                fs::write("/proc/sys/net/ipv4/ip_forward", "1")?;
                 let subnet = format!(
                     "{}/{}",
                     masked_network(options.address, options.prefix),
@@ -326,9 +336,9 @@ impl Network {
         self.cleanup_resources();
     }
 
-    fn empty(state_dir: &Path) -> Self {
+    fn empty(state: NetworkState) -> Self {
         Self {
-            state_dir: state_dir.to_path_buf(),
+            state,
             host_link: None,
             peer_link: None,
             rules: Vec::new(),
@@ -345,8 +355,11 @@ impl Network {
     }
 
     fn cleanup_resources(&mut self) {
-        let _lock = network_lock(&self.state_dir).ok();
-        self.cleanup_resources_locked();
+        let state = self.state.clone();
+        match state.lock() {
+            Ok(_lock) => self.cleanup_resources_locked(),
+            Err(error) => tracing::error!(%error, "failed to lock network cleanup"),
+        }
     }
 
     fn cleanup_resources_locked(&mut self) {
@@ -363,7 +376,7 @@ impl Network {
         }
         self.peer_link = None;
         if self.nat_lease {
-            let _ = release_nat_lease(&self.state_dir);
+            let _ = release_nat_lease(&self.state);
             self.nat_lease = false;
         }
     }

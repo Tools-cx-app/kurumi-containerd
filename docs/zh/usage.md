@@ -254,7 +254,7 @@ CLI 中需引用整个命令；TUI 的 Shell command 字段直接填写 `/bin/bu
 Linux 上可运行 `python3 tests/exec_interposition.py`，通过预加载的 `execve` 拦截库验证该行为；
 需要 Cargo 和宿主 C 编译器，无需 root。
 
-两者都加入运行中容器实际使用的 namespace 和 cgroup，并以持久化的实际隔离模式为准。
+两者都加入运行中容器实际使用的 namespace 和 cgroup，并以内存记录的实际隔离模式为准。
 共享模式不会打开或加入缺失的 PID/IPC namespace 接口。修改 config.json 中的隔离、网络或
 资源设置只在下次启动时生效，不会改变进入当前代次的命令所使用的隔离或资源限制。
 
@@ -270,11 +270,12 @@ sudo -H kurumi-containerd scan
 
 `info` 显示容器身份、实际隔离模式、init 与 monitor PID、init 系统、运行时长、内存用量、
 进程数、代次、rootfs 和 UUID。`pid` 返回 init PID。共享模式统计专属 cgroup 的递归成员，
-而不是宿主总量。`show` 读取运行时工作目录中的实时状态。
-
-`scan` 只有在容器内身份与受保护的宿主恢复记录一致时才恢复缺失状态。
-独立隔离恢复寻找 namespace PID 1；共享恢复验证已记录的 supervisor、worker 身份和
-专属 cgroup，不会从 procfs 猜测某个服务。修改当前 JSON 不会重定义运行中的实例。
+而不是宿主总量。`show` 列出 daemon 内存中跟踪的容器，`scan` 校验这些记录的进程身份。
+运行状态与恢复元数据均保存在内存。CLI 在 socket 连接失败时自动拉起 daemon 并打印日志。
+Linux socket 为 `/var/kurumi/socket.sock`，Android 为 `/dev/kurumi/socket.sock`。
+请求日志追加到 socket 同目录的 `daemon.log`。daemon 脱离终端并由 PID 1 收养。
+daemon 退出会终止其容器并触发资源清理，再次启动使用空注册表。配置 JSON 和 rootfs 内容
+继续保存在磁盘。
 
 <a id="host-checks"></a>
 ## 主机能力检查

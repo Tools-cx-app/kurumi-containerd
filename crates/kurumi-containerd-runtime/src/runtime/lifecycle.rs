@@ -10,6 +10,8 @@ use std::{
 };
 
 use kurumi_containerd_config::{IsolationMode, NetworkMode};
+#[cfg(feature = "servicectl")]
+use kurumi_containerd_helper::process::set_child_subreaper;
 use kurumi_containerd_helper::{
     fs::{MountFlags, mount},
     process::{
@@ -18,10 +20,16 @@ use kurumi_containerd_helper::{
     },
     signal::{Signal, kill},
 };
-#[cfg(feature = "servicectl")]
-use kurumi_containerd_helper::process::set_child_subreaper;
 use uuid::Uuid;
 
+#[cfg(feature = "servicectl")]
+use super::supervisor::supervise_shared;
+use super::supervisor::{
+    configure_monitor_signals, ignore_foreground_parent_signals, is_reboot_status, read_retry,
+    redirect_stdio_to_null, reset_init_signals, wait_status_code, waitpid_retry,
+};
+#[cfg(target_os = "android")]
+use crate::host::android;
 use crate::{
     ContainerState, Result, Runtime, RuntimeError,
     container::init,
@@ -38,17 +46,9 @@ use crate::{
     },
     runtime::state::{namespace_inode, store::StateStore, validate_process_identity},
 };
-#[cfg(target_os = "android")]
-use crate::host::android;
-use super::supervisor::{
-    configure_monitor_signals, ignore_foreground_parent_signals, is_reboot_status, read_retry,
-    redirect_stdio_to_null, reset_init_signals, wait_status_code, waitpid_retry,
-};
-#[cfg(feature = "servicectl")]
-use super::supervisor::supervise_shared;
 
 impl Runtime {
-    /// Starts the configured container and returns its persisted runtime state.
+    /// Starts the configured container and returns its live runtime state.
     ///
     /// # Errors
     ///
@@ -59,6 +59,11 @@ impl Runtime {
         Self::ensure_root()?;
         self.ensure_layout()?;
         let lock = self.lock()?;
+        self.start_locked(foreground_override, lock)
+    }
+
+    #[allow(unsafe_code)]
+    fn start_locked(&self, foreground_override: bool, lock: File) -> Result<ContainerState> {
         ensure!(
             self.state()?.is_none(),
             "container '{}' is already running",
@@ -104,7 +109,7 @@ impl Runtime {
                 let result = self.monitor(&mut startup, foreground);
                 if let Err(error) = result {
                     if self.config.container.isolation == IsolationMode::Isolated {
-                        self.remove_state().ok();
+                        self.store.remove_state_for_monitor(current_pid()).ok();
                     }
                     #[cfg(feature = "servicectl")]
                     if self.config.container.isolation == IsolationMode::SharedPidIpc
@@ -146,7 +151,8 @@ impl Runtime {
         configure_monitor_signals()?;
         let console = terminal::Console::open()?;
         #[cfg(target_os = "android")]
-        let _selinux = android::SelinuxGuard::apply(&self.config.container.android, &self.workdir)?;
+        let _selinux =
+            android::SelinuxGuard::apply_in_memory(&self.config.container.android, &self.selinux)?;
         let isolation = self.config.container.isolation;
         #[cfg(feature = "servicectl")]
         let shared = isolation == IsolationMode::SharedPidIpc;
@@ -213,6 +219,12 @@ impl Runtime {
         let mut generation_lock = None;
 
         loop {
+            if let Some(owner) = &self.owner {
+                ensure!(
+                    !owner.wait_for_exit(Duration::ZERO)?,
+                    "daemon exited before container startup"
+                );
+            }
             let (boot_reader, boot_writer) = pipe().context("failed to create boot pipe")?;
             let (network_reader, network_writer) =
                 pipe().context("failed to create network pipe")?;
@@ -341,13 +353,13 @@ impl Runtime {
             processes.init = Some(init_process);
             let init_process = processes.init.as_ref().expect("init handle was captured");
 
-            let network = Network::setup_host_with(
+            let network = Network::setup_host_in_memory(
                 &self.config.container.name,
                 self.config.container.network,
                 &self.config.container.network_options,
                 init_pid,
                 &host_netns,
-                &self.workdir,
+                &self.network,
             )?;
             if !shared {
                 cgroup.attach(init_pid)?;
@@ -428,17 +440,26 @@ impl Runtime {
                 }
             }
 
+            let check_owner = || -> Result<()> {
+                if let Some(owner) = &self.owner
+                    && owner.wait_for_exit(Duration::ZERO)?
+                {
+                    let _ = init_process.send_signal(Signal::Kill);
+                }
+                Ok(())
+            };
             let status = if foreground {
-                terminal::proxy(
+                terminal::proxy_with_check(
                     &console.master,
                     intermediate,
                     Some((init_process, &|| {
                         init::request_shutdown(init_process, init_system)
                     })),
+                    &check_owner,
                 )
                 .context("foreground console proxy failed")
             } else {
-                terminal::drain(&console.master, intermediate)
+                terminal::drain_with_check(&console.master, intermediate, &check_owner)
             };
             drop(lifetime_writer);
             let status = match status {
@@ -499,6 +520,10 @@ impl Runtime {
     pub fn stop(&self) -> Result<()> {
         Self::ensure_root()?;
         let _lock = self.lock()?;
+        self.stop_locked()
+    }
+
+    fn stop_locked(&self) -> Result<()> {
         let state = self.state_for_stop()?;
         let _stop_request = self.store.request_stop()?;
         #[cfg(feature = "servicectl")]
@@ -584,8 +609,11 @@ impl Runtime {
     ///
     /// Returns any error produced by [`Self::stop`] or [`Self::start`].
     pub fn restart(&self, foreground: bool) -> Result<ContainerState> {
-        self.stop()?;
-        self.start(foreground)
+        Self::ensure_root()?;
+        self.ensure_layout()?;
+        let lock = self.lock()?;
+        self.stop_locked()?;
+        self.start_locked(foreground, lock)
     }
 }
 

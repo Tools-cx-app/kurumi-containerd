@@ -96,7 +96,7 @@ fn empty_results_are_explicit_and_writes_are_fallible() {
     check(&mut out, "Namespaces", false, "permission denied").unwrap();
     let text = String::from_utf8(out).unwrap();
     assert!(text.contains("Running containers: 0"));
-    assert!(text.contains("No containers required recovery"));
+    assert!(text.contains("No containers tracked by daemon"));
     assert!(text.contains("unavailable (permission denied)"));
     assert!(!text.contains("INFO"));
     let mut full = &mut [][..];
