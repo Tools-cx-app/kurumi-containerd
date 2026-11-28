@@ -818,7 +818,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -833,7 +833,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-config"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "criterion",
  "fs2",
@@ -848,7 +848,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-error"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "procfs",
  "serde_json",
@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-helper"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bitflags 2.13.2",
  "libc",
@@ -869,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-host"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "criterion",
  "flate2",
@@ -895,7 +895,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-runtime"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fs2",
  "kurumi-containerd-config",
@@ -915,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "kurumi-containerd-tui"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -2436,7 +2436,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
