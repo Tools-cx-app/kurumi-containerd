@@ -70,6 +70,12 @@ src/
 每一代通过中间 worker 创建 mount/UTS 和可选 network namespace 后 fork init。
 默认 `isolated` 模式还创建 PID/IPC namespace；显式 `shared-pid-ipc` 继承它们。
 
+init 检测按 rootfs 内实际的 `/sbin/init` 解析，遵循容器内符号链接语义；安装其他 init
+软件包不会改变识别结果。systemd 停机在容器的 mount/PID namespace 和根目录中运行
+容器内的 `systemctl --no-block --job-mode=replace-irreversibly start halt.target`，
+避免宿主与容器 libc 的实时信号编号差异。控制客户端超时为五秒；客户端缺失或失败时，
+停止操作会报告警告，并保留配置的等待时间后再强制终止。
+
 monitor 在内部重启期间持有 rootfs 挂载、控制台 PTY、cgroup 和适用的 Android SELinux
 状态。init/monitor 身份包含宿主 boot ID 和进程启动时间。独立模式还验证 PID namespace
 inode；共享模式持久化实际模式、worker 身份、mount namespace 和专属 cgroup 路径，

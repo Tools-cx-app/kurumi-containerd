@@ -261,32 +261,7 @@ impl Network {
             peer_name,
             "setting up container network"
         );
-        if matches!(mode, NetworkMode::Host | NetworkMode::None) {
-            return Ok(());
-        }
-        run("ip", &["link", "set", "lo", "up"])?;
-        if matches!(
-            mode,
-            NetworkMode::Nat | NetworkMode::Gateway | NetworkMode::Dhcp
-        ) {
-            run("ip", &["link", "set", peer_name, "name", "eth0"])?;
-            run("ip", &["link", "set", "eth0", "up"])?;
-            if mode == NetworkMode::Nat {
-                let address = format!("{}/{}", options.address, options.prefix);
-                run("ip", &["address", "add", &address, "dev", "eth0"])?;
-                run(
-                    "ip",
-                    &[
-                        "route",
-                        "add",
-                        "default",
-                        "via",
-                        &options.gateway.to_string(),
-                    ],
-                )?;
-            }
-        }
-        Ok(())
+        setup_child_interfaces(mode, options, peer_name, |arguments| run("ip", arguments))
     }
 
     /// Runs an available DHCP client when requested.
@@ -398,6 +373,37 @@ impl Drop for Network {
     fn drop(&mut self) {
         self.cleanup_resources();
     }
+}
+
+fn setup_child_interfaces(
+    mode: NetworkMode,
+    options: &kurumi_containerd_config::NetworkConfig,
+    peer_name: &str,
+    mut run_ip: impl FnMut(&[&str]) -> Result<()>,
+) -> Result<()> {
+    if matches!(mode, NetworkMode::Host | NetworkMode::None) {
+        return Ok(());
+    }
+    run_ip(&["link", "set", "lo", "up"])?;
+    if matches!(
+        mode,
+        NetworkMode::Nat | NetworkMode::Gateway | NetworkMode::Dhcp
+    ) {
+        run_ip(&["link", "set", peer_name, "name", "eth0"])?;
+        run_ip(&["link", "set", "eth0", "up"])?;
+        if matches!(mode, NetworkMode::Nat | NetworkMode::Gateway) {
+            let address = format!("{}/{}", options.address, options.prefix);
+            run_ip(&["address", "add", &address, "dev", "eth0"])?;
+            run_ip(&[
+                "route",
+                "add",
+                "default",
+                "via",
+                &options.gateway.to_string(),
+            ])?;
+        }
+    }
+    Ok(())
 }
 
 fn owned_rule(name: &str, pid: i32, rule: &[&str]) -> Vec<String> {

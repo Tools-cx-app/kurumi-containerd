@@ -2,20 +2,33 @@
 // SPDX-License-Identifier: GPL-v3-only
 
 use std::{
-    fs::{self, OpenOptions},
+    ffi::CString,
+    fs::{self, File, OpenOptions},
     io::Write,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::{
+        fd::AsFd,
+        unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use kurumi_containerd_config::Config;
 use kurumi_containerd_helper::{
     fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW, OPEN_NONBLOCK},
-    signal::{Signal, SignalNumber},
+    process::{
+        ForkResult, NamespaceFlags, WaitStatus, chdir, chroot, close_fds_except, execve, fchdir,
+        fork, is_interrupted, setns, setsid, waitpid,
+    },
+    signal::{Signal, kill, kill_process_group},
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Result, RuntimeError, error::bail, host::process::ProcessHandle};
+use crate::{
+    Result, RuntimeError,
+    error::{ErrorContext as _, bail, ensure},
+    host::process::ProcessHandle,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Init {
@@ -145,54 +158,43 @@ pub(crate) fn detect(rootfs: &Path, configured_init: &Path) -> InitSystem {
     if configured_init != Path::new("/sbin/init") {
         return InitSystem::Custom;
     }
-    if systemd_present(rootfs) {
-        return InitSystem::Systemd;
-    }
-    for (system, paths) in [
-        (InitSystem::Procd, &["sbin/procd", "usr/sbin/procd"][..]),
-        (
-            InitSystem::Openrc,
-            &["sbin/openrc-init", "usr/bin/openrc-init"][..],
-        ),
-        (InitSystem::Runit, &["sbin/runit", "usr/bin/runit"][..]),
-        (InitSystem::S6, &["bin/s6-svscan", "usr/bin/s6-svscan"][..]),
-    ] {
-        if paths.iter().any(|path| rootfs.join(path).is_file()) {
-            return system;
-        }
-    }
-
-    let init = rootfs.join("sbin/init");
-    if let Ok(target) = fs::read_link(&init) {
-        let target = target.to_string_lossy();
-        if target.contains("busybox") {
-            return InitSystem::Busybox;
-        }
-        if target.contains("sysvinit") || target.contains("init.sysv") {
-            return InitSystem::Sysvinit;
-        }
+    let Ok(init) = kurumi_containerd_config::resolve_container_path(rootfs, configured_init) else {
+        return InitSystem::Unknown;
+    };
+    if !init.is_file() {
         return InitSystem::Unknown;
     }
-    if init.is_file() {
-        let content = read_prefix(&init, 4096).unwrap_or_default();
-        if content.windows(7).any(|value| value == b"systemd") {
-            return InitSystem::Systemd;
-        }
-        if content.windows(7).any(|value| value == b"busybox") {
-            return InitSystem::Busybox;
-        }
-        if content.windows(10).any(|value| value == b"/nix/store") {
-            return InitSystem::Unknown;
-        }
-        return InitSystem::Sysvinit;
+    let system = match init.file_name().and_then(|name| name.to_str()) {
+        Some("systemd") => Some(InitSystem::Systemd),
+        Some("procd") => Some(InitSystem::Procd),
+        Some("openrc-init") => Some(InitSystem::Openrc),
+        Some("runit") => Some(InitSystem::Runit),
+        Some("s6-svscan") => Some(InitSystem::S6),
+        Some("busybox") => Some(InitSystem::Busybox),
+        Some("init.sysv" | "sysvinit") => Some(InitSystem::Sysvinit),
+        _ => None,
+    };
+    if let Some(system) = system {
+        return system;
     }
-    InitSystem::Unknown
+    let content = read_prefix(&init, 4096).unwrap_or_default();
+    if content.windows(7).any(|value| value == b"systemd") {
+        return InitSystem::Systemd;
+    }
+    if content.windows(7).any(|value| value == b"busybox") {
+        return InitSystem::Busybox;
+    }
+    if content.windows(10).any(|value| value == b"/nix/store")
+        || init.file_name().is_none_or(|name| name != "init")
+    {
+        return InitSystem::Unknown;
+    }
+    InitSystem::Sysvinit
 }
 
 pub(crate) fn request_shutdown(process: &ProcessHandle, system: InitSystem) -> Result<()> {
     match system {
-        InitSystem::Systemd => process
-            .send_signal(SignalNumber::realtime(3).expect("systemd shutdown signal must be valid")),
+        InitSystem::Systemd => request_systemd_shutdown(process),
         InitSystem::Procd | InitSystem::S6 | InitSystem::Busybox => {
             process.send_signal(Signal::User2)
         }
@@ -203,17 +205,146 @@ pub(crate) fn request_shutdown(process: &ProcessHandle, system: InitSystem) -> R
     }
 }
 
-fn systemd_present(rootfs: &Path) -> bool {
-    [
-        "lib/systemd/systemd",
-        "usr/lib/systemd/systemd",
-        "bin/systemd",
-        "usr/bin/systemd",
+/// Uses the container's control client so host and guest libc signal bases may differ.
+fn request_systemd_shutdown(process: &ProcessHandle) -> Result<()> {
+    ensure!(
+        procfs::process::Process::new(process.pid().as_raw())?
+            .status()?
+            .nspid
+            .is_some_and(|pids| pids.last() == Some(&1)),
+        "systemd shutdown target is not a namespace init"
+    );
+    let root_path = PathBuf::from(format!("/proc/{}/root", process.pid().as_raw()));
+    let root = File::open(&root_path).context("failed to open systemd container root")?;
+    // Join PID as well as mount namespaces: the guest /proc must resolve this
+    // client's /proc/self correctly, including on kernels without close_range.
+    let namespaces = ["mnt", "pid"]
+        .map(|name| -> Result<_> {
+            let target = File::open(format!("/proc/{}/ns/{name}", process.pid().as_raw()))?;
+            let current = fs::metadata(format!("/proc/self/ns/{name}"))?;
+            let metadata = target.metadata()?;
+            Ok(
+                ((metadata.dev(), metadata.ino()) != (current.dev(), current.ino()))
+                    .then_some(target),
+            )
+        })
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+    ensure!(
+        namespaces.iter().all(Option::is_some),
+        "systemd shutdown requires private mount and PID namespaces"
+    );
+    ensure!(
+        !process.wait_for_exit(Duration::ZERO)?,
+        "systemd init exited during shutdown resource capture"
+    );
+    let executable = ["/usr/bin/systemctl", "/bin/systemctl"]
+        .into_iter()
+        .find(|path| {
+            kurumi_containerd_config::resolve_container_path(&root_path, Path::new(path))
+                .is_ok_and(|resolved| resolved.is_file())
+        })
+        .context("systemd shutdown requires systemctl inside the container")?;
+    // Request the unit directly through the private bus, avoiding signal-based
+    // fallbacks in systemctl's halt verb.
+    let arguments = [
+        executable,
+        "--no-block",
+        "--job-mode=replace-irreversibly",
+        "start",
+        "halt.target",
     ]
-    .into_iter()
-    .any(|path| rootfs.join(path).is_file())
-        || fs::read_link(rootfs.join("sbin/init"))
-            .is_ok_and(|target| target.to_string_lossy().contains("systemd"))
+    .map(|value| CString::new(value).expect("static systemctl argument contains no NUL"));
+    // Only the guest /run is visible after chroot. Explicitly permit the live
+    // operation there; systemctl otherwise treats a chroot as an offline rootfs.
+    let environment = [
+        "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+        "SYSTEMD_IGNORE_CHROOT=1",
+    ]
+    .map(|value| CString::new(value).expect("static environment contains no NUL"));
+    // SAFETY: shutdown runs in the single-threaded CLI or monitor. The child
+    // only joins namespaces, forks the client, closes descriptors and execs or exits.
+    let worker = {
+        #[allow(unsafe_code)]
+        unsafe {
+            fork()
+        }
+    }
+    .context("failed to fork systemd shutdown client")?;
+    match worker {
+        ForkResult::Parent { child } => wait_shutdown_client(child, Duration::from_secs(5)),
+        ForkResult::Child => {
+            let result = (|| -> Result<()> {
+                setsid()?;
+                for namespace in namespaces.iter().flatten() {
+                    setns(namespace.as_fd(), NamespaceFlags::EMPTY)?;
+                }
+                // SAFETY: this worker is single-threaded; its child enters the
+                // selected PID namespace before executing the control client.
+                let client = {
+                    #[allow(unsafe_code)]
+                    unsafe {
+                        fork()
+                    }
+                }?;
+                match client {
+                    ForkResult::Parent { child } => loop {
+                        match waitpid(child, false) {
+                            Ok(WaitStatus::Exited(_, code)) => std::process::exit(code),
+                            Err(error) if is_interrupted(&error) => {}
+                            _ => std::process::exit(126),
+                        }
+                    },
+                    ForkResult::Child => {
+                        // SAFETY: closed inherited owners are never used or
+                        // dropped; all subsequent paths exec or exit directly.
+                        #[allow(unsafe_code)]
+                        unsafe { close_fds_except(&[root.as_fd()]) }?;
+                        fchdir(&root)?;
+                        chroot(".")?;
+                        chdir("/")?;
+                        execve(&arguments[0], &arguments, &environment)?;
+                        Ok(())
+                    }
+                }
+            })();
+            if let Err(error) = result {
+                tracing::error!(%error, "systemd shutdown client failed");
+            }
+            std::process::exit(126);
+        }
+    }
+}
+
+fn wait_shutdown_client(child: i32, timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match waitpid(child, true) {
+            Ok(WaitStatus::StillAlive) => {}
+            Ok(status) => {
+                ensure!(
+                    matches!(status, WaitStatus::Exited(_, 0)),
+                    "systemd shutdown client failed: {status:?}"
+                );
+                return Ok(());
+            }
+            Err(error) if is_interrupted(&error) => continue,
+            Err(error) => return Err(error).context("failed waiting for systemd shutdown client"),
+        }
+        if Instant::now() >= deadline {
+            // The unreaped child cannot have its PID recycled.
+            let _ = kill_process_group(child, Signal::Kill);
+            let _ = kill(child, Signal::Kill);
+            loop {
+                match waitpid(child, false) {
+                    Err(error) if is_interrupted(&error) => {}
+                    _ => break,
+                }
+            }
+            bail!("systemd shutdown client timed out");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn request_sysv_shutdown(process: &ProcessHandle) -> Result<()> {

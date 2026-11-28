@@ -80,6 +80,14 @@ monitor. Each boot generation uses an intermediate worker to create mount/UTS
 and optional network namespaces before forking init. Default `isolated` mode also
 creates PID/IPC namespaces; explicit `shared-pid-ipc` inherits those spaces.
 
+Init detection resolves the actual `/sbin/init` inside the rootfs, including
+container-relative symlinks; installing another init package does not change the
+selected family. Systemd shutdown runs the guest `systemctl --no-block
+--job-mode=replace-irreversibly start halt.target` in the container's mount/PID
+namespaces and root, avoiding host/guest libc real-time signal differences.
+The control client has a five-second timeout. If the client is missing or fails,
+stop reports a warning and retains the configured wait before forced termination.
+
 The monitor owns resources that must survive an internal container reboot:
 rootfs mounts, console PTY, cgroup, and Android SELinux state where applicable.
 It records init and monitor identities using the host boot ID and process start

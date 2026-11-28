@@ -165,3 +165,30 @@ fn custom_init_can_clean_up_before_exit_and_is_killed_only_after_timeout() {
         }
     }
 }
+
+#[test]
+fn failed_systemd_shutdown_request_still_escalates_after_timeout() {
+    let mut child = Command::new("sh")
+        .args([
+            "-c",
+            "trap '' TERM; printf 'ready\\n'; while :; do read -r line; done",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut output = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut ready = String::new();
+    output.read_line(&mut ready).unwrap();
+    assert_eq!(ready, "ready\n");
+    let process = ProcessHandle::open(i32::try_from(child.id()).unwrap()).unwrap();
+    let result = shutdown_init(
+        &process,
+        init::InitSystem::Systemd,
+        Duration::from_millis(50),
+    );
+    let _ = child.kill();
+    let status = child.wait().unwrap();
+    result.unwrap();
+    assert_eq!(status.signal(), Some(Signal::Kill.raw()));
+}

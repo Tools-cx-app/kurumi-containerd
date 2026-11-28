@@ -22,6 +22,8 @@ fn detects_supported_init_families() {
     ] {
         let root = tempfile::tempdir().unwrap();
         create(root.path(), path, b"init");
+        fs::create_dir_all(root.path().join("sbin")).unwrap();
+        std::os::unix::fs::symlink(format!("/{path}"), root.path().join("sbin/init")).unwrap();
         assert_eq!(detect(root.path(), Path::new("/sbin/init")), expected);
     }
 }
@@ -183,4 +185,77 @@ fn shared_mode_rejects_pid_one_target_but_allows_sbin_supervisor() {
         path: PathBuf::from("/sbin/kurumi-services"),
     };
     assert!(init.validate_shared(root.path()).is_ok());
+}
+
+#[test]
+fn detects_actual_init_when_other_init_packages_are_installed() {
+    let root = tempfile::tempdir().unwrap();
+    for path in [
+        "usr/lib/systemd/systemd",
+        "sbin/openrc-init",
+        "sbin/procd",
+        "sbin/runit",
+        "bin/s6-svscan",
+        "bin/busybox",
+    ] {
+        create(root.path(), path, b"init");
+    }
+    std::os::unix::fs::symlink("/bin/busybox", root.path().join("sbin/init")).unwrap();
+    assert_eq!(
+        detect(root.path(), Path::new("/sbin/init")),
+        InitSystem::Busybox
+    );
+    fs::remove_file(root.path().join("sbin/init")).unwrap();
+    create(root.path(), "sbin/init", b"sysv init");
+    assert_eq!(
+        detect(root.path(), Path::new("/sbin/init")),
+        InitSystem::Sysvinit
+    );
+}
+
+#[test]
+fn systemd_shutdown_client_reports_failures_and_reaps_timeouts() {
+    use std::process::Command;
+
+    for (command, expected) in [
+        ("exit 0", None),
+        ("exit 7", Some("failed")),
+        ("exec sleep 60", Some("timed out")),
+    ] {
+        let mut client = Command::new("sh").args(["-c", command]).spawn().unwrap();
+        let pid = i32::try_from(client.id()).unwrap();
+        let result = wait_shutdown_client(pid, Duration::from_millis(100));
+        let reaped =
+            waitpid(pid, true).is_err_and(|error| error.raw_os_error() == Some(libc::ECHILD));
+        let _ = client.kill();
+        let _ = client.wait();
+        match expected {
+            None => result.unwrap(),
+            Some(message) => assert!(result.unwrap_err().to_string().contains(message)),
+        }
+        assert!(reaped, "shutdown client was not reaped");
+    }
+}
+
+#[test]
+fn detects_init_through_relative_symlink_chain_and_ignores_missing_entries() {
+    let root = tempfile::tempdir().unwrap();
+    create(root.path(), "usr/lib/systemd/systemd", b"init");
+    fs::create_dir_all(root.path().join("sbin")).unwrap();
+    fs::create_dir_all(root.path().join("lib")).unwrap();
+    std::os::unix::fs::symlink("../usr/lib/systemd", root.path().join("lib/systemd")).unwrap();
+    std::os::unix::fs::symlink("../lib/systemd/systemd", root.path().join("sbin/init")).unwrap();
+    assert_eq!(
+        detect(root.path(), Path::new("/sbin/init")),
+        InitSystem::Systemd
+    );
+    fs::remove_file(root.path().join("sbin/init")).unwrap();
+    assert_eq!(
+        detect(root.path(), Path::new("/sbin/init")),
+        InitSystem::Unknown
+    );
+    assert_eq!(
+        detect(root.path(), Path::new("/custom-init")),
+        InitSystem::Custom
+    );
 }

@@ -606,7 +606,14 @@ fn shutdown_init(
     system: init::InitSystem,
     timeout: Duration,
 ) -> Result<()> {
-    init::request_shutdown(process, system)?;
+    if let Err(error) = init::request_shutdown(process, system) {
+        if system != init::InitSystem::Systemd {
+            return Err(error);
+        }
+        // Keep stop usable when the guest control client or bus is unavailable.
+        // Wait for any pending shutdown before applying the normal timeout kill.
+        tracing::warn!(%error, "systemd shutdown request failed; waiting before forced termination");
+    }
     if !process.wait_for_exit(timeout)? {
         process.send_signal(Signal::Kill)?;
         let _ = process.wait_for_exit(Duration::from_secs(5))?;

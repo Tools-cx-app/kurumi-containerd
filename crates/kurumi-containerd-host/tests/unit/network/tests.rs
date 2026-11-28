@@ -111,3 +111,40 @@ fn preserves_restore_state_from_legacy_nat_lease() {
     assert_eq!(lease.owners.len(), 0);
     assert!(lease.restore_disabled);
 }
+
+#[test]
+fn gateway_configures_static_address_and_default_route() {
+    let options = kurumi_containerd_config::NetworkConfig {
+        address: "192.0.2.2".parse().unwrap(),
+        gateway: "192.0.2.1".parse().unwrap(),
+        prefix: 24,
+        ..Default::default()
+    };
+    for mode in [NetworkMode::Gateway, NetworkMode::Nat, NetworkMode::Dhcp] {
+        let mut commands = Vec::new();
+        setup_child_interfaces(mode, &options, "peer", |args| {
+            commands.push(args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            &commands[..3],
+            &[
+                vec!["link", "set", "lo", "up"],
+                vec!["link", "set", "peer", "name", "eth0"],
+                vec!["link", "set", "eth0", "up"],
+            ]
+        );
+        if mode == NetworkMode::Dhcp {
+            assert_eq!(commands.len(), 3);
+        } else {
+            assert_eq!(
+                &commands[3..],
+                &[
+                    vec!["address", "add", "192.0.2.2/24", "dev", "eth0"],
+                    vec!["route", "add", "default", "via", "192.0.2.1"],
+                ]
+            );
+        }
+    }
+}

@@ -82,9 +82,32 @@ def run_case(binary, directory, mode):
     init_path = "/init"
     if mode == "credentials":
         (root / "sbin").mkdir()
-        (root / "sbin/init").symlink_to("../init")
         (root / "usr/lib/systemd").mkdir(parents=True)
-        (root / "usr/lib/systemd/systemd").write_bytes(b"systemd detection marker")
+        (root / "usr/lib/systemd/systemd").write_bytes((directory / "init").read_bytes())
+        (root / "usr/lib/systemd/systemd").chmod(0o755)
+        (root / "sbin/init").symlink_to("/usr/lib/systemd/systemd")
+        # The minimal init has no systemd bus. Verify that shutdown runs the
+        # guest client with a unit request, then let the stop timeout escalate.
+        (root / "usr/bin").mkdir(parents=True)
+        control = directory / "systemctl.c"
+        control.write_text(r"""
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+    if (argc != 5 || strcmp(argv[1], "--no-block") ||
+        strcmp(argv[2], "--job-mode=replace-irreversibly") ||
+        strcmp(argv[3], "start") || strcmp(argv[4], "halt.target")) return 1;
+    const char *allow = getenv("SYSTEMD_IGNORE_CHROOT");
+    if (!allow || strcmp(allow, "1")) return 2;
+    int fd = open("/shutdown-requested", O_WRONLY | O_CREAT, 0600);
+    if (fd < 0) return 3;
+    close(fd);
+    return 0;
+}
+""")
+        subprocess.run(["cc", "-static", str(control), "-o", str(root / "usr/bin/systemctl")], check=True)
         init_path = "/sbin/init"
     name = f"p1-review-{os.getpid()}-{mode}"
     container = {"name": name, "rootfs": str(root), "init": init_path,
@@ -96,7 +119,7 @@ def run_case(binary, directory, mode):
     config_dir = home / ".kurumi-containerd"
     config_dir.mkdir(parents=True)
     (config_dir / "config.json").write_text(json.dumps([
-        {"runtime": {}, "container": container}
+        {"runtime": {"stop_timeout_seconds": 1}, "container": container}
     ]))
     environment = dict(os.environ, HOME=str(home))
     command = [binary]
@@ -128,6 +151,8 @@ def run_case(binary, directory, mode):
         assert stopped.returncode == 0, stopped.stderr.decode()
         if mode == "cgroup":
             assert not (Path("/sys/fs/cgroup/kurumi-containerd") / name).exists()
+        if mode == "credentials":
+            assert (root / "shutdown-requested").exists(), "guest shutdown client was not invoked"
 
 
 def main():
