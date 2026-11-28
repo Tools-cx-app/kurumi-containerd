@@ -225,7 +225,7 @@ fn draw_containers(
         .collect();
     if entries.is_empty() {
         frame.render_widget(
-            Paragraph::new("No containers\nRegister with CLI; r reload")
+            Paragraph::new("No containers\nSelect Import package to add one")
                 .block(panel("Containers", state.focus == Focus::Containers)),
             area,
         );

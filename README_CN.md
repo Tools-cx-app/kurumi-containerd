@@ -178,6 +178,10 @@ sudo -H ./target/release/kurumi-containerd stop
 TUI 选择容器后使用 Backup 输入输出路径；备份不包含 config.json，ZIP 有元数据限制，
 详见[备份与恢复说明](docs/zh/usage.md#back-up-a-container)。
 
+换设备时，使用 `export debian ./debian.kurumi` 打包所选配置和 rootfs。在目标设备运行
+`import ./debian.kurumi --inspect` 查看需要映射的外部路径。CLI 和 TUI 都支持导入。
+详见[迁移容器到另一台设备](docs/zh/usage.md#portable-packages)。
+
 缺少 PID/IPC namespace 的内核可显式设置 `"isolation": "shared-pid-ipc"`，
 使用前台服务 supervisor；不会在隔离启动失败后自动降级。该模式共享宿主可见 PID
 和 IPC，仅供可信工作负载，必须有 cgroup v2，但不要求 `cgroup.kill`。不支持普通
@@ -195,6 +199,9 @@ install ARCHIVE [--size SIZE] [--force]
                         从本地归档安装 rootfs
 backup CONTAINER_ID OUTPUT
                         以 config.json 的 name 选择容器并备份 rootfs
+export CONTAINER_ID PACKAGE
+                        导出容器迁移包
+import PACKAGE          预览（--inspect）或导入为新容器
 start [--foreground]   启动配置中的容器
 stop                   优雅停止容器
 restart [--foreground] 重启容器

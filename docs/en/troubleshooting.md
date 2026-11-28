@@ -22,7 +22,7 @@ console logs. Use `start --foreground` to observe startup.
 | Symptom | Check and action |
 | --- | --- |
 | Missing configuration or name | Check the process HOME; `sudo -H` normally uses root's HOME. Match `container.name` exactly |
-| Ambiguous selection | Put `--name NAME` before the subcommand; backup uses only its positional name |
+| Ambiguous selection | Put `--name NAME` before the subcommand. For `backup` and `export`, pass the source name as the first positional argument and omit `--name`. For `import`, `--name` sets the new container's name |
 | Unknown field or invalid JSON | Use a JSON list of complete `runtime` and `container` objects, without comments, trailing commas or old TOML/pointer fields |
 | Missing rootfs or init | Check the path base, archive layout and init path; use `install` to create a missing rootfs |
 | A new configuration remains after failed install | Installation saves its default entry before extraction; edit the entry and retry |
@@ -72,6 +72,17 @@ rootfs. The output file must not already exist. Unmount rootfs subtrees first;
 special files and kernel filesystems cause rejection. ZIP loses metadata, and
 tar restoration also has xattr limits. Save configuration and external mount
 sources separately. See [Backup and restore](usage.md#back-up-a-container).
+
+## Portable package import
+
+Use `import` for a package created with `export`. Use `install` to restore a
+rootfs archive created with `backup`. See [Migrate a container to another host](usage.md#portable-packages).
+
+| Symptom | Check and action |
+| --- | --- |
+| Missing, unknown or duplicate mapping | Run `kurumi-containerd import ./debian.kurumi --inspect`. Supply exactly one `--map KEY=/absolute/path` for each listed key, using an existing path on the destination host. |
+| `container 'debian' already exists` | Choose an unused destination name, for example `sudo -H kurumi-containerd --name debian-copy import ./debian.kurumi`, and include any required mappings. |
+| Manifest or rootfs SHA-256 mismatch | Copy the package again from the trusted source, or export a fresh copy. Inspection checks the manifest checksum. Import also checks the compressed rootfs before installation. |
 
 ## Recovery and Android startup
 

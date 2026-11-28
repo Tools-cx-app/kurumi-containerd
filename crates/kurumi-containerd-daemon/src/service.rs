@@ -26,6 +26,9 @@ pub enum Operation {
     Backup {
         output: PathBuf,
     },
+    Export {
+        output: PathBuf,
+    },
     Start {
         foreground: bool,
     },
@@ -51,6 +54,7 @@ impl Operation {
         match self {
             Self::Install { .. } => "install",
             Self::Backup { .. } => "backup",
+            Self::Export { .. } => "export",
             Self::Start { .. } => "start",
             Self::Stop => "stop",
             Self::Restart { .. } => "restart",
@@ -146,6 +150,10 @@ impl Job {
             }
             Operation::Backup { output } => {
                 runtime.backup(&output)?;
+                Response::Done
+            }
+            Operation::Export { output } => {
+                runtime.export(&output)?;
                 Response::Done
             }
             Operation::Start { foreground } => Response::Started {

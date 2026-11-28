@@ -16,13 +16,13 @@ fs2.workspace = true
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 kurumi-containerd-error.workspace = true
 toml.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
-tempfile.workspace = true
 
 [[bench]]
 name = "config"

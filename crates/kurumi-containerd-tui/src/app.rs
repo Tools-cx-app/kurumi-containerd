@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-v3-only
 
 use std::{
+    fmt::Write as _,
     io::{self, IsTerminal},
     path::Path,
     time::{Duration, Instant},
@@ -45,10 +46,28 @@ pub fn run(exe: &Path) -> Result<()> {
         if let Some(command) = task.as_mut()
             && let Some(result) = command.poll()?
         {
+            let reload_registry = command.reload_registry;
             task = None;
             output = result;
             state.output_scroll = 0;
-            backend.refresh(&mut entries);
+            if reload_registry {
+                match backend.load_entries() {
+                    Ok(loaded) => {
+                        entries = loaded;
+                        state.reload(
+                            entries
+                                .iter()
+                                .map(|entry| entry.config.name.clone())
+                                .collect(),
+                        );
+                    }
+                    Err(error) => {
+                        let _ = write!(output, "\nRegistry refresh failed: {error:#}");
+                    }
+                }
+            } else {
+                backend.refresh(&mut entries);
+            }
         }
         if refreshed.elapsed() >= Duration::from_secs(3) && task.is_none() && services.is_none() {
             backend.refresh(&mut entries);
@@ -212,7 +231,7 @@ fn handle_form(
         KeyCode::Enter => {
             let kind = state.open.expect("form is open");
             let selected = entries.get(state.selected);
-            if kind != crate::action::ActionKind::Check {
+            if kind.needs_entry() {
                 let Some(selected) = selected else {
                     state.form_error = "No container selected".into();
                     return Ok(());
@@ -284,7 +303,7 @@ fn handle_screen(
         KeyCode::Enter if !busy => {
             let kind = ACTIONS[state.action_index];
             let can_open = backend.can_open_terminal();
-            let availability = if kind == crate::action::ActionKind::Check {
+            let availability = if !kind.needs_entry() {
                 Ok(())
             } else if let Some(entry) = entries.get(state.selected) {
                 allowed(kind, entry, can_open)

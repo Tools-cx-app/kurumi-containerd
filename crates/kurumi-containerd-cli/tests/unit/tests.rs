@@ -81,6 +81,33 @@ fn install_parses_local_archive_options() {
 }
 
 #[test]
+fn package_import_requires_explicit_mappings_and_separates_inspection() {
+    let cli = Cli::try_parse_from([
+        "kurumi",
+        "--name",
+        "copy",
+        "import",
+        "x.kurumi",
+        "--map",
+        "mount.0=/new dir/a=b",
+    ])
+    .unwrap();
+    assert!(
+        matches!(cli.command, Commands::Import { mappings, inspect: false, .. } if mappings == [("mount.0".into(), PathBuf::from("/new dir/a=b"))])
+    );
+    for options in [
+        vec!["--map", "bad"],
+        vec!["--inspect", "--size", "8G"],
+        vec!["--inspect", "--map", "mount.0=/data"],
+    ] {
+        assert!(
+            Cli::try_parse_from(["kurumi", "import", "x.kurumi"].into_iter().chain(options))
+                .is_err()
+        );
+    }
+}
+
+#[test]
 fn rejects_config_options() {
     for flag in ["-c", "--config"] {
         assert!(Cli::try_parse_from(["kurumi-containerd", flag, "old.toml", "start"]).is_err());

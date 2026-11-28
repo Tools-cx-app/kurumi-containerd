@@ -34,6 +34,8 @@ expects trusted root filesystems and commands.
   `.xz`, `.zip`, or `.tar` format, with lifecycle locking during export
 - Backup output streamed to a private `0600` temporary file and published only
   on success, without overwriting existing paths or symlinks
+- CLI/TUI export, inspection and import of a stopped container's rootfs and
+  selected configuration, with SHA-256 verification. See [portable packages](usage.md#portable-packages).
 
 Backup exports rootfs contents rather than a raw disk image or a complete
 container bundle. See [backup and restore](usage.md#back-up-a-container) for
@@ -60,8 +62,9 @@ The `tui` Cargo feature is disabled by default. When enabled, the ratatui manage
 loads the HOME JSON registry, displays configured entries including stopped
 containers, refreshes runtime status, and dispatches operations through the same
 CLI executable. It exposes install, backup, lifecycle actions, enter, run,
-inspection, scan, and host checks. Builds without the feature have no `tui`
-subcommand; workspace-wide builds still include the TUI crate.
+inspection, scan, host checks and package export. **Inspect package** and
+**Import package** are available even with an empty registry. Builds without the
+feature have no `tui` subcommand; workspace-wide builds still include the TUI crate.
 
 For running containers, the TUI can inspect, start, stop, restart, enable and
 disable systemd or OpenRC services. It also displays recent journal entries for

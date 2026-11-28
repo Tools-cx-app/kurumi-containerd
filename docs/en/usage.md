@@ -17,12 +17,13 @@ kurumi-containerd [--name NAME] [--verbose] COMMAND
 The registry is `$HOME/.kurumi-containerd/config.json`: a nonempty JSON list of
 complete configurations with unique `container.name` values. Most commands select
 the only entry automatically. With multiple entries, put `--name NAME` before the
-command; the name must match exactly, including case. `backup CONTAINER_ID OUTPUT`
-is the exception: its positional ID selects `container.name`, and combining it
-with `--name` is rejected. `check`, `show`, `scan`, and `daemon-reload` run independently of the configuration file.
+command. Names are case-sensitive. For `backup` and `export`, omit `--name` and
+pass `container.name` as the positional `CONTAINER_ID`. For `import`, `--name`
+supplies the new container's name. `check`, `show`, `scan`, `daemon-reload` and
+`import PACKAGE --inspect` work independently of the configuration file.
 
-The examples use `sudo -H`, selecting the registry under root's HOME. `install`
-can create the registry and missing entries automatically. Changing HOME selects
+The examples use `sudo -H`, selecting the registry under root's HOME. Both
+`install` and `import` can create the registry. Changing HOME selects
 a different registry. Most operations need root to create namespaces, mounts,
 devices, cgroups, or network interfaces. See the [configuration
 reference](configuration.md) for JSON and path rules and the [migration
@@ -31,6 +32,8 @@ guide](migration-config-pointer.md) for the removed configuration entry points.
 ```text
 install ARCHIVE [--size SIZE] [--force]
 backup CONTAINER_ID OUTPUT
+export CONTAINER_ID PACKAGE
+import PACKAGE [--inspect | [--map KEY=PATH]... [--size SIZE]]
 start [--foreground]
 stop
 restart [--foreground]
@@ -82,15 +85,17 @@ Without that feature, the `tui` subcommand does not exist. The ratatui manager l
 all entries in the HOME registry, including stopped containers. Each action runs
 the same CLI executable with the same HOME registry. Available actions are
 install, backup, start/stop/restart (including foreground modes), enter, run,
-info, pid, show, scan, and check. Check host remains available with an empty registry.
+info, pid, show, scan, check, and package export, inspection and import. With a
+missing or empty registry, **Check host**, **Inspect package** and **Import package**
+are available.
 
 | Context | Keys and behavior |
 | --- | --- |
 | Container list | `j`/`k` or up/down selects a container. |
 | Action selection | `h`/`l` or left/right chooses an action; Enter opens its dialog. Unavailable actions explain why. |
 | Panes | `Tab`/`Shift+Tab` changes focus between containers, details, and output. PageUp/PageDown scrolls the focused details or output independently. Selecting another container resets details scrolling. |
-| Dialog fields | `Tab`/`Shift+Tab` moves between fields; Tab at the last `run` argument adds another argument. Space toggles the selected install force field. |
-| Submission | Enter submits. Stop, restart, scan, and forced install require a second Enter; confirmation identifies the target. Validation errors stay in the dialog. |
+| Dialog fields | `Tab`/`Shift+Tab` moves between fields. Tab at the last `run` argument or package import mapping adds another field. Space toggles the selected install force field. |
+| Submission | Enter submits. Stop, restart, scan, package import, and forced install require a second Enter to confirm the target. Validation errors stay in the dialog. |
 | Navigation | Escape cancels a dialog; `r` reloads the registry; `q` exits when no command is running. |
 | Container services | Select a running container and press `s` to open its [service list](#manage-container-services). |
 
@@ -223,6 +228,55 @@ symlink xattrs, or newline-containing values, use an external tar implementation
 with xattr restoration enabled, such as GNU tar with
 `--xattrs --xattrs-include='*'`. Save config.json separately: it is never packaged
 by backup.
+
+<a id="portable-packages"></a>
+## Migrate a container to another host
+
+Stop the source container and export it to a new file in an existing directory
+outside the rootfs. On the destination host, inspection needs only read access
+to the copied package and works before you create a registry.
+
+```sh
+sudo -H kurumi-containerd --name debian stop
+sudo -H kurumi-containerd export debian ./debian.kurumi
+# On the destination after copying the package
+kurumi-containerd import ./debian.kurumi --inspect
+```
+
+If the preview reports `External host paths: none`, run
+`sudo -H kurumi-containerd import ./debian.kurumi`. Otherwise, the preview lists
+each key and its source path, plus the container target and access mode for bind
+mounts. Transfer bind mount data and environment files separately. Supply one
+`--map` per listed key, even when the destination path matches the original.
+For a package listing `mount.0` and `environment_file`, the command might be
+
+```sh
+sudo -H kurumi-containerd --name debian-copy import ./debian.kurumi \
+  --map 'mount.0=/srv/new data' --map environment_file=/etc/kurumi/debian.env
+```
+
+Each mapping needs an existing absolute path on the destination. Mount keys start
+at `mount.0` in configuration order. If `binfmt.interpreter` is listed, map it
+to a compatible static emulator on the destination host.
+
+Import uses the name recorded in the package unless you supply `--name` before
+`import`. Choose an unused name. Kurumi creates a fresh UUID, installs the rootfs
+in a private directory beside the registry, and registers the container as
+stopped. Add `--size 8G` to install into a sparse ext4 image. Allow space for
+both the compressed archive and the restored filesystem during import.
+
+A v1 `.kurumi` file is a tar containing `rootfs.tar.zst`, `manifest.json` and `manifest.sha256`.
+The manifest holds the selected configuration and the SHA-256 of the compressed rootfs.
+Inspection verifies the manifest checksum. Import also verifies the compressed
+rootfs before installation. These checks detect corruption. Obtain the package
+from a trusted source and protect it if its inline environment values contain
+secrets. For rootfs metadata, submounts and volatile OverlayFS changes, see
+[Backup and restore](#back-up-a-container).
+
+In the TUI, select a stopped container and choose **Export package**. On the destination,
+use **Inspect package** to see the mapping keys, then choose **Import package**.
+Enter one `KEY=/absolute/path` per mapping field, press Tab to add another, and confirm
+with Enter twice. The container list refreshes after import.
 
 ## Lifecycle
 

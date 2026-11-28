@@ -15,6 +15,7 @@ use tracing::level_filters::LevelFilter;
 
 #[cfg(target_os = "android")]
 mod android;
+mod migration;
 mod output;
 
 #[cfg(debug_assertions)]
@@ -74,6 +75,26 @@ enum Commands {
         container_id: String,
         /// New archive path ending in .zst, .xz, .zip or .tar.
         output: PathBuf,
+    },
+    /// Export a stopped container and its configuration to a new migration package.
+    Export {
+        /// Exact name of the registered container.
+        container_id: String,
+        /// New local package, conventionally ending in .kurumi.
+        output: PathBuf,
+    },
+    /// Inspect a migration package or import it as a new stopped container.
+    Import {
+        package: PathBuf,
+        /// Show the package name, checksum and external host paths without installing.
+        #[arg(long, conflicts_with_all = ["mappings", "size"])]
+        inspect: bool,
+        /// Map a host dependency from the manifest to an absolute path. Repeat for each key.
+        #[arg(long = "map", value_name = "KEY=PATH", value_parser = migration::parse_mapping)]
+        mappings: Vec<(String, PathBuf)>,
+        /// Install into a new sparse ext4 image of this size instead of a directory.
+        #[arg(long, value_parser = parse_size)]
+        size: Option<u64>,
     },
     /// Start the configured container.
     Start {
@@ -161,6 +182,32 @@ fn run(cli: Cli) -> Result<()> {
     }
     let executable = std::env::current_exe()?;
     let client = Client::new(&executable, cli.verbose);
+    if let Commands::Import {
+        package,
+        inspect,
+        mappings,
+        size,
+    } = cli.command
+    {
+        return migration::import(
+            &client,
+            &package,
+            cli.name.as_deref(),
+            inspect,
+            &mappings,
+            size,
+        );
+    }
+    if let Commands::Export {
+        container_id,
+        output,
+    } = cli.command
+    {
+        if cli.name.is_some() {
+            bail!("export selects its container by CONTAINER_ID; do not supply --name");
+        }
+        return migration::export(&client, &container_id, &output);
+    }
     if matches!(cli.command, Commands::DaemonReload) {
         client.reload_daemon()?;
         output::write(|out| writeln!(out, "Daemon ready"))?;

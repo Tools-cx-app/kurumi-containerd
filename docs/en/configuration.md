@@ -8,10 +8,11 @@
 
 CLI and TUI read `$HOME/.kurumi-containerd/config.json`. `HOME` must be absolute
 and belongs to the running process; `sudo -H` normally selects root's HOME.
-Normal commands require an existing registry. The `install` command can create a
-missing registry or add a missing named entry before extraction; see
-[installation](usage.md#install-a-local-rootfs). Invalid JSON, unknown fields and
-invalid values produce errors and are never replaced with fallback settings.
+Most commands require an existing registry. Both `install` and `import` can
+create one. `install` saves a missing entry before extraction. `import` adds its
+new entry after installing the rootfs. Invalid JSON, unknown fields and invalid
+values produce errors. See [installation](usage.md#install-a-local-rootfs) and
+[portable packages](usage.md#portable-packages).
 
 The top level is a nonempty list of complete configuration objects:
 
@@ -29,9 +30,11 @@ The top level is a nonempty list of complete configuration objects:
 
 Each object requires `runtime` and `container`. Names are unique and
 case-sensitive. A sole entry is selected automatically; with multiple entries,
-put `--name NAME` before the command. `backup CONTAINER_ID OUTPUT` instead uses
-its positional ID as `container.name` and rejects `--name`. The TUI lists all
-entries. `check` does not read HOME or configuration.
+put `--name NAME` before the command. For `backup` and `export`, give the source
+name as the positional `CONTAINER_ID` and omit `--name`. For `import`, `--name`
+sets the destination name, which defaults to the name recorded in the package.
+The TUI lists all entries. `check` and `import PACKAGE --inspect` work without
+HOME or a registry.
 
 There are no outer `name`/`file` pointers, standalone TOML loading,
 `-c/--config`, or `KURUMI_CONTAINERD_CONFIG`. See the
@@ -47,8 +50,9 @@ refer to paths inside the container, even when they begin with `/`.
 Normal runtime commands persist a missing UUID in the selected entry. The
 atomic rewrite preserves other entries, ownership, permissions and a symlink
 to the configuration file. Existing UUIDs remain unchanged. Installation,
-backup and read-only TUI refresh do not persist missing UUIDs. Back up this
-JSON separately from rootfs archives.
+backup, export and read-only TUI refresh do not persist missing UUIDs. Import
+assigns a fresh UUID and a local rootfs path. Back up `config.json` separately
+to preserve the full registry and its original UUIDs.
 
 ## Runtime settings
 

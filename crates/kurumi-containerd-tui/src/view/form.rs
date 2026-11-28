@@ -49,6 +49,27 @@ fn input_lines(label: &str, value: &str, active: bool, expanded: bool) -> Vec<Li
     }
 }
 
+fn form_target<'a>(kind: ActionKind, state: &'a UiState, entry: Option<&'a Entry>) -> &'a str {
+    match kind {
+        ActionKind::Import => state
+            .fields
+            .get(1)
+            .map(|name| name.trim())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("New container using package name"),
+        ActionKind::Inspect | ActionKind::Check => "Host",
+        _ => entry.map_or("Host", |entry| entry.config.name.as_str()),
+    }
+}
+
+fn field_label(kind: ActionKind, index: usize) -> String {
+    match kind.fields().get(index) {
+        Some(label) => (*label).into(),
+        None if kind == ActionKind::Import => "Mapping: KEY=/host/path".into(),
+        None => format!("Argument {index}"),
+    }
+}
+
 pub(super) fn draw(
     frame: &mut Frame<'_>,
     state: &UiState,
@@ -88,12 +109,9 @@ pub(super) fn draw(
         Constraint::Length(1),
     ])
     .split(inner);
+    let target = form_target(kind, state, entry);
     frame.render_widget(
-        Paragraph::new(format!(
-            "Target: {}",
-            entry.map_or("Host", |entry| entry.config.name.as_str())
-        ))
-        .style(Style::default().fg(ACCENT).bold()),
+        Paragraph::new(format!("Target: {target}")).style(Style::default().fg(ACCENT).bold()),
         rows[0],
     );
     let mut lines: Vec<_> = state
@@ -101,10 +119,7 @@ pub(super) fn draw(
         .iter()
         .enumerate()
         .flat_map(|(index, value)| {
-            let label = kind
-                .fields()
-                .get(index)
-                .map_or_else(|| format!("Argument {index}"), |label| (*label).into());
+            let label = field_label(kind, index);
             input_lines(&label, value, index == state.field, field_height == 3)
         })
         .collect();

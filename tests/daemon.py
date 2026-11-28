@@ -65,6 +65,63 @@ def live(pid):
         return False
 
 
+def migrate_container(cli, directory, rootfs, name):
+    registry = directory / ".kurumi-containerd/config.json"
+    entries = json.loads(registry.read_text())
+    source = entries[0]["container"]
+    external = directory / "source-data"
+    external.mkdir()
+    (external / "external-only").write_text("separate data")
+    source["mounts"] = [{"source": str(external), "target": "/data", "read_only": True}]
+    registry.write_text(json.dumps(entries))
+    bundle = directory / "export.kurumi"
+    cli("export", name, bundle)
+    assert bundle.stat().st_mode & 0o777 == 0o600
+    assert cli("export", name, bundle, check=False).returncode != 0
+    destination = directory / "new-host"
+    destination.mkdir()
+    preview = cli("import", bundle, "--inspect", registry_home=destination)
+    assert "mount.0" in preview.stdout and "/data (ro)" in preview.stdout
+    assert not (destination / ".kurumi-containerd").exists()
+    new_name = f"{name}-copy"
+    arguments = ["--name", new_name, "import", bundle]
+    assert cli(*arguments, registry_home=destination, check=False).returncode != 0
+    data = destination / "data"
+    data.mkdir()
+    (data / "local-marker").write_text("destination data")
+    arguments.extend(["--map", f"mount.0={data}"])
+    damaged = directory / "damaged.kurumi"
+    damaged_bytes = bytearray(bundle.read_bytes())
+    damaged_bytes[525] ^= 1
+    damaged.write_bytes(damaged_bytes)
+    failed = cli("--name", new_name, "import", damaged, "--map", f"mount.0={data}",
+                 registry_home=destination, check=False)
+    assert failed.returncode != 0 and "SHA-256" in failed.stdout + failed.stderr
+    assert not (destination / ".kurumi-containerd/config.json").exists()
+    assert not list((destination / ".kurumi-containerd").glob(f"{new_name}-*"))
+    cli(*arguments, registry_home=destination)
+    new_registry = destination / ".kurumi-containerd/config.json"
+    restored, = json.loads(new_registry.read_text())
+    restored = restored["container"]
+    assert restored["name"] == new_name and restored["uuid"] != source["uuid"]
+    assert restored["mounts"] == [{"source": str(data), "target": "/data", "read_only": True}]
+    target = Path(restored["rootfs"])
+    assert (target / "init").read_bytes() == (rootfs / "init").read_bytes()
+    assert not (target / "data/external-only").exists()
+    assert cli("pid", registry_home=destination, check=False).returncode != 0
+    before = new_registry.read_bytes()
+    assert cli(*arguments, registry_home=destination, check=False).returncode != 0
+    assert new_registry.read_bytes() == before
+    cli("start", registry_home=destination)
+    try:
+        pid = int(cli("pid", registry_home=destination).stdout)
+        assert Path(f"/proc/{pid}/root/data/local-marker").read_text() == "destination data"
+        assert cli("run", "/init", "exit", registry_home=destination, check=False).returncode == 23
+    finally:
+        cli("stop", registry_home=destination)
+    print("PASS: package export, preview, corruption rejection, host path remap, import and boot")
+
+
 def main(binary):
     if "--inside" not in sys.argv:
         assert os.geteuid() == 0, "requires root"
@@ -90,8 +147,9 @@ def main(binary):
         }]))
         environment = dict(os.environ, HOME=str(directory), NO_COLOR="1")
 
-        def cli(*args, check=True):
-            result = subprocess.run([binary, *args], env=environment, capture_output=True,
+        def cli(*args, check=True, registry_home=None):
+            env = environment if registry_home is None else dict(environment, HOME=str(registry_home))
+            result = subprocess.run([binary, *args], env=env, capture_output=True,
                                     text=True, timeout=40)
             if check:
                 assert result.returncode == 0, result.stdout + result.stderr
@@ -116,6 +174,9 @@ def main(binary):
             assert cli("pid", check=False).returncode != 0
             cli("start")
             wait_for("background output drained", lambda: (rootfs / "ready").exists())
+            live_export = directory / "running.kurumi"
+            assert cli("export", name, live_export, check=False).returncode != 0
+            assert not live_export.exists()
             init_pid = int(cli("pid").stdout)
             assert name in cli("show").stdout
             cli("scan")
@@ -161,6 +222,7 @@ def main(binary):
             current_daemon = detached()
             assert current_daemon != old_daemon and not live(old_daemon)
             assert not live(init_pid) and name not in cli("show").stdout
+            migrate_container(cli, directory, rootfs, name)
             os.kill(current_daemon, signal.SIGTERM)
             wait_for("daemon socket removal", lambda: not SOCKET.exists())
             current_daemon = None

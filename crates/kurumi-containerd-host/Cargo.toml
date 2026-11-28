@@ -22,6 +22,7 @@ mio.workspace = true
 procfs.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 xz2.workspace = true

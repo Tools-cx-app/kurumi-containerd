@@ -28,6 +28,7 @@ pub(super) enum Launch {
 pub(super) struct CommandTask {
     child: Child,
     output: File,
+    pub(super) reload_registry: bool,
 }
 
 impl CommandTask {
@@ -57,7 +58,7 @@ impl<'a> Backend<'a> {
     }
 
     pub(super) fn load_entries(&self) -> Result<Vec<Entry>> {
-        Ok(ConfigEntry::load_home()?
+        Ok(ConfigEntry::list_home()?
             .into_iter()
             .map(|config| self.load_entry(config))
             .collect())
@@ -101,7 +102,10 @@ impl<'a> Backend<'a> {
             );
         }
         Ok(match self.capture(&args, tempfile::tempfile()?) {
-            Ok(task) => Launch::Captured(task),
+            Ok(mut task) => {
+                task.reload_registry = matches!(action, Action::Import { .. });
+                Launch::Captured(task)
+            }
             Err(error) => Launch::Failed(format!("command launch failed: {error}")),
         })
     }
@@ -117,7 +121,11 @@ impl<'a> Backend<'a> {
             .stdout(output.try_clone()?)
             .stderr(output.try_clone()?)
             .spawn()?;
-        Ok(CommandTask { child, output })
+        Ok(CommandTask {
+            child,
+            output,
+            reload_registry: false,
+        })
     }
 
     fn load_entry(&self, config: ConfigEntry) -> Entry {

@@ -204,6 +204,10 @@ Backup in the TUI. The ID is the same `container.name` used by the runtime and T
 See [backup and restore](docs/en/usage.md#back-up-a-container) for metadata limits
 and configuration files that must be saved separately.
 
+To move the rootfs and configuration together, use `export debian ./debian.kurumi`.
+On the destination, `import ./debian.kurumi --inspect` lists the external paths to map.
+The CLI and TUI both support [portable package import](docs/en/usage.md#portable-packages).
+
 The CLI starts a detached daemon automatically when UDS connection fails. Linux
 uses `/var/kurumi/socket.sock` and Android uses `/dev/kurumi/socket.sock`. Request
 logs append to `daemon.log` beside the socket. Runtime state and recovery metadata
@@ -216,6 +220,9 @@ install ARCHIVE [--size SIZE] [--force]
                         Install a local rootfs archive
 backup CONTAINER_ID OUTPUT
                         Back up rootfs by its config.json name
+export CONTAINER_ID PACKAGE
+                        Export a portable container package
+import PACKAGE          Inspect (--inspect) or import a new container
 start [--foreground]   Start the configured container
 stop                   Gracefully stop it
 restart [--foreground] Stop and start it

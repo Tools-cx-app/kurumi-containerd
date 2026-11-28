@@ -42,6 +42,12 @@ impl Config {
     }
 
     pub(crate) fn load_selected(path: &Path, name: Option<&str>, installing: bool) -> Result<Self> {
+        let mut config = Self::read_resolved(path, name, installing)?;
+        config.validate_inner(!installing)?;
+        Ok(config)
+    }
+
+    pub(crate) fn read_resolved(path: &Path, name: Option<&str>, installing: bool) -> Result<Self> {
         let mut document = crate::registry::read_document(path)?;
         let index = crate::registry::select_document(&document, name)?;
         let mut config: Self =
@@ -52,7 +58,6 @@ impl Config {
                 }
             })?;
         config.resolve_paths(path, installing)?;
-        config.validate_inner(!installing)?;
         Ok(config)
     }
 
@@ -85,7 +90,7 @@ impl Config {
         Ok(config)
     }
 
-    fn resolve_paths(&mut self, config_path: &Path, installing: bool) -> Result<()> {
+    pub(crate) fn resolve_paths(&mut self, config_path: &Path, installing: bool) -> Result<()> {
         let base = config_path
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
@@ -128,7 +133,7 @@ impl Config {
     /// Returns an error for invalid names or paths, missing rootfs content,
     /// invalid networking values, or malformed environment keys.
     #[allow(clippy::too_many_lines)]
-    fn validate_inner(&mut self, require_rootfs: bool) -> Result<()> {
+    pub(crate) fn validate_inner(&mut self, require_rootfs: bool) -> Result<()> {
         ensure!(
             valid_name(&self.container.name),
             "container name may contain only ASCII letters, digits, '.', '_' and '-'"
@@ -478,6 +483,12 @@ pub(crate) fn lock_document(path: &Path) -> Result<File> {
 }
 
 pub(crate) fn write_document(path: &Path, document: &[serde_json::Value]) -> Result<()> {
+    replace_document(path, document)?;
+    File::open(path.parent().context("config path has no parent")?)?.sync_all()?;
+    Ok(())
+}
+
+pub(crate) fn replace_document(path: &Path, document: &[serde_json::Value]) -> Result<()> {
     let encoded = serde_json::to_vec_pretty(document).map_err(|source| ConfigError::Context {
         context: "failed to serialize persistent JSON config".to_owned(),
         source: Box::new(source),
@@ -503,7 +514,6 @@ pub(crate) fn write_document(path: &Path, document: &[serde_json::Value]) -> Res
         file.sync_all()?;
         fs::rename(&temporary, path)
             .with_context(|| format!("failed to commit persistent config {}", path.display()))?;
-        File::open(path.parent().context("config path has no parent")?)?.sync_all()?;
         Ok(())
     })();
     if result.is_err() {

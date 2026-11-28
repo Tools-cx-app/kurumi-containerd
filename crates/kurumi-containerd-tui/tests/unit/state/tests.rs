@@ -32,6 +32,51 @@ fn cancelled_form_cannot_dispatch() {
 }
 
 #[test]
+fn package_forms_dispatch_without_selecting_an_import_target() {
+    let mut state = UiState::new(vec![]);
+    state.open(ActionKind::Inspect);
+    assert!(state.submit().is_err());
+    state.fields[0] = "file name.kurumi".into();
+    assert_eq!(
+        state.submit().unwrap().unwrap().args("unrelated"),
+        ["import", "file name.kurumi", "--inspect"]
+    );
+    state.open(ActionKind::Import);
+    state.fields = ["file name.kurumi", "copy", "4G", "mount.0=/data/files here"]
+        .map(String::from)
+        .to_vec();
+    state.field = 3;
+    state.next_field();
+    state.fields[state.field] = "environment_file=relative".into();
+    assert!(state.submit().is_err());
+    state.fields[state.field] = "environment_file=/secrets/env".into();
+    assert!(state.submit().unwrap().is_none());
+    let action = state.submit().unwrap().unwrap();
+    assert!(!action.needs_terminal(true));
+    assert_eq!(
+        action.args("unrelated"),
+        [
+            "--name",
+            "copy",
+            "import",
+            "file name.kurumi",
+            "--size",
+            "4G",
+            "--map",
+            "mount.0=/data/files here",
+            "--map",
+            "environment_file=/secrets/env"
+        ]
+    );
+    state.open(ActionKind::Export);
+    state.fields[0] = "copy.kurumi".into();
+    assert_eq!(
+        state.submit().unwrap().unwrap().args("source"),
+        ["export", "source", "copy.kurumi"]
+    );
+}
+
+#[test]
 fn required_inputs_are_checked_before_dispatch() {
     let mut state = UiState::new(vec!["one".into()]);
     state.open(ActionKind::Install);

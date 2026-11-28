@@ -29,6 +29,27 @@ pub(crate) fn backup(root: &Path, output: &Path) -> Result<()> {
         matches!(extension, Some("tar" | "xz" | "zst" | "zip")),
         "unsupported backup extension; expected .tar, .xz, .zst, or .zip"
     );
+    publish(root, output, |root, device, file| {
+        let writer = BufWriter::new(file);
+        match extension {
+            Some("zip") => write_zip(root, device, writer)?,
+            Some("tar") => write_tar(root, device, writer)?.flush()?,
+            Some("xz") => {
+                let encoder = xz2::write::XzEncoder::new(writer, 6);
+                write_tar(root, device, encoder)?.finish()?.flush()?;
+            }
+            Some("zst") => write_zstd(root, device, writer)?.flush()?,
+            _ => unreachable!("extension was validated"),
+        }
+        Ok(())
+    })
+}
+
+pub(crate) fn publish(
+    root: &Path,
+    output: &Path,
+    write: impl FnOnce(&Path, u64, &mut File) -> Result<()>,
+) -> Result<()> {
     let root = root.canonicalize().context("failed to resolve rootfs")?;
     let metadata = fs::metadata(&root)?;
     ensure!(metadata.is_dir(), "rootfs must be a directory");
@@ -60,26 +81,7 @@ pub(crate) fn backup(root: &Path, output: &Path) -> Result<()> {
     temporary
         .as_file()
         .set_permissions(fs::Permissions::from_mode(0o600))?;
-    {
-        let writer = BufWriter::new(temporary.as_file_mut());
-        match extension {
-            Some("zip") => write_zip(&root, metadata.dev(), writer)?,
-            Some("tar") => write_tar(&root, metadata.dev(), writer)?.flush()?,
-            Some("xz") => {
-                let encoder = xz2::write::XzEncoder::new(writer, 6);
-                write_tar(&root, metadata.dev(), encoder)?
-                    .finish()?
-                    .flush()?;
-            }
-            Some("zst") => {
-                let encoder = zstd::stream::write::Encoder::new(writer, 0)?;
-                write_tar(&root, metadata.dev(), encoder)?
-                    .finish()?
-                    .flush()?;
-            }
-            _ => unreachable!("extension was validated"),
-        }
-    }
+    write(&root, metadata.dev(), temporary.as_file_mut())?;
     temporary.as_file_mut().flush()?;
     temporary.as_file().sync_all()?;
     temporary
@@ -88,6 +90,13 @@ pub(crate) fn backup(root: &Path, output: &Path) -> Result<()> {
         .with_context(|| format!("failed to publish backup {}", output.display()))?;
     File::open(parent)?.sync_all()?;
     Ok(())
+}
+
+pub(crate) fn write_zstd<W>(root: &Path, device: u64, writer: W) -> Result<W>
+where
+    W: Write,
+{
+    Ok(write_tar(root, device, zstd::stream::write::Encoder::new(writer, 0)?)?.finish()?)
 }
 
 fn ensure_no_mounts(root: &Path) -> Result<()> {

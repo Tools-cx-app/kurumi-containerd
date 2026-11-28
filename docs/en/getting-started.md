@@ -91,10 +91,22 @@ After stopping, export the rootfs to a new file in an existing output directory:
 sudo -H ./target/release/kurumi-containerd backup debian ./debian.zst
 ```
 
-Backup selects the container by its positional name; do not combine it with
-`--name`. It excludes `config.json`, runtime state and bind mount sources. Read
-[Backup and restore](usage.md#back-up-a-container) for format and restoration
-limits. Configure networking, resource limits and mounts through the
+`backup` takes the container name as its first argument. It excludes `config.json`,
+runtime state and bind mount sources. For formats and restoration limits, see
+[Backup and restore](usage.md#back-up-a-container).
+
+To move `debian` with its configuration, export a portable package while the
+container is stopped.
+
+```sh
+sudo -H ./target/release/kurumi-containerd export debian ./debian.kurumi
+```
+
+Copy the package to the destination host and use `import ./debian.kurumi --inspect`
+to list any host files or directories you need to provide there. Follow the CLI or
+TUI steps in [Migrate a container to another host](usage.md#portable-packages).
+
+Configure networking, resource limits and mounts through the
 [Configuration reference](configuration.md). For failures, use
 [Troubleshooting](troubleshooting.md) to check configuration, host capabilities
 and the full error chain.

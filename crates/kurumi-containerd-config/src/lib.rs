@@ -5,6 +5,7 @@
 
 mod config;
 mod environment;
+mod migration;
 mod model;
 mod registry;
 
@@ -16,6 +17,7 @@ pub use model::{
     SecurityConfig,
 };
 pub use registry::ConfigEntry;
+pub use migration::{ExternalPath, PendingImport};
 
 /// Validates a configuration value, including any normalization required by
 /// the configuration format.

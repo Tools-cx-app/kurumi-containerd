@@ -114,6 +114,49 @@ fn failed_command_launch_is_reported_without_exiting_manager() {
 }
 
 #[test]
+fn first_container_can_be_inspected_and_imported_from_an_empty_screen() {
+    use crate::action::ActionKind;
+
+    let mut state = UiState::new(vec![]);
+    let mut entries = vec![];
+    let mut output = String::new();
+    let backend = Backend::new(Path::new("/bin/echo"));
+    for kind in [ActionKind::Inspect, ActionKind::Import] {
+        state.action_index = ACTIONS.iter().position(|action| *action == kind).unwrap();
+        handle_screen(
+            KeyCode::Enter,
+            &mut state,
+            &mut entries,
+            &mut output,
+            false,
+            &backend,
+        );
+        assert_eq!(state.open, Some(kind));
+        state.fields[0] = "portable.kurumi".into();
+        let mut task = None;
+        for _ in 0..=usize::from(kind == ActionKind::Import) {
+            handle_form(
+                KeyCode::Enter,
+                &mut state,
+                &mut output,
+                &mut task,
+                &backend,
+                &entries,
+                false,
+            )
+            .unwrap();
+        }
+        let mut task = task.unwrap();
+        assert_eq!(task.reload_registry, kind == ActionKind::Import);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while task.poll().unwrap().is_none() {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+#[test]
 fn form_preserves_spaces_and_recovers_from_missing_input() {
     let mut state = UiState::new(Vec::new());
     state.open(crate::action::ActionKind::Install);

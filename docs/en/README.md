@@ -19,6 +19,7 @@ first. Android root-module users can start with [Android deployment](android-mod
 | [Getting started](getting-started.md) | Build, install the first rootfs, verify operation and stop the container |
 | [Host kernel requirements](kernel-features.md) | Kconfig options for startup, isolation, networking, storage and resource limits |
 | [CLI and TUI](usage.md) | Container selection, lifecycle, command execution, backup, restore and systemd/OpenRC service management |
+| [Portable container packages](usage.md#portable-packages) | Move a stopped container's rootfs and configuration to another host and map its external files |
 | [Configuration reference](configuration.md) | JSON fields, defaults, paths, isolation, networking, limits and Android options |
 | [Troubleshooting](troubleshooting.md) | Configuration, startup, cgroup, console, archive and recovery failures |
 | [Android deployment](android-module.md) | Magisk, KernelSU and APatch modules, persistent files and boot startup |

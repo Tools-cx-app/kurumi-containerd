@@ -24,7 +24,7 @@ use crate::{
 };
 
 mod backup;
-pub(crate) use backup::backup;
+pub(crate) use backup::{backup, publish, write_zstd};
 
 const GZIP_MAGIC: &[u8] = &[0x1f, 0x8b];
 const XZ_MAGIC: &[u8] = &[0xfd, b'7', b'z', b'X', b'Z', 0x00];

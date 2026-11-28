@@ -17,8 +17,8 @@ kurumi-containerd [--name NAME] [--verbose] COMMAND
 登记文件为 `$HOME/.kurumi-containerd/config.json`，内容是非空 JSON 列表，各项包含完整配置，
 且 `container.name` 必须唯一。大多数命令在只有一项时自动选择该项。存在多项时，
 在命令之前传入 `--name NAME`；名称必须完全匹配，区分大小写。
-`backup CONTAINER_ID OUTPUT` 是特例：位置参数 ID 直接选择 `container.name`，
-同时使用 `--name` 会被拒绝。`check`、`show`、`scan` 和 `daemon-reload` 均可独立于配置文件运行。
+`backup` 和 `export` 使用位置参数 `CONTAINER_ID` 选择 `container.name`。`import` 的 `--name`
+指定新容器的名称。`check`、`show`、`scan`、`daemon-reload` 和 `import --inspect` 可独立于配置文件运行。
 
 本文示例使用 `sudo -H`，因此使用 root 的 HOME 下的登记文件。`install` 可自动创建
 登记文件及缺失项。更改 HOME 就会选择另一份登记文件。大多数操作需要 root 来创建
@@ -29,6 +29,8 @@ JSON 和路径规则见[配置参考](configuration.md)，已删除的配置入�
 ```text
 install ARCHIVE [--size SIZE] [--force]
 backup CONTAINER_ID OUTPUT
+export CONTAINER_ID PACKAGE
+import PACKAGE [--inspect | [--map KEY=PATH]... [--size SIZE]]
 start [--foreground]
 stop
 restart [--foreground]
@@ -76,7 +78,7 @@ sudo -H kurumi-containerd tui
 未启用该 feature 时不存在 `tui` 子命令。ratatui 管理界面列出 HOME 登记文件中的所有项，
 包括已停止的容器。每个操作都调用同一个 CLI 可执行文件并使用同一个 HOME 登记文件。
 可用操作包括 install、backup、start/stop/restart（含前台模式）、enter、run、
-info、pid、show、scan 和 check。登记列表为空时仍可使用 Check host。
+info、pid、show、scan、check，以及迁移包的导出、预览和导入。首次使用、登记列表为空时也可预览和导入迁移包。
 
 | 场景 | 按键与行为 |
 | --- | --- |
@@ -184,6 +186,40 @@ sudo -H kurumi-containerd --name restored install ./debian.zst
 其 PAX 读取器无法恢复包含换行的属性值。若需恢复目录或符号链接的 xattr，或含换行的属性值，
 请使用启用 xattr 恢复的外部 tar 实现，例如 GNU tar 的 `--xattrs --xattrs-include='*'`。
 请单独保存 config.json：备份始终不会将其打包。
+
+<a id="portable-packages"></a>
+## 迁移容器到另一台设备
+
+在源设备停止容器并导出，在目标设备预览包。预览只读，无需 root 或已有配置。
+
+```sh
+sudo -H kurumi-containerd --name debian stop
+sudo -H kurumi-containerd export debian ./debian.kurumi
+# 将文件复制到目标设备后执行
+kurumi-containerd import ./debian.kurumi --inspect
+```
+
+预览会列出每个外部路径的键、源设备路径，以及绑定挂载的容器路径和读写模式。
+请单独迁移外部数据，并为列出的每个键提供目标设备上已存在的绝对路径。没有外部路径时直接运行 `import`。
+例如，预览列出了 `mount.0` 和 `environment_file` 时，可执行以下命令。
+
+```sh
+sudo -H kurumi-containerd --name debian-copy import ./debian.kurumi \
+  --map 'mount.0=/srv/new data' --map environment_file=/etc/kurumi/debian.env
+```
+
+`mount.0` 对应第一项绑定挂载，后续依次编号。跨架构解释器使用 `binfmt.interpreter`。
+默认沿用包中的名称，导入会生成新 UUID，在注册表旁的私有目录安装 rootfs，再登记为已停止的容器。
+同名条目会被拒绝。使用 `--size 8G` 可将目标改为稀疏 ext4 镜像。导入期间需为压缩归档和安装后的 rootfs 同时预留空间。
+
+`.kurumi` v1 是 tar 容器，内含 `rootfs.tar.zst`、`manifest.json` 和 `manifest.sha256`。
+清单携带所选容器的配置和压缩 rootfs 的 SHA-256。预览验证清单，安装前再验证 rootfs。
+请只导入可信来源的包。配置中内联的环境变量会随包迁移。宿主环境文件和挂载源的内容需单独保存。
+rootfs 元数据、子挂载和易失性改动遵循本页的备份限制。
+
+在 TUI 选中已停止的容器，打开 **Export package**。在目标设备使用 **Inspect package** 查看映射键，
+再打开 **Import package**。每个映射字段填写一个 `KEY=/绝对路径`，按 Tab 添加下一项，按两次 Enter 确认导入。
+完成后新条目会出现在容器列表中。
 
 <a id="lifecycle"></a>
 ## 生命周期

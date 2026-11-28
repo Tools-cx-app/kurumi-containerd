@@ -14,6 +14,7 @@ pub mod cgroup;
 pub mod check;
 pub mod memory;
 pub mod network;
+pub mod package;
 pub mod process;
 pub mod rootfs;
 #[cfg(any(target_os = "android", test))]

@@ -14,9 +14,7 @@ use crate::action::{ACTIONS, ActionKind, allowed};
 use crate::registry::Entry;
 
 fn unavailable(kind: ActionKind, entry: Option<&Entry>, terminal: bool) -> Option<String> {
-    if kind == ActionKind::Check {
-        None
-    } else {
+    if kind.needs_entry() {
         entry.map_or_else(
             || Some("No container selected".into()),
             |entry| {
@@ -25,6 +23,8 @@ fn unavailable(kind: ActionKind, entry: Option<&Entry>, terminal: bool) -> Optio
                     .map(|error| format!("{error:#}"))
             },
         )
+    } else {
+        None
     }
 }
 

@@ -30,6 +30,14 @@ impl ConfigEntry {
         Self::load(&path_from_home(std::env::var_os("HOME"))?)
     }
 
+    /// Lists available entries, allowing a fresh or empty registry.
+    /// # Errors
+    /// Returns errors for invalid HOME, malformed registries or I/O failures.
+    pub fn list_home() -> Result<Vec<Self>> {
+        let path = path_from_home(std::env::var_os("HOME"))?;
+        Self::entries(&path, &read_install_document(&path, true)?)
+    }
+
     /// Selects an install target under HOME, creating a default entry when absent.
     /// New entries use NAME (or `default`) and a sibling NAME.rootfs or NAME.img.
     /// # Errors
@@ -39,19 +47,7 @@ impl ConfigEntry {
     }
 
     fn prepare_install(path: &Path, name: Option<&str>, image: bool) -> Result<Self> {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(path.parent().context("config path has no parent")?)?;
-        let persistent_path = match fs::symlink_metadata(path) {
-            Ok(_) => path.canonicalize()?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => path
-                .parent()
-                .context("config path has no parent")?
-                .canonicalize()?
-                .join(path.file_name().context("config path has no filename")?),
-            Err(error) => return Err(error.into()),
-        };
+        let persistent_path = registry_for_write(path)?;
         let _lock = lock_document(&persistent_path)?;
         let mut document = read_install_document(&persistent_path, true)?;
         let name = match name {
@@ -96,7 +92,11 @@ impl ConfigEntry {
     /// # Errors
     /// Returns an error if the registry or its names are invalid.
     pub fn load(path: &Path) -> Result<Vec<Self>> {
-        read_document(path)?
+        Self::entries(path, &read_document(path)?)
+    }
+
+    fn entries(path: &Path, document: &[serde_json::Value]) -> Result<Vec<Self>> {
+        document
             .iter()
             .map(|entry| {
                 Ok(Self {
@@ -133,6 +133,16 @@ impl ConfigEntry {
         Config::load_selected(&self.path, Some(&self.name), false)
     }
 
+    /// Resolves and validates the source while retaining the original inline environment
+    /// and hostname, before defaults or host environment files are merged for execution.
+    /// # Errors
+    /// Returns an error if the selected configuration or its source paths are invalid.
+    pub fn load_for_export(&self) -> Result<Config> {
+        let config = Config::read_resolved(&self.path, Some(&self.name), false)?;
+        config.clone().validate()?;
+        Ok(config)
+    }
+
     /// Loads this container, allowing a missing rootfs target.
     /// # Errors
     /// Returns an error for invalid settings or target paths.
@@ -152,7 +162,10 @@ pub(crate) fn read_document(path: &Path) -> Result<Vec<serde_json::Value>> {
     read_install_document(path, false)
 }
 
-fn read_install_document(path: &Path, installing: bool) -> Result<Vec<serde_json::Value>> {
+pub(crate) fn read_install_document(
+    path: &Path,
+    installing: bool,
+) -> Result<Vec<serde_json::Value>> {
     let source = match fs::read_to_string(path) {
         Ok(source) => source,
         Err(error) if installing && error.kind() == std::io::ErrorKind::NotFound => {
@@ -205,7 +218,22 @@ pub(crate) fn select_document(entries: &[serde_json::Value], name: Option<&str>)
     }
 }
 
-fn path_from_home(home: Option<OsString>) -> Result<PathBuf> {
+pub(crate) fn registry_for_write(path: &Path) -> Result<PathBuf> {
+    let parent = path.parent().context("config path has no parent")?;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(parent)?;
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(path.canonicalize()?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(parent
+            .canonicalize()?
+            .join(path.file_name().context("config path has no filename")?)),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(crate) fn path_from_home(home: Option<OsString>) -> Result<PathBuf> {
     let home = PathBuf::from(home.context("HOME is not set; cannot locate configuration")?);
     ensure!(home.is_absolute(), "HOME must be a nonempty absolute path");
     Ok(home.join(".kurumi-containerd/config.json"))

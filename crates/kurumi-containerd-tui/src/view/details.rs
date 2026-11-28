@@ -17,7 +17,7 @@ use crate::state::{Focus, UiState};
 pub(super) fn draw(frame: &mut Frame<'_>, area: Rect, state: &UiState, selected: Option<&Entry>) {
     let details: String = selected.map_or_else(
         || {
-            "Select a container to view details.\nCheck host is available without a container."
+            "Select a container to view details.\nInspect package, Import package and Check host are available here."
                 .into()
         },
         |entry| match &entry.info {

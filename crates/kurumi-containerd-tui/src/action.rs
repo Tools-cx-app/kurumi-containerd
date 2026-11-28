@@ -17,6 +17,18 @@ pub(super) enum Action {
     Backup {
         output: PathBuf,
     },
+    Export {
+        output: PathBuf,
+    },
+    Inspect {
+        package: PathBuf,
+    },
+    Import {
+        package: PathBuf,
+        name: Option<String>,
+        size: Option<String>,
+        mappings: Vec<String>,
+    },
     Start(bool),
     Stop,
     Restart(bool),
@@ -33,7 +45,14 @@ pub(super) enum Action {
 }
 impl Action {
     pub(super) fn args(&self, name: &str) -> Vec<OsString> {
-        let mut a = if matches!(self, Self::Check | Self::Backup { .. }) {
+        let mut a = if matches!(
+            self,
+            Self::Check
+                | Self::Backup { .. }
+                | Self::Export { .. }
+                | Self::Import { .. }
+                | Self::Inspect { .. }
+        ) {
             vec![]
         } else {
             vec!["--name".into(), name.into()]
@@ -54,6 +73,29 @@ impl Action {
             }
             Self::Backup { output } => {
                 a.extend(["backup".into(), name.into(), output.as_os_str().to_owned()]);
+            }
+            Self::Export { output } => {
+                a.extend(["export".into(), name.into(), output.as_os_str().to_owned()]);
+            }
+            Self::Inspect { package } => {
+                a.extend(["import".into(), package.into(), "--inspect".into()]);
+            }
+            Self::Import {
+                package,
+                name,
+                size,
+                mappings,
+            } => {
+                if let Some(name) = name {
+                    a.extend(["--name".into(), name.into()]);
+                }
+                a.extend([OsString::from("import"), package.into()]);
+                if let Some(size) = size {
+                    a.extend(["--size".into(), size.into()]);
+                }
+                for mapping in mappings {
+                    a.extend(["--map".into(), mapping.into()]);
+                }
             }
             Self::Start(f) | Self::Restart(f) => {
                 a.push(if matches!(self, Self::Start(_)) {
@@ -96,6 +138,9 @@ impl Action {
 pub(super) enum ActionKind {
     Install,
     Backup,
+    Export,
+    Inspect,
+    Import,
     Start,
     ForegroundStart,
     Stop,
@@ -109,9 +154,12 @@ pub(super) enum ActionKind {
     Scan,
     Check,
 }
-pub(super) const ACTIONS: [ActionKind; 14] = [
+pub(super) const ACTIONS: [ActionKind; 17] = [
     ActionKind::Install,
     ActionKind::Backup,
+    ActionKind::Export,
+    ActionKind::Inspect,
+    ActionKind::Import,
     ActionKind::Start,
     ActionKind::ForegroundStart,
     ActionKind::Stop,
@@ -126,10 +174,17 @@ pub(super) const ACTIONS: [ActionKind; 14] = [
     ActionKind::Check,
 ];
 impl ActionKind {
+    pub(super) fn needs_entry(self) -> bool {
+        !matches!(self, Self::Check | Self::Inspect | Self::Import)
+    }
+
     pub(super) fn label(self) -> &'static str {
         match self {
             Self::Install => "Install",
             Self::Backup => "Backup",
+            Self::Export => "Export package",
+            Self::Inspect => "Inspect package",
+            Self::Import => "Import package",
             Self::Start => "Start",
             Self::ForegroundStart => "Start foreground",
             Self::Stop => "Stop",
@@ -148,6 +203,14 @@ impl ActionKind {
         match self {
             Self::Install => &["Archive path", "Image size (optional)"],
             Self::Backup => &["Output path (.zst/.xz/.zip/.tar)"],
+            Self::Export => &["New package path (.kurumi)"],
+            Self::Inspect => &["Package path"],
+            Self::Import => &[
+                "Package path",
+                "New name (default: package name)",
+                "Image size (blank for directory)",
+                "Mapping: KEY=/host/path (Tab to add another)",
+            ],
             Self::Enter => &["User (default root)", "Shell command (optional)"],
             Self::Run => &["Executable", "Argument 1 (Tab to add another)"],
             _ => &[],
@@ -156,7 +219,7 @@ impl ActionKind {
     pub(super) fn confirm(self) -> bool {
         matches!(
             self,
-            Self::Stop | Self::Restart | Self::ForegroundRestart | Self::Scan
+            Self::Stop | Self::Restart | Self::ForegroundRestart | Self::Scan | Self::Import
         )
     }
     pub(super) fn action(self, f: &[String], force: bool) -> Result<Action> {
@@ -171,12 +234,45 @@ impl ActionKind {
                     force,
                 }
             }
-            Self::Backup => {
+            Self::Backup | Self::Export => {
                 if f[0].trim().is_empty() {
                     bail!("output path is required")
                 }
-                Action::Backup {
-                    output: f[0].trim().into(),
+                let output = f[0].trim().into();
+                if self == Self::Export {
+                    Action::Export { output }
+                } else {
+                    Action::Backup { output }
+                }
+            }
+            Self::Inspect | Self::Import => {
+                let package = f[0].trim();
+                if package.is_empty() {
+                    bail!("package path is required");
+                }
+                if self == Self::Inspect {
+                    Action::Inspect {
+                        package: package.into(),
+                    }
+                } else {
+                    let mappings: Vec<_> = f[3..]
+                        .iter()
+                        .map(|value| value.trim())
+                        .filter(|value| !value.is_empty())
+                        .collect();
+                    if mappings.iter().any(|value| {
+                        !value
+                            .split_once('=')
+                            .is_some_and(|(key, path)| !key.is_empty() && path.starts_with('/'))
+                    }) {
+                        bail!("expected mapping KEY=/absolute/host/path");
+                    }
+                    Action::Import {
+                        package: package.into(),
+                        name: (!f[1].trim().is_empty()).then(|| f[1].trim().into()),
+                        size: (!f[2].trim().is_empty()).then(|| f[2].trim().into()),
+                        mappings: mappings.into_iter().map(str::to_owned).collect(),
+                    }
                 }
             }
             Self::Start => Action::Start(false),
@@ -221,7 +317,7 @@ impl ActionKind {
     }
 }
 pub(super) fn allowed(k: ActionKind, e: &Entry, terminal: bool) -> Result<()> {
-    if k == ActionKind::Check {
+    if !k.needs_entry() {
         return Ok(());
     }
     if k == ActionKind::Install && e.install_ready && e.info.is_err() {
@@ -234,7 +330,11 @@ pub(super) fn allowed(k: ActionKind, e: &Entry, terminal: bool) -> Result<()> {
         .active;
     if matches!(
         k,
-        ActionKind::Start | ActionKind::ForegroundStart | ActionKind::Install | ActionKind::Backup
+        ActionKind::Start
+            | ActionKind::ForegroundStart
+            | ActionKind::Install
+            | ActionKind::Backup
+            | ActionKind::Export
     ) && active
     {
         bail!("stop the container first")

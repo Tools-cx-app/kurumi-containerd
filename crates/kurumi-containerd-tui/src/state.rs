@@ -68,7 +68,9 @@ impl UiState {
         self.confirming = false;
     }
     pub(super) fn next_field(&mut self) {
-        if self.open == Some(ActionKind::Run) && self.field + 1 == self.fields.len() {
+        if matches!(self.open, Some(ActionKind::Run | ActionKind::Import))
+            && self.field + 1 == self.fields.len()
+        {
             self.fields.push(String::new());
         }
         let count = self.fields.len() + usize::from(self.open == Some(ActionKind::Install));
