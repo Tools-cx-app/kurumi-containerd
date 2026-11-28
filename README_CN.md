@@ -33,10 +33,10 @@ Linux namespace、挂载、cgroup、网络及持久化 JSON 配置管理轻量�
 
 ## 环境要求
 
-- 支持所需 namespace 和挂载功能的 Linux 或 Android 内核
+- 具备对应功能的 Linux 或 Android 宿主内核，详见[主机内核配置](docs/zh/kernel-features.md)
 - root 权限
 - Rust 1.85 或更高版本
-- NAT/网桥网络所需的 `ip` 和 `iptables`
+- NAT 和网桥网络需要 `ip`，NAT 还需要宿主 `iptables`
 - 隔离模式资源限制需要 cgroup v1/v2；共享模式始终需要可写且专属的 cgroup v2 子树
 - 包含 init 可执行文件的 Linux rootfs
 

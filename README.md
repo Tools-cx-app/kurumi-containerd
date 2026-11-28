@@ -36,10 +36,10 @@ resources when compiled for and executed on Android.
 
 ## Requirements
 
-- A Linux or Android kernel with the required namespace and mount features
+- A Linux or Android host kernel with the facilities listed in [Host kernel requirements](docs/en/kernel-features.md)
 - Root privileges
 - Rust 1.85 or newer for the 2024 edition
-- `ip` and `iptables` for NAT or bridge networking
+- `ip` for NAT or bridge networking, plus host `iptables` for NAT
 - cgroup v1/v2 for isolated resource limits; writable exclusive cgroup v2 always in shared mode
 - A prepared Linux root filesystem containing an init executable
 

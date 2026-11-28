@@ -171,7 +171,7 @@ CI 只为 release 产物启用该 feature；本地构建需指定 `--features se
 
 共享模式继承 Kurumi 所在环境的 PID/IPC 空间，包括外层容器的空间。
 mount/UTS namespace、私有 `/run`、`/dev`、`/dev/shm`、procfs 和安全过滤仍需可用。
-`network: "host"` 可避免 network namespace 要求。
+`network: "host"` 使用已有的 `/proc/self/ns/net` 句柄，无需创建新的 network namespace。
 
 无论是否设置资源限制，共享模式都要求专属可写的 cgroup v2 子树，且能创建根在 init
 叶节点的 cgroup namespace。Kurumi 创建空的 namespace 根，将 supervisor 放到
@@ -228,7 +228,7 @@ Kurumi 不依赖 Go。只支持已实现的 unit 指令，不提供 `PrivateIPC=
 `protocol` 为 `tcp`（默认）或 `udp`。同一协议内不允许重复的主机端口或容器端口。
 不支持端口范围。
 
-NAT 和网桥配置使用主机上的 `ip`、`iptables` 可执行文件。
+NAT 和网桥配置使用宿主和 rootfs 内的 `ip`，NAT 还使用宿主的 `iptables`。
 `gateway` 和 `dhcp` 要求 `gateway_bridge` 是有效的已有网桥名称；运行时不会创建或管理
 该网桥。DHCP 按顺序使用 rootfs 内找到的第一个客户端：`udhcpc`、`dhclient`、`dhcpcd`。
 

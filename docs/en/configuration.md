@@ -160,7 +160,7 @@ Unknown values are rejected. There is no automatic fallback when namespace
 creation fails. Shared mode inherits the PID/IPC spaces of Kurumi's execution
 environment, including an outer container if one exists. Mount and UTS namespaces,
 private `/run`, `/dev` and `/dev/shm`, procfs and existing security filters remain
-required. `network: "host"` avoids a network namespace requirement.
+required. `network: "host"` uses the existing `/proc/self/ns/net` handle without creating a new network namespace.
 
 ```json
 {
@@ -239,7 +239,7 @@ nonzero `host` and `container` ports in the 16-bit range; `protocol` is `tcp`
 (default) or `udp`. Within one protocol, duplicate host ports or duplicate
 container ports are rejected. Port ranges are unsupported.
 
-NAT and bridge setup use host `ip` and `iptables` executables. `gateway` and
+NAT and bridge setup use `ip` on the host and in the rootfs. NAT also uses host `iptables`. `gateway` and
 `dhcp` require a valid `gateway_bridge` naming an existing bridge; the runtime
 does not create or manage that bridge. DHCP uses the first client found inside
 rootfs: `udhcpc`, `dhclient`, then `dhcpcd`.

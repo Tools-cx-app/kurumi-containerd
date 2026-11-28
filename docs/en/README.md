@@ -17,6 +17,7 @@ first. Android root-module users can start with [Android deployment](android-mod
 | Guide | Purpose |
 | --- | --- |
 | [Getting started](getting-started.md) | Build, install the first rootfs, verify operation and stop the container |
+| [Host kernel requirements](kernel-features.md) | Kconfig options for startup, isolation, networking, storage and resource limits |
 | [CLI and TUI](usage.md) | Container selection, lifecycle, command execution, backup, restore and systemd/OpenRC service management |
 | [Configuration reference](configuration.md) | JSON fields, defaults, paths, isolation, networking, limits and Android options |
 | [Troubleshooting](troubleshooting.md) | Configuration, startup, cgroup, console, archive and recovery failures |

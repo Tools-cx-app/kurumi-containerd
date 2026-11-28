@@ -352,11 +352,9 @@ the new daemon answers. JSON configuration and rootfs contents remain on disk.
 sudo kurumi-containerd check
 ```
 
-`check` does not read HOME or configuration. It reports namespace capabilities,
-OverlayFS, cgroup v2, pidfd, `ip` and `iptables`, distinguishing isolated and
-shared-mode prerequisites. Shared mode additionally requires cgroup namespace
-creation and exclusive writable cgroup v2; `start` validates the selected mode.
-Missing PID/IPC namespaces do not alone prevent shared mode. Network namespaces
-are required only for non-host networking. `start` validates the selected mode,
-rootfs/init, security facilities and cgroup delegation rather than treating a
-successful generic host check as authorization for every configuration.
+`check` runs independently of HOME and the registry. It probes namespaces, seccomp,
+PTYs, Unix sockets, memfd locking and pidfds, and lists registered filesystems,
+loop control, visible cgroup controllers and networking tools. It returns an error
+if it cannot collect the report or create the common mount and UTS namespaces.
+Use the individual results for your chosen configuration. `start` checks the actual
+rootfs, init, mounts and cgroup delegation. See [Host kernel requirements](kernel-features.md).

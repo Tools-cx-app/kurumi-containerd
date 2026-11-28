@@ -292,8 +292,8 @@ Linux socket 为 `/var/kurumi/socket.sock`，Android 为 `/dev/kurumi/socket.soc
 sudo kurumi-containerd check
 ```
 
-`check` 不读取 HOME 或配置，报告 namespace、OverlayFS、cgroup v2、pidfd、
-`ip` 和 `iptables` 能力，并区分独立/共享模式前提。共享模式还要求 cgroup namespace
-和专属可写的 cgroup v2。缺少 PID/IPC namespace 不会单独阻止共享模式，非 host 网络
-才需要 network namespace。`start` 仍会检查所选模式、rootfs/init、安全机制和 cgroup
-委派；通用检查成功不代表每个配置都能启动。
+`check` 独立于 HOME 和配置文件运行。它探测 namespace、seccomp、PTY、Unix 套接字、
+memfd 文件锁和 pidfd，并列出已注册的文件系统、loop 控制设备、可见的 cgroup controller
+和网络工具。收集报告失败，或无法创建共用的 mount、UTS namespace 时，命令会报错。
+按所选配置核对各项结果。`start` 会实际检查 rootfs、init、挂载和 cgroup 委派。
+对应的 Kconfig 选项见[主机内核配置](kernel-features.md)。

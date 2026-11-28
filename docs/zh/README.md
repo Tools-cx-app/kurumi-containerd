@@ -15,6 +15,7 @@ Android root 模块用户可直接从 [Android 部署](android-module.md)开始�
 | 文档 | 解决的问题 |
 | --- | --- |
 | [快速开始](getting-started.md) | 构建程序、安装第一个 rootfs、验证运行并停止容器 |
+| [主机内核配置](kernel-features.md) | 启动、隔离模式、网络、存储和资源限制所需的 Kconfig 选项 |
 | [CLI 与 TUI](usage.md) | 选择容器、生命周期、命令执行、备份恢复与终端管理 |
 | [配置参考](configuration.md) | JSON 字段、默认值、路径、隔离、网络、资源和 Android 选项 |
 | [故障排查](troubleshooting.md) | 配置选择、启动、cgroup、控制台、备份与恢复错误 |

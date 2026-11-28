@@ -32,3 +32,33 @@ fn base_check_does_not_require_pid_ipc_or_network_namespaces() {
     report.capabilities[0].available = false;
     assert!(!report.required_namespaces_available());
 }
+
+#[test]
+fn filesystem_checks_match_registered_types_exactly() {
+    let filesystems = "nodev\tproc\nnodev\tdevtmpfs\nnodev\toverlayfs\n\text4\n";
+    let reported = filesystem_capabilities(filesystems)
+        .map(|entry| (entry.name, entry.available))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    assert!(reported["procfs"]);
+    assert!(reported["ext4"]);
+    assert!(!reported["tmpfs"]);
+    assert!(!reported["OverlayFS"]);
+    assert!(!reported["binfmt_misc"]);
+}
+
+#[test]
+fn controllers_report_the_visible_hierarchy_and_match_whole_names() {
+    let mounts =
+        [MountInfo::from_line("1 2 0:1 / /cpu rw - cgroup cgroup rw,cpu,cpuacct").unwrap()];
+    let [cpu, memory, pids] = controller_capabilities(&mounts, Some("memory pids_custom\n"));
+    assert!(cpu.available && cpu.detail.contains("v1"));
+    assert!(memory.available && memory.detail.contains("v2"));
+    assert!(!pids.available);
+
+    assert!(
+        controller_capabilities(&[], None)
+            .iter()
+            .all(|entry| !entry.available)
+    );
+}
