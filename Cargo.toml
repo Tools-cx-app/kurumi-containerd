@@ -51,7 +51,7 @@ uds = "0.4.2"
 uuid = { version = "1.29.3", features = ["v4", "serde"] }
 which = "8.0.6"
 xz2 = "0.1.7"
-zip = { version = "9.8.2", default-features = false, features = ["deflate"] }
+zip = { version = "9.9.0", default-features = false, features = ["deflate"] }
 zstd = { version = "0.14.5", default-features = false }
 
 [workspace.lints.rust]
