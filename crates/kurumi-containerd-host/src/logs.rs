@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
+use anstyle_parse::state::{Action, State, state_change};
 use kurumi_containerd_helper::fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW, OPEN_NONBLOCK};
 use kurumi_containerd_helper::process::effective_uid;
 
@@ -88,6 +89,7 @@ pub(crate) struct ConsoleLog {
     file: File,
     record: Vec<u8>,
     prefix_len: usize,
+    escape_state: State,
 }
 
 impl ConsoleLog {
@@ -98,20 +100,25 @@ impl ConsoleLog {
             file,
             record,
             prefix_len,
+            escape_state: State::Ground,
         }
     }
 
     pub(crate) fn append(&mut self, bytes: &[u8]) -> io::Result<()> {
         const MAX_LINE: usize = 16 * 1024;
-        for mut line in bytes.split_inclusive(|byte| *byte == b'\n') {
-            while !line.is_empty() {
-                let remaining = MAX_LINE - (self.record.len() - self.prefix_len);
-                let (part, rest) = line.split_at(remaining.min(line.len()));
-                self.record.extend_from_slice(part);
-                if part.len() == remaining || part.ends_with(b"\n") {
-                    self.flush()?;
+        for &byte in bytes {
+            if self.escape_state != State::Ground || byte == 0x1b {
+                let (next, action) = state_change(self.escape_state, byte);
+                if next != State::Anywhere {
+                    self.escape_state = next;
                 }
-                line = rest;
+                if action != Action::Execute {
+                    continue;
+                }
+            }
+            self.record.push(byte);
+            if byte == b'\n' || self.record.len() - self.prefix_len == MAX_LINE {
+                self.flush()?;
             }
         }
         Ok(())

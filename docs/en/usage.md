@@ -76,7 +76,7 @@ Root-owned logs are created with mode `0600` beside `socket.sock`, in
 | --- | --- |
 | `client.log` | CLI command names and diagnostics for root invocations. `--verbose` includes debug events. |
 | `daemon.log` | Daemon startup, requests, results and runtime diagnostics. |
-| `container.log` | The combined console stdout and stderr of background containers. Each record starts with `[container-name]`. |
+| `container.log` | The combined console stdout and stderr of background containers, with ANSI escape sequences removed. Each record starts with `[container-name]`. |
 
 For example, run `sudo tail -f /var/kurumi/container.log` on Linux. Foreground
 consoles and `run` or `enter` sessions send output to their caller. Long or

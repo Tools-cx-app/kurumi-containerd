@@ -38,7 +38,7 @@ int main(int argc, char **argv) {
         }
     }
     puts("\nbackground stdout marker"); fflush(stdout);
-    fputs("background stderr marker\n", stderr);
+    fputs("\033[0;1;31mbackground stderr marker\033[0m\n", stderr);
     close(open("/ready", O_WRONLY | O_CREAT, 0600));
     for (;;) pause();
 }
@@ -191,7 +191,7 @@ def main(binary):
             cli("start")
             wait_for("background output drained", lambda: (rootfs / "ready").exists())
             marker = f"[{name}] background stderr marker".encode()
-            wait_for("background console log", lambda: marker in console_log.read_bytes())
+            wait_for("plain background console line", lambda: marker in console_log.read_bytes().splitlines())
             assert console_log.stat().st_mode & 0o077 == 0
             assert f"[{name}] background stdout marker".encode() in console_log.read_bytes()
             assert console_log.stat().st_size >= 1024 * 1024

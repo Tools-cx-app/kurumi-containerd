@@ -71,7 +71,7 @@ TUI 会捕获非交互操作的结果和诊断输出。
 | --- | --- |
 | `client.log` | root 调用的 CLI 命令名和客户端诊断，`--verbose` 会加入 DEBUG 事件。 |
 | `daemon.log` | daemon 启动、收到的请求、执行结果和运行时诊断。 |
-| `container.log` | 后台容器控制台的 stdout 和 stderr，每条记录以 `[容器名]` 开头。 |
+| `container.log` | 后台容器控制台的 stdout 和 stderr。写入时过滤 ANSI 颜色等转义序列，每条记录以 `[容器名]` 开头。 |
 
 在 Linux 上运行 `sudo tail -f /var/kurumi/container.log` 即可跟踪后台输出。
 前台控制台以及 `run`、`enter` 会话的输出发送给调用方。长行或分次写出的行可能拆成多条记录。

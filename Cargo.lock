@@ -890,6 +890,7 @@ dependencies = [
 name = "kurumi-containerd-host"
 version = "0.4.0"
 dependencies = [
+ "anstyle-parse",
  "criterion",
  "flate2",
  "fs2",
