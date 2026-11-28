@@ -226,8 +226,10 @@ The CLI and TUI use the UDS client in `kurumi-containerd-daemon`. The socket is
 `/var/kurumi/socket.sock` on Linux and `/dev/kurumi/socket.sock` on Android.
 An unavailable socket triggers automatic daemon startup and a client log message.
 The daemon double-forks, creates a separate session, and is adopted by PID 1.
-Its standard streams point to `/dev/null`. Request and runtime logs append to
-`daemon.log` in the socket directory.
+Its standard streams point to `/dev/null`. In the socket directory, root CLI
+processes append diagnostics to `client.log`, the daemon writes request and
+runtime events to `daemon.log`, and monitors append background console records
+to `container.log`. Monitors keep draining the PTY if logging fails.
 
 The daemon retains `RuntimeRegistry` and one private `StateStore` per container.
 Anonymous memfd records share state with single-threaded request workers and

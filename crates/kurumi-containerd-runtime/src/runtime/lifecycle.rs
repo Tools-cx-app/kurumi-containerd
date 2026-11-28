@@ -459,7 +459,12 @@ impl Runtime {
                 )
                 .context("foreground console proxy failed")
             } else {
-                terminal::drain_with_check(&console.master, intermediate, &check_owner)
+                terminal::log_background(
+                    &console.master,
+                    intermediate,
+                    &self.config.container.name,
+                    &check_owner,
+                )
             };
             drop(lifetime_writer);
             let status = match status {

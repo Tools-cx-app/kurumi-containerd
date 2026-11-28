@@ -76,7 +76,8 @@ KurumiContainerd 是处于早期阶段的 Rust 实现，用于需要特权的 Li
   非交互管理仍然可用。
 - TUI 最多捕获合并 stdout/stderr 的前 1 MiB。`run` 使用独立的可执行文件和参数字段，
   不解析 shell 语法。
-- 后台监控进程在启动后将标准流重定向到 `/dev/null`；这不提供后台容器的持久日志功能。
+- 后台监控进程将 PTY 输出追加到 socket 同目录的 `container.log`。日志保留时间由运维管理，
+  Android 的 `/dev` 通常会在设备重启时清空。
 - 命名空间、挂载、cgroup 和镜像操作需要相应权限与内核支持。镜像安装还需要 loop 设备，
   以及 `mke2fs` 或 `mkfs.ext4`；镜像安装必须指定 `--size`，目录安装则拒绝该参数。
 

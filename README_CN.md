@@ -182,6 +182,9 @@ TUI 选择容器后使用 Backup 输入输出路径；备份不包含 config.jso
 `import ./debian.kurumi --inspect` 查看需要映射的外部路径。CLI 和 TUI 都支持导入。
 详见[迁移容器到另一台设备](docs/zh/usage.md#portable-packages)。
 
+日志与 `socket.sock` 同目录，Linux 为 `/var/kurumi/`，Android 为 `/dev/kurumi/`。
+`client.log` 记录客户端诊断，`daemon.log` 记录请求，`container.log` 按容器名记录后台控制台输出。
+
 缺少 PID/IPC namespace 的内核可显式设置 `"isolation": "shared-pid-ipc"`，
 使用前台服务 supervisor；不会在隔离启动失败后自动降级。该模式共享宿主可见 PID
 和 IPC，仅供可信工作负载，必须有 cgroup v2，但不要求 `cgroup.kill`。不支持普通

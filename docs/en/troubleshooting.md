@@ -13,9 +13,10 @@ sudo -H kurumi-containerd --name debian --verbose info
 ```
 
 Release diagnostics go to stderr; debug diagnostics go to stdout. Ordinary
-results use stdout. After startup, detached monitors redirect standard streams
-to `/dev/null`, so redirecting CLI stderr does not capture ongoing container
-console logs. Use `start --foreground` to observe startup.
+results use stdout. For a failed command, check `client.log` and `daemon.log`
+beside the socket. For a background container, follow `container.log` in the
+same directory. On Linux use `sudo tail -f /var/kurumi/container.log` and on
+Android use `/dev/kurumi/container.log` as root.
 
 ## Configuration and selection
 

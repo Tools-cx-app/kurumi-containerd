@@ -209,8 +209,10 @@ On the destination, `import ./debian.kurumi --inspect` lists the external paths 
 The CLI and TUI both support [portable package import](docs/en/usage.md#portable-packages).
 
 The CLI starts a detached daemon automatically when UDS connection fails. Linux
-uses `/var/kurumi/socket.sock` and Android uses `/dev/kurumi/socket.sock`. Request
-logs append to `daemon.log` beside the socket. Runtime state and recovery metadata
+uses `/var/kurumi/socket.sock` and Android uses `/dev/kurumi/socket.sock`. Beside
+the socket, `client.log` records CLI diagnostics, `daemon.log` records requests,
+and `container.log` records background console output prefixed by container name.
+Runtime state and recovery metadata
 stay in memory. Daemon exit terminates tracked containers and triggers cleanup.
 
 ## Commands

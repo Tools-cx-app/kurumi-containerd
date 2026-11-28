@@ -12,6 +12,7 @@ mod archive;
 pub mod binfmt;
 pub mod cgroup;
 pub mod check;
+pub mod logs;
 pub mod memory;
 pub mod network;
 pub mod package;

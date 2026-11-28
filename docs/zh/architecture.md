@@ -187,7 +187,9 @@ proc 视图可能暴露宿主内核 sysctl。只对可信容器启用该选项�
 CLI 和 TUI 使用 `kurumi-containerd-daemon` 中的 UDS client。Linux socket 为
 `/var/kurumi/socket.sock`，Android 为 `/dev/kurumi/socket.sock`。连接失败会自动拉起
 daemon，并在客户端打印启动日志。daemon 双重 fork、创建独立 session 后由 PID 1 收养，
-三个标准流指向 `/dev/null`。请求和运行时日志追加到 socket 目录下的 `daemon.log`。
+三个标准流指向 `/dev/null`。在 socket 所在目录，root CLI 将诊断追加到 `client.log`，
+daemon 将请求和运行时事件追加到 `daemon.log`，monitor 将后台控制台记录追加到 `container.log`。
+写入日志失败后，monitor 继续读取 PTY，避免阻塞容器。
 
 daemon 持有 `RuntimeRegistry`，每个容器名对应私有 `StateStore`。匿名 memfd 将内存
 记录共享给单线程请求 worker 和容器 monitor。状态先写入非活动槽，再在匿名锁保护下提交

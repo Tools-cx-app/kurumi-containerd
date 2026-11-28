@@ -1,10 +1,10 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use std::fs::{self, DirBuilder, File, OpenOptions, Permissions};
+use std::fs::{self, File, Permissions};
 use std::io::{self, Write};
 use std::os::fd::{AsFd, OwnedFd};
-use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,12 +12,12 @@ use std::time::{Duration, Instant};
 
 use fs2::FileExt;
 use kurumi_containerd_error::{ErrorContext as _, Result, RuntimeError, ensure};
-use kurumi_containerd_helper::fs::{OPEN_CLOEXEC, OPEN_NOFOLLOW};
 use kurumi_containerd_helper::process::{ForkResult, StandardStream, WaitStatus};
-use kurumi_containerd_helper::process::{duplicate_standard_stream, effective_uid, fork};
+use kurumi_containerd_helper::process::{duplicate_standard_stream, fork};
 use kurumi_containerd_helper::process::{set_child_subreaper, setsid, waitpid};
 use kurumi_containerd_helper::signal::{Signal, SignalActionFlags, SignalHandler, set_signal_handler};
 use kurumi_containerd_helper::terminal::{PollEvents, poll, receive_stream_fds};
+use kurumi_containerd_host::logs::{LogFile, socket_directory};
 use tracing::level_filters::LevelFilter;
 use uds::UnixStreamExt;
 
@@ -38,7 +38,7 @@ pub fn serve(verbose: bool) -> Result<()> {
     if !detach()? {
         return Ok(());
     }
-    let (listener, lock) = match bind(Path::new(SOCKET_PATH)) {
+    let (listener, lock) = match bind() {
         Ok(Some(bound)) => bound,
         Ok(None) => {
             println!("ready");
@@ -59,19 +59,7 @@ pub fn serve(verbose: bool) -> Result<()> {
 }
 
 fn run_server(listener: UnixListener, lock: &File, verbose: bool) -> Result<()> {
-    let log_path = Path::new(SOCKET_PATH).with_file_name("daemon.log");
-    let log = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .mode(0o600)
-        .custom_flags(OPEN_CLOEXEC | OPEN_NOFOLLOW)
-        .open(&log_path)
-        .with_context(|| format!("failed to open daemon log {}", log_path.display()))?;
-    let metadata = log.metadata()?;
-    ensure!(
-        metadata.is_file() && metadata.uid() == 0 && metadata.mode().trailing_zeros() >= 6,
-        "daemon log must be a private root-owned regular file"
-    );
+    let log = LogFile::Daemon.open()?;
     tracing_subscriber::fmt()
         .with_max_level(if verbose {
             LevelFilter::DEBUG
@@ -142,26 +130,9 @@ fn detach() -> Result<bool> {
     }
 }
 
-fn bind(path: &Path) -> Result<Option<(UnixListener, File)>> {
-    ensure!(
-        effective_uid() == 0,
-        "starting the daemon requires root privileges"
-    );
-    let directory = path
-        .parent()
-        .context("socket path has no parent directory")?;
-    match DirBuilder::new().mode(0o700).create(directory) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(error.into()),
-    }
-    let metadata = fs::symlink_metadata(directory)?;
-    ensure!(
-        metadata.is_dir() && metadata.uid() == 0 && metadata.mode().trailing_zeros() >= 6,
-        "daemon socket directory must be private and owned by root: {}",
-        directory.display()
-    );
-    let lock = File::open(directory)?;
+fn bind() -> Result<Option<(UnixListener, File)>> {
+    let path = Path::new(SOCKET_PATH);
+    let lock = socket_directory()?;
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         match FileExt::try_lock_exclusive(&lock) {

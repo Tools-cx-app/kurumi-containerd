@@ -12,8 +12,9 @@ sudo -H kurumi-containerd --name debian --verbose info
 ```
 
 release 诊断写入 stderr，debug 诊断写入 stdout。普通结果输出到 stdout。
-后台 monitor 启动后将标准流重定向到 `/dev/null`；重定向 CLI 的 stderr 不会得到持续的
-容器控制台日志。需要观察启动过程时使用 `start --foreground`。
+命令失败时查看 socket 同目录的 `client.log` 和 `daemon.log`。后台控制台输出写入同目录的
+`container.log`。在 Linux 上运行 `sudo tail -f /var/kurumi/container.log`，在 Android 上以
+root 身份运行 `tail -f /dev/kurumi/container.log`。
 
 ## 配置或容器选择失败
 

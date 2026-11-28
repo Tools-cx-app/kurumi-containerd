@@ -37,6 +37,8 @@ int main(int argc, char **argv) {
             written += n;
         }
     }
+    puts("\nbackground stdout marker"); fflush(stdout);
+    fputs("background stderr marker\n", stderr);
     close(open("/ready", O_WRONLY | O_CREAT, 0600));
     for (;;) pause();
 }
@@ -171,9 +173,28 @@ def main(binary):
             assert daemon_pid() == current_daemon
             log = SOCKET.with_name("daemon.log")
             assert log.is_file() and log.stat().st_mode & 0o077 == 0
+            client_log = SOCKET.with_name("client.log")
+            console_log = SOCKET.with_name("container.log")
+            assert client_log.is_file() and client_log.stat().st_mode & 0o077 == 0
+            assert 'command="show"' in client_log.read_text()
+            assert "starting daemon" in client_log.read_text()
+            saved_log = client_log.with_suffix(".saved")
+            client_log.rename(saved_log)
+            client_log.symlink_to(saved_log)
+            saved_size = saved_log.stat().st_size
+            refused = cli("show")
+            assert "client file logging unavailable" in refused.stdout + refused.stderr
+            assert saved_log.stat().st_size == saved_size
+            saved_log.replace(client_log)
             assert cli("pid", check=False).returncode != 0
+            assert "command failed" in client_log.read_text()
             cli("start")
             wait_for("background output drained", lambda: (rootfs / "ready").exists())
+            marker = f"[{name}] background stderr marker".encode()
+            wait_for("background console log", lambda: marker in console_log.read_bytes())
+            assert console_log.stat().st_mode & 0o077 == 0
+            assert f"[{name}] background stdout marker".encode() in console_log.read_bytes()
+            assert console_log.stat().st_size >= 1024 * 1024
             live_export = directory / "running.kurumi"
             assert cli("export", name, live_export, check=False).returncode != 0
             assert not live_export.exists()
@@ -183,11 +204,14 @@ def main(binary):
             command = cli("run", "/init", "exit", check=False)
             assert command.returncode == 23 and "command stdout" in command.stdout
             assert "command stderr" in command.stderr
+            assert b"command stdout" not in console_log.read_bytes()
+            assert "command stdout" not in client_log.read_text()
             assert not Path(f"/run/kurumi-containerd/state/{name}.json").exists()
             assert "operation=\"start\"" in log.read_text()
             assert "request completed" in log.read_text() and "exit_code=23" in log.read_text()
             cli("stop")
             assert not live(init_pid)
+            console_size = console_log.stat().st_size
             (rootfs / "ready").unlink()
             with (directory / "foreground-output").open("w") as output:
                 foreground = subprocess.Popen([binary, "start", "--foreground"], env=environment,
@@ -203,9 +227,11 @@ def main(binary):
                     if foreground.poll() is None:
                         foreground.kill()
                     foreground.wait(timeout=5)
+            assert console_log.stat().st_size == console_size
             (rootfs / "ready").unlink()
             cli("start")
             wait_for("second generation ready", lambda: (rootfs / "ready").exists())
+            wait_for("console log append", lambda: console_log.read_bytes().count(marker) == 2)
             init_pid = int(cli("pid").stdout)
             os.kill(current_daemon, signal.SIGKILL)
             wait_for("daemon loss container cleanup", lambda: not live(init_pid))
@@ -223,6 +249,17 @@ def main(binary):
             assert current_daemon != old_daemon and not live(old_daemon)
             assert not live(init_pid) and name not in cli("show").stdout
             migrate_container(cli, directory, rootfs, name)
+            (rootfs / "ready").unlink(missing_ok=True)
+            saved_console = console_log.with_suffix(".saved")
+            console_log.rename(saved_console)
+            console_log.symlink_to(saved_console)
+            saved_size = saved_console.stat().st_size
+            cli("start")
+            wait_for("PTY drained with log unavailable", lambda: (rootfs / "ready").exists())
+            cli("stop")
+            assert "container log unavailable" in log.read_text()
+            assert saved_console.stat().st_size == saved_size
+            print("PASS: private client and background console logs, append, foreground separation and continued PTY draining on log failure")
             os.kill(current_daemon, signal.SIGTERM)
             wait_for("daemon socket removal", lambda: not SOCKET.exists())
             current_daemon = None

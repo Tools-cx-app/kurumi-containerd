@@ -93,8 +93,8 @@ a selected systemd unit. [Service controls](usage.md#manage-container-services)
   Linux and Android; noninteractive TUI management remains available when built.
 - TUI captured output is limited to the first 1 MiB of combined stdout/stderr.
   `run` takes separate executable/argument fields and does not parse shell syntax.
-- Detached monitors redirect their standard streams to `/dev/null` after startup;
-  this is not a persistent background-container logging facility.
+- Background monitors append PTY output to `container.log` beside the socket.
+  Operators manage log retention. Android's `/dev` is normally cleared at reboot.
 - Namespace, mount, cgroup, and image operations require suitable privileges and
   kernel support. Image installation also needs loop devices and `mke2fs` or
   `mkfs.ext4`; image installation requires `--size`, which directory installation

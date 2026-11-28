@@ -21,6 +21,7 @@ use kurumi_containerd_helper::{
     },
 };
 
+use super::logs::{ConsoleLog, LogFile};
 use super::process::ProcessHandle;
 use crate::{
     Result,
@@ -236,23 +237,73 @@ pub fn drain_with_check(
     child: i32,
     check: &dyn Fn() -> Result<()>,
 ) -> Result<WaitStatus> {
+    drain_background(master, child, check, None)
+}
+
+/// Appends background console output to the shared container log while supervising the child.
+/// # Errors
+/// Returns polling, reading, process wait, or lifetime check errors.
+pub fn log_background(
+    master: &OwnedFd,
+    child: i32,
+    name: &str,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<WaitStatus> {
+    let log = LogFile::Container
+        .open()
+        .inspect_err(|error| tracing::warn!(container = name, %error, "container log unavailable"))
+        .ok()
+        .map(|file| ConsoleLog::new(file, name));
+    drain_background(master, child, check, log)
+}
+
+fn drain_background(
+    master: &OwnedFd,
+    child: i32,
+    check: &dyn Fn() -> Result<()>,
+    mut log: Option<ConsoleLog>,
+) -> Result<WaitStatus> {
     set_nonblocking(master.as_fd()).context("failed to set PTY nonblocking")?;
     let mut buffer = [0_u8; 16 * 1024];
+    let mut child_status = None;
     loop {
-        check()?;
-        if poll_terminal(master.as_fd(), master.as_fd(), false, false)?.0 {
+        if child_status.is_none() {
+            check()?;
+        }
+        let ready = child_status.is_some()
+            || poll_terminal(master.as_fd(), master.as_fd(), false, false)?.0;
+        let length = if ready {
             match read(master, &mut buffer) {
-                Ok(_) => {}
-                Err(error)
-                    if is_interrupted(&error) || is_would_block(&error) || is_io_error(&error) => {}
+                Ok(length) => length,
+                Err(error) if is_interrupted(&error) => continue,
+                Err(error) if is_would_block(&error) || is_io_error(&error) => 0,
                 Err(error) => return Err(error).context("failed to drain background PTY"),
             }
+        } else {
+            0
+        };
+        if let Some(writer) = &mut log {
+            let result = if length == 0 {
+                writer.flush()
+            } else {
+                writer.append(&buffer[..length])
+            };
+            if let Err(error) = result {
+                tracing::warn!(%error, child, "container log write failed, continuing to drain console");
+                log = None;
+            }
         }
-        match waitpid(child, true) {
-            Ok(WaitStatus::StillAlive) => {}
-            Ok(status) => return Ok(status),
-            Err(error) if is_interrupted(&error) => {}
-            Err(error) => return Err(error).context("failed waiting for generation worker"),
+        if let Some(status) = child_status {
+            if length == 0 {
+                return Ok(status);
+            }
+        } else {
+            match waitpid(child, true) {
+                Ok(WaitStatus::StillAlive) => {}
+                Ok(status) => child_status = Some(status),
+                Err(error) if is_interrupted(&error) => {}
+                Err(error) => return Err(error).context("failed waiting for generation worker"),
+            }
         }
     }
 }

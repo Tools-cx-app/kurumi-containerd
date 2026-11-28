@@ -1,42 +1,19 @@
 // Copyright (C) 2026 Tools-cx-app
 // SPDX-License-Identifier: GPL-v3-only
 
-use std::{
-    io::{self, IsTerminal},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use kurumi_containerd_config::ConfigEntry;
 use kurumi_containerd_daemon::{Client, Operation, Request, Response, serve};
 use kurumi_containerd_error::{ErrorContext as _, Result, bail};
 use kurumi_containerd_host::check::{HostCapabilities, HostCheck};
-use tracing::level_filters::LevelFilter;
 
 #[cfg(target_os = "android")]
 mod android;
+mod logging;
 mod migration;
 mod output;
-
-#[cfg(debug_assertions)]
-fn logger_writer() -> io::Stdout {
-    io::stdout()
-}
-
-#[cfg(not(debug_assertions))]
-fn logger_writer() -> io::Stderr {
-    io::stderr()
-}
-
-#[cfg(debug_assertions)]
-fn logger_is_terminal() -> bool {
-    io::stdout().is_terminal()
-}
-
-#[cfg(not(debug_assertions))]
-fn logger_is_terminal() -> bool {
-    io::stderr().is_terminal()
-}
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Privileged Linux container runtime")]
@@ -141,21 +118,12 @@ enum Commands {
 }
 
 fn main() -> std::process::ExitCode {
-    let cli: Cli = Cli::parse();
+    let mut matches = Cli::command().get_matches();
+    let command = matches.subcommand_name().unwrap_or_default().to_owned();
+    let cli = Cli::from_arg_matches_mut(&mut matches).unwrap_or_else(|error| error.exit());
     if !matches!(cli.command, Commands::Daemon) {
-        tracing_subscriber::fmt()
-            .with_max_level(if cli.verbose {
-                LevelFilter::DEBUG
-            } else {
-                LevelFilter::INFO
-            })
-            .with_target(false)
-            .with_writer(logger_writer)
-            .with_ansi(logger_is_terminal() && std::env::var_os("NO_COLOR").is_none())
-            .init();
-    }
-    #[cfg(target_os = "android")]
-    if !matches!(cli.command, Commands::Daemon) {
+        logging::init(cli.verbose, &command, cli.name.as_deref());
+        #[cfg(target_os = "android")]
         android::wrap_stdio();
     }
     match run(cli) {

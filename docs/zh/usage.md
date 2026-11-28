@@ -62,8 +62,24 @@ debug 构建将诊断日志写入 stdout，release 构建写入 stderr。默认�
 关闭读取命令结果的管道不会引起 panic。
 
 前台 start/restart 在容器退出后报告完成；后台 start/restart 在启动成功后报告 init PID。
-脱离终端的 monitor 在启动后将标准流重定向到 `/dev/null`，因此重定向 stderr 不能提供
-持久的后台容器日志。TUI 会捕获非交互操作的结果和诊断输出。
+TUI 会捕获非交互操作的结果和诊断输出。
+
+日志与 `socket.sock` 同目录，Linux 为 `/var/kurumi/`，Android 为 `/dev/kurumi/`。
+日志文件由 root 持有，创建权限为 `0600`。
+
+| 文件 | 内容 |
+| --- | --- |
+| `client.log` | root 调用的 CLI 命令名和客户端诊断，`--verbose` 会加入 DEBUG 事件。 |
+| `daemon.log` | daemon 启动、收到的请求、执行结果和运行时诊断。 |
+| `container.log` | 后台容器控制台的 stdout 和 stderr，每条记录以 `[容器名]` 开头。 |
+
+在 Linux 上运行 `sudo tail -f /var/kurumi/container.log` 即可跟踪后台输出。
+前台控制台以及 `run`、`enter` 会话的输出发送给调用方。长行或分次写出的行可能拆成多条记录。
+日志跨多次启动持续追加。
+Android 的 `/dev` 通常位于 tmpfs，重启设备会清空日志。
+
+升级正在运行的 daemon 时，`sudo kurumi-containerd daemon-reload` 会加载新二进制并停止它管理的容器。
+重新在后台启动容器后，即可查看控制台日志。
 
 <a id="terminal-manager"></a>
 ## 终端管理界面

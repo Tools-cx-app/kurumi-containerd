@@ -10,13 +10,9 @@ mod server;
 mod service;
 
 pub use client::Client;
+pub use kurumi_containerd_host::logs::SOCKET_PATH;
 pub use server::serve;
 pub use service::{Job, Operation, Request, Response, Service};
-
-#[cfg(target_os = "android")]
-pub const SOCKET_PATH: &str = "/dev/kurumi/socket.sock";
-#[cfg(target_os = "linux")]
-pub const SOCKET_PATH: &str = "/var/kurumi/socket.sock";
 
 /// Internal CLI entry point used by the autostart client.
 pub const SERVE_COMMAND: &str = "__daemon";

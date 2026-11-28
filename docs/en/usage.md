@@ -66,10 +66,27 @@ error causes and return nonzero; `run` and `enter` preserve the executed command
 exit status. Closing a pipe that reads command results does not cause a panic.
 
 Foreground start/restart reports completion when the container exits. Background
-start/restart confirms startup with the init PID. After startup, detached monitors
-redirect their standard streams to `/dev/null`; redirecting stderr therefore does
-not provide persistent background-container logging. The TUI captures results and
+start/restart confirms startup with the init PID. The TUI captures results and
 diagnostics for noninteractive actions.
+
+Root-owned logs are created with mode `0600` beside `socket.sock`, in
+`/var/kurumi/` on Linux and `/dev/kurumi/` on Android.
+
+| File | Contents |
+| --- | --- |
+| `client.log` | CLI command names and diagnostics for root invocations. `--verbose` includes debug events. |
+| `daemon.log` | Daemon startup, requests, results and runtime diagnostics. |
+| `container.log` | The combined console stdout and stderr of background containers. Each record starts with `[container-name]`. |
+
+For example, run `sudo tail -f /var/kurumi/container.log` on Linux. Foreground
+consoles and `run` or `enter` sessions send output to their caller. Long or
+partially written console lines can span records. Log files grow by appending
+across starts. Android's `/dev`
+normally resides on tmpfs and is cleared at reboot.
+
+When upgrading a running daemon, `sudo kurumi-containerd daemon-reload` loads
+the new binary and stops its containers. Start them again in the background to
+capture their consoles.
 
 ## Terminal manager
 
